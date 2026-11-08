@@ -51,18 +51,10 @@ fun TodayScreen(calendar: CalendarInfo?, blocks: List<CourseBlock>) {
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),
     ) {
-        Spacer(Modifier.height(28.dp))
-        Text(
-            "今天是周${ScheduleTimes.dayNames[day - 1].removePrefix("周")}",
-            fontSize = 35.sp,
-            fontWeight = FontWeight.Bold,
-            color = ds.text,
-        )
-        Text(
-            "${today.year}年${today.monthValue}月${today.dayOfMonth}日 · 第 $week 周",
-            fontSize = 14.sp,
-            color = ds.sub,
-            modifier = Modifier.padding(top = 6.dp, bottom = 20.dp),
+        Spacer(Modifier.height(24.dp))
+        PageTitle(
+            title = "今天是周${ScheduleTimes.dayNames[day - 1].removePrefix("周")}",
+            subtitle = "${today.year}年${today.monthValue}月${today.dayOfMonth}日 · 第 $week 周",
         )
 
         if (todayBlocks.isEmpty()) {

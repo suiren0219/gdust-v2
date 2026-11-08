@@ -47,7 +47,7 @@ import com.menglimi.gdust.v2.ui.UiStyle
 import kotlinx.coroutines.launch
 
 @Composable
-fun LoginScreen(repo: Repository, onLoggedIn: () -> Unit) {
+fun LoginScreen(repo: Repository, onLoggedIn: () -> Unit, onOpenSettings: () -> Unit) {
     val ds = LocalDs.current
     val scope = rememberCoroutineScope()
 
@@ -78,9 +78,8 @@ fun LoginScreen(repo: Repository, onLoggedIn: () -> Unit) {
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp),
     ) {
-        Spacer(Modifier.height(56.dp))
-        Text("广科课程表", fontSize = 35.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = ds.text)
-        Text("课表 · 电费 · 待办 · 通知总结", fontSize = 14.sp, color = ds.sub, modifier = Modifier.padding(top = 6.dp, bottom = 24.dp))
+        Spacer(Modifier.height(52.dp))
+        PageTitle(title = "广科课程表", subtitle = "课表 · 电费 · 待办 · 通知总结")
 
         GlassCard {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -135,6 +134,16 @@ fun LoginScreen(repo: Repository, onLoggedIn: () -> Unit) {
             color = ds.sub,
             modifier = Modifier.padding(top = 20.dp),
         )
+        // 未登录也能进设置（外观/关于等，先看再登录）
+        Text(
+            text = "设置与外观 ›",
+            fontSize = 13.sp,
+            color = ds.accent,
+            modifier = Modifier
+                .padding(top = 10.dp)
+                .clickable { onOpenSettings() },
+        )
+
         // 未登录也能切换两套 UI 风格（两套引擎完整适配）
         val styleState = LocalUiStyle.current
         Text(

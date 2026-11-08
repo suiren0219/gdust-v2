@@ -81,9 +81,8 @@ fun PowerScreen(repo: Repository) {
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),
     ) {
-        Spacer(Modifier.height(28.dp))
-        Text("宿舍电费", fontSize = 35.sp, fontWeight = FontWeight.Bold, color = ds.text)
-        Text("完美校园智能水电 · 本机直连查询", fontSize = 14.sp, color = ds.sub, modifier = Modifier.padding(top = 6.dp, bottom = 20.dp))
+        Spacer(Modifier.height(24.dp))
+        PageTitle(title = "宿舍电费", subtitle = "完美校园智能水电 · 本机直连查询")
 
         if (store.hasPowerBinding) {
             GlassCard {

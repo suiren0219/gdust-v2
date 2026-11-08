@@ -46,7 +46,11 @@ import kotlinx.coroutines.launch
 private val TABS = listOf("今日", "课表", "电费", "待办")
 
 @Composable
-fun AppRoot(repo: Repository) {
+fun AppRoot(
+    repo: Repository,
+    tab: androidx.compose.runtime.MutableIntState,
+    showSettings: androidx.compose.runtime.MutableState<Boolean>,
+) {
     val scope = rememberCoroutineScope()
     var checked by remember { mutableStateOf(false) }
     var loggedIn by remember { mutableStateOf(false) }
@@ -54,8 +58,7 @@ fun AppRoot(repo: Repository) {
     var calendar by remember { mutableStateOf<CalendarInfo?>(repo.store.loadCalendar()) }
     var blocks by remember { mutableStateOf<List<CourseBlock>>(repo.store.loadBlocks()) }
     var syncError by remember { mutableStateOf<String?>(null) }
-    var tab by remember { mutableIntStateOf(1) }
-    var showSettings by remember { mutableStateOf(false) }
+
 
     fun sync() {
         scope.launch {
@@ -76,8 +79,8 @@ fun AppRoot(repo: Repository) {
     Crossfade(
         targetState = when {
             !checked -> "loading"
+            showSettings.value -> "settings"
             !loggedIn -> "login"
-            showSettings -> "settings"
             else -> "main"
         },
         animationSpec = tween(220),
@@ -90,6 +93,7 @@ fun AppRoot(repo: Repository) {
                     loggedIn = true
                     sync()
                 },
+                onOpenSettings = { showSettings.value = true },
             )
             "settings" -> SettingsScreen(
                 repo = repo,
@@ -98,15 +102,16 @@ fun AppRoot(repo: Repository) {
                 onLogout = {
                     repo.store.logout()
                     loggedIn = false
-                    showSettings = false
+                    showSettings.value = false
                 },
-                onBack = { showSettings = false },
+                loggedIn = loggedIn,
+                onBack = { showSettings.value = false },
             )
             "main" -> MainScaffold(
                 repo = repo,
-                tab = tab,
-                onTab = { tab = it },
-                onSettings = { showSettings = true },
+                tab = tab.intValue,
+                onTab = { tab.intValue = it },
+                onSettings = { showSettings.value = true },
                 calendar = calendar,
                 blocks = blocks,
                 syncError = syncError,

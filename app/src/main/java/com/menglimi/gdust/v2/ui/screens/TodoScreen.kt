@@ -49,9 +49,8 @@ fun TodoScreen(repo: Repository) {
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),
     ) {
-        Spacer(Modifier.height(28.dp))
-        Text("待办", fontSize = 35.sp, fontWeight = FontWeight.Bold, color = ds.text)
-        Text("考试 · 作业 · 缴费 · 事项，都在这里", fontSize = 14.sp, color = ds.sub, modifier = Modifier.padding(top = 6.dp, bottom = 20.dp))
+        Spacer(Modifier.height(24.dp))
+        PageTitle(title = "待办", subtitle = "考试 · 作业 · 缴费 · 事项，都在这里")
 
         GlassCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
