@@ -2,6 +2,11 @@ package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.Color
+import com.menglimi.gdust.v2.ui.LocalUiStyle
+import com.menglimi.gdust.v2.ui.UiStyle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -67,6 +72,45 @@ fun SettingsScreen(
             Text("<", fontSize = 22.sp, color = ds.accent, modifier = Modifier.clickable { onBack() }.padding(horizontal = 10.dp))
             Text("设置", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = ds.text)
         }
+
+        // UI 风格切换（两套完整适配，点击即切并持久化）
+        GlassCard {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("界面风格", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
+                Text("切换后整套主题、卡片、输入框、按钮、底栏全部换风格", fontSize = 12.sp, color = ds.sub)
+                val current = LocalUiStyle.current
+                UiStyle.entries.forEach { style ->
+                    val picked = current.value == style
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (picked) ds.accentSoft else Color.Transparent,
+                                androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                            )
+                            .clickable { current.value = style }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Box(
+                            Modifier
+                                .size(18.dp)
+                                .background(
+                                    if (picked) ds.accent else ds.sub.copy(alpha = 0.35f),
+                                    androidx.compose.foundation.shape.CircleShape,
+                                ),
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(style.label, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
+                            Text(style.desc, fontSize = 11.sp, color = ds.sub)
+                        }
+                        if (picked) Text("✓", fontSize = 16.sp, color = ds.accent)
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
 
         // 账号 + 同步：softglass 玻璃卡（行式）
         GlassCard {

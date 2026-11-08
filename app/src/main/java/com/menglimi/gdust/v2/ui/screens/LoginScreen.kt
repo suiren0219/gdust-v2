@@ -42,6 +42,8 @@ import com.menglimi.gdust.v2.data.AuthFailed
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.LocalUiStyle
+import com.menglimi.gdust.v2.ui.UiStyle
 import kotlinx.coroutines.launch
 
 @Composable
@@ -133,6 +135,19 @@ fun LoginScreen(repo: Repository, onLoggedIn: () -> Unit) {
             color = ds.sub,
             modifier = Modifier.padding(top = 20.dp),
         )
+        // 未登录也能切换两套 UI 风格（两套引擎完整适配）
+        val styleState = LocalUiStyle.current
+        Text(
+            text = if (styleState.value == UiStyle.SOFT) "当前：柔光玻璃 · 点此换液态玻璃"
+            else "当前：液态玻璃 · 点此换柔光玻璃",
+            fontSize = 13.sp,
+            color = ds.accent,
+            modifier = Modifier
+                .padding(top = 12.dp)
+                .clickable {
+                    styleState.value = if (styleState.value == UiStyle.SOFT) UiStyle.LIQUID else UiStyle.SOFT
+                },
+        )
         Spacer(Modifier.height(40.dp))
     }
 }
@@ -147,6 +162,17 @@ fun InputField(
     visual: VisualTransformation = VisualTransformation.None,
 ) {
     val ds = LocalDs.current
+    if (LocalUiStyle.current.value == UiStyle.LIQUID) {
+        io.github.neoruaa.glasmio.ui.GlasmioTextField(
+            value = value,
+            onValueChange = onChange,
+            modifier = modifier,
+            placeholder = placeholder,
+            visualTransformation = visual,
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+        )
+        return
+    }
     BasicTextField(
         value = value,
         onValueChange = onChange,
@@ -171,6 +197,17 @@ fun InputField(
 @Composable
 fun Button(text: String, enabled: Boolean = true, onClick: () -> Unit) {
     val ds = LocalDs.current
+    if (LocalUiStyle.current.value == UiStyle.LIQUID) {
+        io.github.neoruaa.glasmio.ui.GlasmioButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth(),
+            emphasis = io.github.neoruaa.glasmio.glass.GlassEmphasis.Prominent,
+        ) {
+            Text(text, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        }
+        return
+    }
     Box(
         Modifier
             .fillMaxWidth()

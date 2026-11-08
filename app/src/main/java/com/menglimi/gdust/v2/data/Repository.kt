@@ -109,6 +109,10 @@ class Store(context: Context) {
         plain.edit().putString("samples", gson.toJson(kept)).apply()
     }
 
+    var uiStyle: String
+        get() = plain.getString("ui_style", "SOFT") ?: "SOFT"
+        set(v) = plain.edit().putString("ui_style", v).apply()
+
     var sampleIntervalMinutes: Int
         get() = plain.getInt("sample_interval", 60)
         set(v) { plain.edit().putInt("sample_interval", v).apply(); publishPowerWorkerConfig() }

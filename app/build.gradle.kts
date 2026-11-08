@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.menglimi.gdust.v2"
-        minSdk = 26  // softglass 支持 26+，低版本自动退化
+        minSdk = 33  // 双风格共存：Glasmio 要求 33+，softglass 本身支持 26+
         targetSdk = 35
         versionCode = 1
         versionName = "2.0.0-alpha"
@@ -62,6 +62,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
     // Nexio 作者的 HyperOS 柔光玻璃引擎（Apache-2.0，JitPack，纯 Kotlin 无 native）
-    // 只取 android 变体：KMP 根坐标会把 jvm jar 一起拉进来导致 duplicate class
+    // 风格一：HyperOS 柔光（只取 android 变体，根坐标会拉 jvm jar 导致 duplicate class）
     implementation("com.github.HaoZai000.softglass:softglass-android:0.1.0")
+    // 风格二：iOS 27 液态玻璃（Apache-2.0，Maven 三模块同版本 0.1.2）
+    implementation("io.github.neoruaa.glasmio:glasmio-scaffold:0.1.2")
+    implementation("io.github.neoruaa.glasmio:glasmio-preference:0.1.2")
+    implementation("io.github.neoruaa.glasmio:glasmio-ui:0.1.2")
 }

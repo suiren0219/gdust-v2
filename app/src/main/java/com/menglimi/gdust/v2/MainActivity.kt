@@ -6,7 +6,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.menglimi.gdust.v2.ui.AppRoot
-import com.menglimi.gdust.v2.ui.GdustTheme
+import com.menglimi.gdust.v2.ui.AppTheme
+import com.menglimi.gdust.v2.ui.UiStyle
+import com.menglimi.gdust.v2.ui.rememberUiStyle
 
 class MainActivity : ComponentActivity() {
     override fun attachBaseContext(newBase: Context) {
@@ -30,7 +32,12 @@ class MainActivity : ComponentActivity() {
         }
         val app = application as App
         setContent {
-            GdustTheme {
+            val style = rememberUiStyle(app.repo.store)
+            // 风格切换持久化：值变了就写本机
+            androidx.compose.runtime.LaunchedEffect(style.value) {
+                app.repo.store.uiStyle = style.value.name
+            }
+            AppTheme(styleState = style) {
                 AppRoot(app.repo)
             }
         }

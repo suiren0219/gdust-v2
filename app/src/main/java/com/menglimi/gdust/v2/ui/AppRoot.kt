@@ -3,6 +3,7 @@ package com.menglimi.gdust.v2.ui
 import androidx.compose.ui.graphics.Color
 import com.haooz.softglass.backdrop.drawBackdrop
 import com.haooz.softglass.backdrop.effects.blur
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -142,61 +143,108 @@ private fun MainScaffold(
             }
         }
 
-        // 悬浮胶囊底栏 + 设置圆钮（softglass 柔光玻璃）
-        val backdrop = LocalBackdrop.current
-        val pillShape = com.haooz.softglass.shape.ContinuousCapsule()
+        // 底栏按风格分派
+        if (LocalUiStyle.current.value == UiStyle.LIQUID) {
+            LiquidBottomBar(tab = tab, onTab = onTab, onSettings = onSettings)
+        } else {
+            SoftGlassBottomBar(tab = tab, onTab = onTab, onSettings = onSettings, ds = ds)
+        }
+    }
+}
+
+/** 风格一：softglass 柔光玻璃胶囊。 */
+@Composable
+private fun BoxScope.SoftGlassBottomBar(
+    tab: Int, onTab: (Int) -> Unit, onSettings: () -> Unit, ds: Ds,
+) {
+    val backdrop = LocalBackdrop.current
+    val pillShape = com.haooz.softglass.shape.ContinuousCapsule()
+    Row(
+        Modifier
+            .align(Alignment.BottomCenter)
+            .navigationBarsPadding()
+            .padding(bottom = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         Row(
             Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 14.dp),
+                .drawBackdrop(backdrop = backdrop, shape = { pillShape }, effects = { blur(20f) })
+                .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Row(
-                Modifier
-                    .drawBackdrop(
-                        backdrop = backdrop,
-                        shape = { pillShape },
-                        effects = { blur(20f) },
-                    )
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                TABS.forEachIndexed { i, label ->
-                    val selected = tab == i
-                    Box(
-                        Modifier
-                            .background(
-                                if (selected) ds.accentSoft else Color.Transparent,
-                                RoundedCornerShape(20.dp),
-                            )
-                            .clickable { onTab(i) }
-                            .padding(horizontal = 17.dp, vertical = 10.dp),
-                    ) {
-                        Text(
-                            label,
-                            fontSize = 13.sp,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selected) ds.accent else ds.sub,
+            TABS.forEachIndexed { i, label ->
+                val selected = tab == i
+                Box(
+                    Modifier
+                        .background(
+                            if (selected) ds.accentSoft else Color.Transparent,
+                            RoundedCornerShape(20.dp),
                         )
-                    }
+                        .clickable { onTab(i) }
+                        .padding(horizontal = 17.dp, vertical = 10.dp),
+                ) {
+                    Text(
+                        label,
+                        fontSize = 13.sp,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (selected) ds.accent else ds.sub,
+                    )
                 }
             }
-            Box(
-                Modifier
-                    .drawBackdrop(
-                        backdrop = backdrop,
-                        shape = { pillShape },
-                        effects = { blur(20f) },
-                    )
-                    .size(52.dp)
-                    .clickable { onSettings() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("设", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.sub)
-            }
         }
+        Box(
+            Modifier
+                .drawBackdrop(backdrop = backdrop, shape = { pillShape }, effects = { blur(20f) })
+                .size(52.dp)
+                .clickable { onSettings() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("设", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.sub)
+        }
+    }
+}
+
+/** 风格二：Glasmio 原生液态玻璃导航栏。 */
+@Composable
+private fun BoxScope.LiquidBottomBar(
+    tab: Int, onTab: (Int) -> Unit, onSettings: () -> Unit,
+) {
+    val compact = remember { androidx.compose.runtime.mutableStateOf(0f) }
+    Box(
+        Modifier
+            .align(Alignment.BottomCenter)
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 14.dp),
+    ) {
+        io.github.neoruaa.glasmio.ui.GlasmioNavigationBar(
+            items = listOf(
+                io.github.neoruaa.glasmio.ui.GlasmioTabItem(0, "今日", io.github.neoruaa.glasmio.icons.SfSymbol.House),
+                io.github.neoruaa.glasmio.ui.GlasmioTabItem(1, "课表", io.github.neoruaa.glasmio.icons.SfSymbol.Clock),
+                io.github.neoruaa.glasmio.ui.GlasmioTabItem(2, "电费", io.github.neoruaa.glasmio.icons.SfSymbol.Sparkles),
+                io.github.neoruaa.glasmio.ui.GlasmioTabItem(3, "待办", io.github.neoruaa.glasmio.icons.SfSymbol.Star),
+            ),
+            selectedKey = tab,
+            onSelected = { if (it < 4) onTab(it) },
+            onExpand = { },
+            compactProgress = compact,
+            compactSize = 56.dp,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+    Box(
+        Modifier
+            .align(Alignment.BottomEnd)
+            .navigationBarsPadding()
+            .padding(end = 12.dp)
+            .padding(bottom = 92.dp)
+            .size(44.dp)
+            .background(LocalDs.current.card.copy(alpha = 0.9f), CircleShape)
+            .clickable { onSettings() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("设", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = LocalDs.current.sub)
     }
 }
