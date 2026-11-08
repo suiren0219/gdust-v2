@@ -4,3 +4,6 @@ app/build/
 .idea/
 local.properties
 *.iml
+# 签名密钥不进 git
+signing/*.jks
+signing/keystore.properties
