@@ -1,0 +1,274 @@
+package com.menglimi.gdust.v2.data
+
+import com.google.gson.JsonParser
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.withContext
+import okhttp3.FormBody
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.util.concurrent.TimeUnit
+
+/**
+ * 广科数据层（v2 单文件，全部本机直连，不经过任何自建服务器）。
+ *
+ * 四方协议均为 2026-11-07/08 实测：
+ * - CAS:  loginCode（验证码 base64+uuid）→ loginByAccount（明文 JSON）→ ticket
+ * - 门户: user/login?loginCode=ticket → TOKEN 头 → 校历/课表/通知
+ * - 水电: 完美校园 SWAEServlet，账号+customercode+roomverify 三静态值，无登录态
+ * - LLM:  用户自填 OpenAI 兼容端点
+ */
+
+// ─────────────────────────────── 模型 ───────────────────────────────
+
+data class CalendarInfo(
+    val week: Int, val allWeek: Int, val startDate: String, val year: String, val semester: String,
+)
+
+data class Lesson(
+    val week: Int, val day: Int, val section: Int,
+    val name: String, val room: String, val teacher: String, val date: String,
+)
+
+/** 连堂合并后的整卡（数据层就完成，不交给 UI 拼）。 */
+data class CourseBlock(
+    val week: Int, val day: Int, val startSection: Int, val endSection: Int,
+    val name: String, val room: String, val teacher: String, val date: String,
+)
+
+data class Notice(val title: String, val url: String, val type: String, val issuer: String?, val time: Long)
+data class PowerRoom(val name: String, val verify: String)
+
+data class Captcha(val imageBytes: ByteArray, val uuid: String)
+
+class AuthFailed(val code: Int, msg: String) : Exception(msg)
+
+// ─────────────────────────────── 客户端 ───────────────────────────────
+
+class GdustApi {
+    private val http = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
+        .build()
+
+    companion object {
+        const val CAS = "https://cas.gdust.edu.cn"
+        const val PORTAL = "https://portal.gdust.edu.cn"
+        private const val POWER_URL = "https://xqh5.17wanxiao.com/smartWaterAndElectricityService/SWAEServlet"
+        private val TS: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS")
+    }
+
+    private suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) { block() }
+
+    private fun jsonObj(text: String) = JsonParser.parseString(text).asJsonObject
+    private fun str(v: Any?): String = "\"" + v.toString().replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+    private fun request(url: String, token: String? = null, postJson: String? = null, form: FormBody? = null): String {
+        val b = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0 (Linux; Android 13)")
+        token?.let { b.header("TOKEN", it) }
+        postJson?.let { b.post(it.toRequestBody("application/json; charset=utf-8".toMediaType())) }
+        form?.let { b.post(it) }
+        http.newCall(b.build()).execute().use { r ->
+            val text = r.body?.string().orEmpty()
+            if (!r.isSuccessful) throw RuntimeException("HTTP ${r.code}: ${text.take(120)}")
+            return text
+        }
+    }
+
+    // ── CAS ──
+
+    suspend fun captcha(): Captcha = io {
+        val o = jsonObj(request("$CAS/cas-api/cas/loginCode")).getAsJsonObject("data")
+        val url = o.get("codeUrl").asString
+        Captcha(
+            imageBytes = java.util.Base64.getDecoder().decode(url.substringAfter("base64,")),
+            uuid = o.get("uuid").asString,
+        )
+    }
+
+    /** 账号密码登录，返回 ticket（GKCAS...）。验证码错误 code=30001 单独抛 AuthFailed。 */
+    suspend fun login(account: String, password: String, code: String, uuid: String): String = io {
+        val body = """{"loginName":${str(account)},"loginPwd":${str(password)},"code":${str(code)},"uuid":${str(uuid)}}"""
+        val resp = jsonObj(request("$CAS/cas-api/cas/loginByAccount", postJson = body))
+        if (resp.get("code").asInt != 0) throw AuthFailed(resp.get("code").asInt, resp.get("msg")?.asString ?: "登录失败")
+        resp.get("data").asString
+    }
+
+    // ── 门户 ──
+
+    suspend fun exchangeToken(ticket: String): String = io {
+        val url = "$PORTAL/smart-admin-api/user/login?loginCode=$ticket&appId=portalRemote"
+        jsonObj(request(url)).getAsJsonObject("data").getAsJsonObject("userBase").get("token").asString
+    }
+
+    suspend fun userInfo(token: String): Pair<String, String> = io {
+        val d = jsonObj(request("$PORTAL/smart-admin-api/app/userInfo/addition", token)).getAsJsonObject("data")
+        (d.get("jobNum")?.asString.orEmpty()) to (d.get("realName")?.asString.orEmpty())
+    }
+
+    suspend fun calendar(token: String, job: String): CalendarInfo = io {
+        val d = jsonObj(request("$PORTAL/smart-admin-api/app/zf/get_school_calendar?jobNumber=$job", token)).getAsJsonObject("data")
+        CalendarInfo(
+            week = d.get("week").asInt, allWeek = d.get("allWeek").asInt,
+            startDate = d.get("startTime").asString,
+            year = d.get("year").asString, semester = d.get("semester").asString,
+        )
+    }
+
+    suspend fun lessons(token: String, job: String): List<Lesson> = io {
+        val d = jsonObj(request("$PORTAL/smart-admin-api/app/zf/get_student_course?jobNumber=$job&week=&year=&semester=", token)).getAsJsonObject("data")
+        val arr = d.getAsJsonArray("courseList") ?: return@io emptyList()
+        arr.mapNotNull { e ->
+            val o = e.asJsonObject
+            val name = o.get("courseName")?.asString ?: return@mapNotNull null
+            Lesson(
+                week = o.get("week")?.asInt ?: 0,
+                day = o.get("dayWeek")?.asInt ?: 0,
+                section = o.get("whichSection")?.asInt ?: 0,
+                name = name,
+                room = o.get("classroomName")?.asString.orEmpty(),
+                teacher = o.get("teacher")?.asString.orEmpty(),
+                date = o.get("courseDate")?.asString.orEmpty(),
+            )
+        }
+    }
+
+    suspend fun notices(token: String, job: String): List<Notice> = io {
+        val o = jsonObj(request("$PORTAL/smart-admin-api/app/ding/get_announcement_items?jobNumber=$job", token))
+        val arr = o.getAsJsonArray("data") ?: return@io emptyList()
+        arr.map { e ->
+            val n = e.asJsonObject
+            Notice(
+                title = n.get("title")?.asString.orEmpty(),
+                url = n.get("url")?.asString.orEmpty(),
+                type = n.get("announcementType")?.asString.orEmpty(),
+                issuer = n.get("issuer")?.asString,
+                time = n.get("gmtCreate")?.asLong ?: 0L,
+            )
+        }
+    }
+
+    // ── 水电 ──
+
+    private fun powerPost(cmd: String, param: String, customerCode: Int): String {
+        val form = FormBody.Builder()
+            .add("param", param).add("customercode", customerCode.toString())
+            .add("method", cmd).add("command", "JBSWaterElecService").build()
+        return request(POWER_URL, form = form)
+    }
+
+    suspend fun powerRooms(account: String, customerCode: Int): List<PowerRoom> = io {
+        val outer = jsonObj(powerPost("getbindroom", """{"cmd":"getbindroom","account":${str(account)}}""", customerCode))
+        val arr = jsonObj(outer.get("body").asString).getAsJsonArray("roomlist") ?: return@io emptyList()
+        arr.map { e ->
+            val o = e.asJsonObject
+            PowerRoom(
+                name = o.get("roomfullname")?.asString.orEmpty(),
+                verify = o.get("roomverify")?.asString.orEmpty(),
+            )
+        }
+    }
+
+    suspend fun powerOdd(account: String, customerCode: Int, roomVerify: String): Double? = io {
+        val ts = LocalDateTime.now().format(TS)
+        val param = """{"cmd":"h5_getstuindexpage","account":${str(account)},"roomverify":${str(roomVerify)},"timestamp":${str(ts)}}"""
+        val outer = jsonObj(powerPost("h5_getstuindexpage", param, customerCode))
+        val inner = jsonObj(outer.get("body").asString)
+        val mod = inner.getAsJsonArray("modlist") ?: return@io null
+        if (mod.size() == 0) return@io null
+        val first = mod[0].asJsonObject
+        for (k in listOf("odd", "surpluselec", "surplusElec", "surplus_elec", "remain", "balance")) {
+            first.get(k)?.let { return@io it.asString.toDoubleOrNull() }
+        }
+        null
+    }
+
+    // ── 钉钉扫码（SSE）──
+
+    /** CAS 扫码事件流：HELLO(clientId) → 授权 → LOGIN_SUCCESS_TICKET。 */
+    fun subscribeSse(): kotlinx.coroutines.flow.Flow<SseEvent> =
+        kotlinx.coroutines.flow.callbackFlow {
+            val req = Request.Builder()
+                .url("$CAS/cas-api/sse/subscribe")
+                .header("Accept", "text/event-stream")
+                .get().build()
+            val listener = object : okhttp3.sse.EventSourceListener() {
+                override fun onEvent(
+                    eventSource: okhttp3.sse.EventSource,
+                    id: String?, type: String?, data: String,
+                ) {
+                    when (type) {
+                        "HELLO" -> trySend(SseEvent.Hello(data))
+                        "LOGIN_SUCCESS_TICKET" -> { trySend(SseEvent.Ticket(data)); close() }
+                        "NEED_TO_BIND" -> trySend(SseEvent.NeedBind(data))
+                    }
+                }
+                override fun onFailure(eventSource: okhttp3.sse.EventSource, t: Throwable?, response: okhttp3.Response?) {
+                    trySend(SseEvent.Error(t?.message ?: "SSE 连接失败")); close()
+                }
+                override fun onClosed(eventSource: okhttp3.sse.EventSource) { close() }
+            }
+            val es = okhttp3.sse.EventSources.createFactory(http).newEventSource(req, listener)
+            awaitClose { es.cancel() }
+        }
+
+    fun mobieAuthUrl(clientId: String) = "$CAS/cas/mobieAuth?clientId=$clientId"
+
+    // ── LLM（用户自填配置）──
+
+    suspend fun summarize(base: String, key: String, model: String, notices: List<Notice>): String = io {
+        if (notices.isEmpty()) return@io "最近没有公告可总结。"
+        val items = notices.take(15).joinToString("\n") { "- [${it.type}] ${it.title}" }
+        val system = "你是广东科技学院的学生助手。把学校通知公告标题整理成简明中文要点：" +
+            "按类别分组，每条一句话，突出停课/考试/缴费/截止等与学生相关事项，250 字以内。"
+        val body = """{"model":${str(model)},"messages":[""" +
+            """{"role":"system","content":${str(system)}},""" +
+            """{"role":"user","content":${str("最近的学校通知公告：\n$items")}}],"max_tokens":2048,"temperature":0.3}"""
+        val req = Request.Builder()
+            .url(base.trimEnd('/') + "/chat/completions")
+            .header("Authorization", "Bearer $key")
+            .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+        http.newCall(req).execute().use { r ->
+            val text = r.body?.string().orEmpty()
+            if (!r.isSuccessful) throw RuntimeException("LLM HTTP ${r.code}: ${text.take(120)}")
+            jsonObj(text).getAsJsonArray("choices")?.firstOrNull()?.asJsonObject
+                ?.getAsJsonObject("message")?.get("content")?.asString
+                ?: throw RuntimeException("LLM 响应缺少 content")
+        }
+    }
+}
+
+/** 门户按节返回 → 数据层合并连堂：同天同课同教室同教师且节次连续且同周 → 一张整卡。 */
+fun mergeLessons(lessons: List<Lesson>): List<CourseBlock> {
+    val out = mutableListOf<CourseBlock>()
+    lessons.groupBy { it.day }.values.forEach { dayLessons ->
+        var cur: CourseBlock? = null
+        dayLessons.sortedBy { it.section }.forEach { l ->
+            val p = cur
+            val merge = p != null && p.name == l.name && p.room == l.room &&
+                p.teacher == l.teacher && p.week == l.week && p.endSection + 1 == l.section
+            if (merge) {
+                cur = p!!.copy(endSection = l.section)
+            } else {
+                p?.let { out.add(it) }
+                cur = CourseBlock(l.week, l.day, l.section, l.section, l.name, l.room, l.teacher, l.date)
+            }
+        }
+        cur?.let { out.add(it) }
+    }
+    return out
+}
+
+
+sealed class SseEvent {
+    data class Hello(val clientId: String) : SseEvent()
+    data class Ticket(val ticket: String) : SseEvent()
+    data class NeedBind(val unionId: String) : SseEvent()
+    data class Error(val message: String) : SseEvent()
+}
