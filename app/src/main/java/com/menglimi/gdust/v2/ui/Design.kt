@@ -63,7 +63,7 @@ fun GdustTheme(content: @Composable () -> Unit) {
 
     SoftGlassTheme(
         preset = GlassPreset.Default,
-        level = GlassMaterialLevel.SOFT,
+        level = GlassMaterialLevel.SOFT,  // HyperOS 完整柔光（折射+方向光）
         isDark = dark,
         hasWallpaper = false,
     ) {
@@ -83,8 +83,10 @@ fun GdustTheme(content: @Composable () -> Unit) {
             ),
         ) {
             CompositionLocalProvider(LocalDs provides ds, LocalBackdrop provides backdrop) {
-                // 采样源：底色层；玻璃节点必须画在采样层之外（softglass README 约束 1）
-                Box(Modifier.fillMaxSize().layerBackdrop(backdrop).background(ds.bg)) {
+                // softglass 约束 1：玻璃节点必须画在采样层「之外」，自采样会直接崩 RenderThread。
+                // 采样层与内容层平级：先铺被采样的底色，再叠内容（玻璃卡在内容层里）。
+                Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize().layerBackdrop(backdrop).background(ds.bg))
                     content()
                 }
             }
