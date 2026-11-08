@@ -146,25 +146,43 @@ fun InputField(
     modifier: Modifier = Modifier,
     visual: VisualTransformation = VisualTransformation.None,
 ) {
-    io.github.neoruaa.glasmio.ui.GlasmioTextField(
+    val ds = LocalDs.current
+    BasicTextField(
         value = value,
         onValueChange = onChange,
-        modifier = modifier,
-        placeholder = placeholder,
-        visualTransformation = visual,
+        modifier = modifier
+            .fillMaxWidth()
+            .background(ds.bg.copy(alpha = 0.6f), androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, color = ds.text),
+        singleLine = true,
+        cursorBrush = SolidColor(ds.accent),
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+        visualTransformation = visual,
+        decorationBox = { inner ->
+            Box {
+                if (value.isEmpty()) Text(placeholder, fontSize = 15.sp, color = ds.sub)
+                inner()
+            }
+        },
     )
 }
 
 @Composable
 fun Button(text: String, enabled: Boolean = true, onClick: () -> Unit) {
-    io.github.neoruaa.glasmio.ui.GlasmioButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier.fillMaxWidth(),
-        emphasis = io.github.neoruaa.glasmio.glass.GlassEmphasis.Prominent,
+    val ds = LocalDs.current
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .background(
+                if (enabled) ds.accent else ds.sub.copy(alpha = 0.3f),
+                androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+            )
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 14.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(text, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        Text(text, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.White)
     }
 }
 

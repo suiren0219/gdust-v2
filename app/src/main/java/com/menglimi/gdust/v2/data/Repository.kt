@@ -89,6 +89,30 @@ class Store(context: Context) {
 
     fun saveTodos(items: List<Todo>) = plain.edit().putString("todos", gson.toJson(items)).apply()
 
+    data class Sample(val time: Long, val odd: Double)
+
+    /** 本地小时采样序列（App 自己攒，供折线图用；最多留 7 天）。 */
+    fun loadSamples(): List<Sample> {
+        val t = object : TypeToken<List<Sample>>() {}.type
+        return runCatching { gson.fromJson<List<Sample>>(plain.getString("samples", "[]"), t) }
+            .getOrDefault(emptyList())
+    }
+
+    /** 记录一个采样点（同一小时内只留最后一个）。 */
+    fun addSample(odd: Double) {
+        val now = System.currentTimeMillis()
+        val hour = now / 3600000L
+        val list = loadSamples().filterNot { it.time / 3600000L == hour }.toMutableList()
+        list.add(Sample(now, odd))
+        val cutoff = now - 7L * 24 * 3600 * 1000
+        val kept = list.filter { it.time >= cutoff }
+        plain.edit().putString("samples", gson.toJson(kept)).apply()
+    }
+
+    var sampleIntervalMinutes: Int
+        get() = plain.getInt("sample_interval", 60)
+        set(v) { plain.edit().putInt("sample_interval", v).apply(); publishPowerWorkerConfig() }
+
     var warnThreshold: Float
         get() = plain.getFloat("warn_th", 20f)
         set(v) { plain.edit().putFloat("warn_th", v).apply(); publishPowerWorkerConfig() }
@@ -105,6 +129,7 @@ class Store(context: Context) {
             .putString("name", powerRoomName)
             .putFloat("threshold", warnThreshold)
             .putFloat("drop_rate", warnDropRate)
+            .putInt("interval", sampleIntervalMinutes)
             .apply()
     }
 
@@ -175,6 +200,7 @@ class Repository(context: Context) {
     // 水电（无需登录态）
     suspend fun powerRooms(account: String, code: Int) = api.powerRooms(account, code)
     suspend fun powerOdd() = api.powerOdd(store.powerAccount, store.powerCode, store.powerRoomVerify)
+    suspend fun powerDetail() = api.powerDetail(store.powerAccount, store.powerCode, store.powerRoomVerify)
 
     fun savePowerBinding(account: String, code: Int, room: PowerRoom) {
         store.powerAccount = account

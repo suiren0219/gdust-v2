@@ -68,18 +68,22 @@ fun SettingsScreen(
             Text("设置", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = ds.text)
         }
 
-        // 账号 + 同步：Glasmio 原生分组玻璃列表
-        io.github.neoruaa.glasmio.ui.GlasmioGroupedList {
-            io.github.neoruaa.glasmio.ui.GlasmioListRow(
-                title = store.realName.ifEmpty { "已登录" },
-                subtitle = "学号 ${store.jobNumber} · 本机直连门户，登录凭证只存本机",
-                showTopSeparator = false,
-            )
-            io.github.neoruaa.glasmio.ui.GlasmioListRow(
-                title = "同步课表",
-                subtitle = "拉取课表+校历并合并连堂",
-                onClick = onSync,
-            )
+        // 账号 + 同步：softglass 玻璃卡（行式）
+        GlassCard {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(store.realName.ifEmpty { "已登录" }, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = ds.text)
+                Text("学号 ${store.jobNumber} · 本机直连门户，登录凭证只存本机", fontSize = 12.sp, color = ds.sub)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        GlassCard(onClick = onSync) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column {
+                    Text("同步课表", fontSize = 16.sp, color = ds.text)
+                    Text("拉取课表+校历并合并连堂", fontSize = 12.sp, color = ds.sub)
+                }
+                Text("›", fontSize = 18.sp, color = ds.sub)
+            }
         }
         if (syncError != null) {
             Text("同步失败：$syncError", fontSize = 12.sp, color = ds.danger, modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp))

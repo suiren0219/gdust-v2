@@ -44,6 +44,15 @@ data class CourseBlock(
 data class Notice(val title: String, val url: String, val type: String, val issuer: String?, val time: Long)
 data class PowerRoom(val name: String, val verify: String)
 
+/** 水电详情：剩余电量 + 接口自带近 7 日/今日/上月。 */
+data class PowerDetail(
+    val odd: Double?,
+    val todayUse: Double?,
+    val weekUse: List<Pair<String, Double>>,
+    val monthUse: Double?,
+    val sumBuy: Double?,
+)
+
 data class Captcha(val imageBytes: ByteArray, val uuid: String)
 
 class AuthFailed(val code: Int, msg: String) : Exception(msg)
@@ -174,19 +183,36 @@ class GdustApi {
         }
     }
 
-    suspend fun powerOdd(account: String, customerCode: Int, roomVerify: String): Double? = io {
+    /** 完整水电详情：剩余电量 + 今日/近7日/上月/累购（字段来自 -seed 插件 main.py 实测）。 */
+    suspend fun powerDetail(account: String, customerCode: Int, roomVerify: String): PowerDetail = io {
         val ts = LocalDateTime.now().format(TS)
         val param = """{"cmd":"h5_getstuindexpage","account":${str(account)},"roomverify":${str(roomVerify)},"timestamp":${str(ts)}}"""
         val outer = jsonObj(powerPost("h5_getstuindexpage", param, customerCode))
         val inner = jsonObj(outer.get("body").asString)
-        val mod = inner.getAsJsonArray("modlist") ?: return@io null
-        if (mod.size() == 0) return@io null
-        val first = mod[0].asJsonObject
-        for (k in listOf("odd", "surpluselec", "surplusElec", "surplus_elec", "remain", "balance")) {
-            first.get(k)?.let { return@io it.asString.toDoubleOrNull() }
+        val mod = inner.getAsJsonArray("modlist")?.firstOrNull()?.asJsonObject
+            ?: inner
+        fun dbl(o: com.google.gson.JsonObject?, vararg keys: String): Double? {
+            if (o == null) return null
+            for (k in keys) o.get(k)?.let { return it.asString.toDoubleOrNull() }
+            return null
         }
-        null
+        val odd = dbl(mod, "odd", "surpluselec", "surplusElec", "surplus_elec", "remain", "balance")
+        val today = dbl(mod, "todayuse", "todayUse")
+        val week = (mod.getAsJsonArray("weekuselist") ?: com.google.gson.JsonArray())
+            .mapNotNull { e ->
+                val o = e.asJsonObject
+                val label = o.get("weekday")?.asString ?: return@mapNotNull null
+                val use = dbl(o, "dayuse", "use") ?: return@mapNotNull null
+                label.replace("星期", "") to use
+            }
+        val month = mod.getAsJsonArray("monthuselist")?.lastOrNull()?.asJsonObject
+            ?.let { dbl(it, "monthuse") }
+        val sumBuy = dbl(mod, "sumbuy")
+        PowerDetail(odd, today, week, month, sumBuy)
     }
+
+    suspend fun powerOdd(account: String, customerCode: Int, roomVerify: String): Double? =
+        powerDetail(account, customerCode, roomVerify).odd
 
     // ── 钉钉扫码（SSE）──
 

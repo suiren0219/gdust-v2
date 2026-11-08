@@ -1,31 +1,37 @@
 package com.menglimi.gdust.v2.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.haooz.softglass.GlassMaterialLevel
+import com.haooz.softglass.GlassPreset
+import com.haooz.softglass.SoftGlassTheme
+import com.haooz.softglass.backdrop.backdrops.LayerBackdrop
+import com.haooz.softglass.backdrop.backdrops.layerBackdrop
+import com.haooz.softglass.backdrop.backdrops.rememberLayerBackdrop
+import com.haooz.softglass.backdrop.drawBackdrop
+import com.haooz.softglass.backdrop.effects.blur
+import com.haooz.softglass.shape.ContinuousRoundedRectangle
 
-/** 设计令牌：整个 App 唯一颜色/尺寸真源，深浅色自动跟随系统。 */
+/** 设计令牌：页面取色唯一真源（玻璃渲染交给 softglass）。 */
 data class Ds(
     val bg: Color,
     val card: Color,
@@ -40,85 +46,70 @@ data class Ds(
 )
 
 val LocalDs = staticCompositionLocalOf<Ds> { error("no Ds") }
+val LocalBackdrop = staticCompositionLocalOf<LayerBackdrop> { error("no backdrop") }
 
 @Composable
 fun GdustTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
     val ds = if (dark) Ds(
-        bg = Color(0xFF0D0D10),
-        card = Color(0xFF1C1C21),
-        cardStroke = Color(0x22FFFFFF),
-        text = Color(0xFFF2F2F7),
-        sub = Color(0xFF9A9AA5),
-        accent = Color(0xFF0A84FF),
-        accentSoft = Color(0x220A84FF),
-        breakBar = Color(0xFF232329),
-        danger = Color(0xFFFF6B6B),
-        isDark = true,
+        bg = Color(0xFF0D0D10), card = Color(0xFF1C1C21), cardStroke = Color(0x22FFFFFF),
+        text = Color(0xFFF2F2F7), sub = Color(0xFF9A9AA5), accent = Color(0xFF0A84FF),
+        accentSoft = Color(0x220A84FF), breakBar = Color(0xFF232329), danger = Color(0xFFFF6B6B), isDark = true,
     ) else Ds(
-        bg = Color(0xFFF7F7FA),
-        card = Color(0xFFFFFFFF),
-        cardStroke = Color(0x0A000000),
-        text = Color(0xFF1C1C1E),
-        sub = Color(0xFF8A8A8F),
-        accent = Color(0xFF007AFF),
-        accentSoft = Color(0x14007AFF),
-        breakBar = Color(0xFFECECF1),
-        danger = Color(0xFFE5484D),
-        isDark = false,
+        bg = Color(0xFFF7F7FA), card = Color(0xFFFFFFFF), cardStroke = Color(0x0A000000),
+        text = Color(0xFF1C1C1E), sub = Color(0xFF8A8A8F), accent = Color(0xFF007AFF),
+        accentSoft = Color(0x14007AFF), breakBar = Color(0xFFECECF1), danger = Color(0xFFE5484D), isDark = false,
     )
 
-    // 主题真源：Glasmio（iOS 27 液态玻璃），Ds 只是页面取色的便捷映射
-    GlasmioTheme(isDark = dark) {
-        val glass = GlasmioTheme.colors
-        val mapped = ds.copy(
-            bg = glass.groupedBackground,
-            card = glass.container,
-            text = glass.content,
-            sub = glass.secondaryContent,
-            accent = glass.accent,
-            danger = glass.destructive,
-        )
+    SoftGlassTheme(
+        preset = GlassPreset.Default,
+        level = GlassMaterialLevel.SOFT,
+        isDark = dark,
+        hasWallpaper = false,
+    ) {
+        val backdrop = rememberLayerBackdrop()
         MaterialTheme(
-            colorScheme = if (dark) androidx.compose.material3.darkColorScheme(
-                background = mapped.bg, surface = mapped.card, primary = mapped.accent,
-            ) else androidx.compose.material3.lightColorScheme(
-                background = mapped.bg, surface = mapped.card, primary = mapped.accent,
+            colorScheme = if (dark) darkColorScheme(
+                background = ds.bg, surface = ds.card, primary = ds.accent,
+            ) else lightColorScheme(
+                background = ds.bg, surface = ds.card, primary = ds.accent,
             ),
             typography = Typography(
-                headlineLarge = TextStyle(fontSize = 35.sp, fontWeight = FontWeight.Bold, color = mapped.text),
-                titleMedium = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Medium, color = mapped.text),
-                bodyLarge = TextStyle(fontSize = 16.sp, color = mapped.text),
-                bodySmall = TextStyle(fontSize = 13.sp, color = mapped.sub),
-                labelSmall = TextStyle(fontSize = 11.sp, color = mapped.sub),
+                headlineLarge = TextStyle(fontSize = 35.sp, fontWeight = FontWeight.Bold, color = ds.text),
+                titleMedium = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Medium, color = ds.text),
+                bodyLarge = TextStyle(fontSize = 16.sp, color = ds.text),
+                bodySmall = TextStyle(fontSize = 13.sp, color = ds.sub),
+                labelSmall = TextStyle(fontSize = 11.sp, color = ds.sub),
             ),
         ) {
-            // BackdropHost：sampledContent 提供被玻璃采样的背景，overlayContent 是全部界面
-            GlasmioBackdropHost(
-                modifier = Modifier.fillMaxSize(),
-                sampledContent = {
-                    Box(Modifier.fillMaxSize().background(glass.groupedBackground))
-                },
-                overlayContent = {
-                    CompositionLocalProvider(LocalDs provides mapped) {
-                        content()
-                    }
-                },
-            )
+            CompositionLocalProvider(LocalDs provides ds, LocalBackdrop provides backdrop) {
+                // 采样源：底色层；玻璃节点必须画在采样层之外（softglass README 约束 1）
+                Box(Modifier.fillMaxSize().layerBackdrop(backdrop).background(ds.bg)) {
+                    content()
+                }
+            }
         }
     }
 }
 
-/** 统一玻璃卡：直接用 Glasmio 的液态玻璃卡（真折射/高光，非自绘渐变）。 */
+/** 统一玻璃卡：HyperOS 柔光（折射+方向光+7级模糊）+ 连续圆角 20dp。 */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    io.github.neoruaa.glasmio.ui.GlasmioCard(
-        modifier = modifier.fillMaxWidth(),
-        onClick = onClick,
+    val backdrop = LocalBackdrop.current
+    val shape = ContinuousRoundedRectangle(20.dp)
+    Box(
+        modifier
+            .fillMaxWidth()
+            .drawBackdrop(
+                backdrop = backdrop,
+                shape = { shape },
+                effects = { blur(16f) },
+            )
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         Box(modifier = Modifier.padding(16.dp)) {
             content()

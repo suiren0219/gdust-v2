@@ -35,9 +35,13 @@ class PowerWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
 
         val now = System.currentTimeMillis()
         val last = prefs.getLong("last_sample", 0L)
-        if (now - last < 50L * 60 * 1000) return Result.success()
+        // 哥哥自选取样间隔（默认 60 分钟，下限 15 分钟=WorkManager 周期）
+        val intervalMin = prefs.getInt("interval", 60).coerceAtLeast(15)
+        if (now - last < intervalMin * 60L * 1000) return Result.success()
 
         val odd = runCatching { api.powerOdd(account, code, verify) }.getOrNull() ?: return Result.success()
+        // 记录小时采样点（供 App 内折线图）
+        com.menglimi.gdust.v2.data.Store(applicationContext).addSample(odd)
         val threshold = prefs.getFloat("threshold", 20f).toDouble()
         val dropLimit = prefs.getFloat("drop_rate", 5f).toDouble()
         val prev = prefs.getFloat("prev_odd", -1f).toDouble()

@@ -186,28 +186,33 @@ private fun WeekGrid(week: Int, calendar: CalendarInfo?, blocks: List<CourseBloc
                     Box(Modifier.width(SCALE_W).height(gridH)) {
                         val cur = ScheduleTimes.currentSection(now)
                         for (s in 1..ScheduleTimes.TOTAL_SECTIONS) {
-                            Column(
-                                Modifier.offset(y = sectionY(s)).width(SCALE_W),
-                                horizontalAlignment = Alignment.CenterHorizontally,
+                            // 刻度与指示条用 Box 叠加：指示条不占布局高度（占位会把节号顶下去）
+                            Box(
+                                Modifier.offset(y = sectionY(s)).width(SCALE_W).height(ROW_H),
+                                contentAlignment = Alignment.Center,
                             ) {
                                 if (s == cur) {
                                     Box(
                                         Modifier
+                                            .align(Alignment.CenterStart)
                                             .width(3.dp)
                                             .height(ROW_H - 10.dp)
                                             .background(ds.accent, RoundedCornerShape(2.dp)),
                                     )
                                 }
-                                Text(
-                                    "$s",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = ds.text,
-                                    textAlign = TextAlign.Center,
-                                )
-                                if (ScheduleTimes.start(s).isNotEmpty()) {
-                                    Text(ScheduleTimes.start(s), fontSize = 8.sp, color = ds.sub)
-                                    Text(ScheduleTimes.end(s), fontSize = 8.sp, color = ds.sub)
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        "$s",
+                                        fontSize = 12.sp,
+                                        lineHeight = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ds.text,
+                                        textAlign = TextAlign.Center,
+                                    )
+                                    if (ScheduleTimes.start(s).isNotEmpty()) {
+                                        Text(ScheduleTimes.start(s), fontSize = 8.sp, lineHeight = 10.sp, color = ds.sub)
+                                        Text(ScheduleTimes.end(s), fontSize = 8.sp, lineHeight = 10.sp, color = ds.sub)
+                                    }
                                 }
                             }
                         }
