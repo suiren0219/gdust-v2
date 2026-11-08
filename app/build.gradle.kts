@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.menglimi.gdust.v2"
-        minSdk = 26
+        minSdk = 33  // Glasmio 要求 Android 13+（native 液态玻璃渲染）
         targetSdk = 35
         versionCode = 1
         versionName = "2.0.0-alpha"
@@ -55,4 +55,9 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+
+    // iOS 27 液态玻璃 UI（Apache-2.0，Maven 四模块同版本 0.1.2）
+    implementation("io.github.neoruaa.glasmio:glasmio-scaffold:0.1.2")
+    implementation("io.github.neoruaa.glasmio:glasmio-preference:0.1.2")
+    implementation("io.github.neoruaa.glasmio:glasmio-ui:0.1.2")
 }

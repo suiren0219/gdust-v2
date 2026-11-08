@@ -8,10 +8,12 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
+import io.github.neoruaa.glasmio.core.GlasmioTheme
+import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -66,50 +68,57 @@ fun GdustTheme(content: @Composable () -> Unit) {
         isDark = false,
     )
 
-    val colors = if (dark) darkColorScheme(
-        background = ds.bg, surface = ds.card, primary = ds.accent,
-        onBackground = ds.text, onSurface = ds.text,
-    ) else lightColorScheme(
-        background = ds.bg, surface = ds.card, primary = ds.accent,
-        onBackground = ds.text, onSurface = ds.text,
-    )
-
-    MaterialTheme(
-        colorScheme = colors,
-        typography = Typography(
-            headlineLarge = TextStyle(fontSize = 35.sp, fontWeight = FontWeight.Bold, color = ds.text),
-            titleMedium = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Medium, color = ds.text),
-            bodyLarge = TextStyle(fontSize = 16.sp, color = ds.text),
-            bodySmall = TextStyle(fontSize = 13.sp, color = ds.sub),
-            labelSmall = TextStyle(fontSize = 11.sp, color = ds.sub),
-        ),
-    ) {
-        CompositionLocalProvider(LocalDs provides ds) {
-            content()
+    // 主题真源：Glasmio（iOS 27 液态玻璃），Ds 只是页面取色的便捷映射
+    GlasmioTheme(isDark = dark) {
+        val glass = GlasmioTheme.colors
+        val mapped = ds.copy(
+            bg = glass.groupedBackground,
+            card = glass.container,
+            text = glass.content,
+            sub = glass.secondaryContent,
+            accent = glass.accent,
+            danger = glass.destructive,
+        )
+        MaterialTheme(
+            colorScheme = if (dark) androidx.compose.material3.darkColorScheme(
+                background = mapped.bg, surface = mapped.card, primary = mapped.accent,
+            ) else androidx.compose.material3.lightColorScheme(
+                background = mapped.bg, surface = mapped.card, primary = mapped.accent,
+            ),
+            typography = Typography(
+                headlineLarge = TextStyle(fontSize = 35.sp, fontWeight = FontWeight.Bold, color = mapped.text),
+                titleMedium = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Medium, color = mapped.text),
+                bodyLarge = TextStyle(fontSize = 16.sp, color = mapped.text),
+                bodySmall = TextStyle(fontSize = 13.sp, color = mapped.sub),
+                labelSmall = TextStyle(fontSize = 11.sp, color = mapped.sub),
+            ),
+        ) {
+            // BackdropHost：sampledContent 提供被玻璃采样的背景，overlayContent 是全部界面
+            GlasmioBackdropHost(
+                modifier = Modifier.fillMaxSize(),
+                sampledContent = {
+                    Box(Modifier.fillMaxSize().background(glass.groupedBackground))
+                },
+                overlayContent = {
+                    CompositionLocalProvider(LocalDs provides mapped) {
+                        content()
+                    }
+                },
+            )
         }
     }
 }
 
-/** 统一玻璃卡：20dp 圆角、细描边、轻微渐变高光。 */
+/** 统一玻璃卡：直接用 Glasmio 的液态玻璃卡（真折射/高光，非自绘渐变）。 */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val ds = LocalDs.current
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(
-                brush = Brush.verticalGradient(
-                    listOf(
-                        ds.card.copy(alpha = if (ds.isDark) 0.92f else 0.96f),
-                        ds.card,
-                    )
-                ),
-                shape = RoundedCornerShape(20.dp),
-            )
-            .border(0.6.dp, ds.cardStroke, RoundedCornerShape(20.dp)),
+    io.github.neoruaa.glasmio.ui.GlasmioCard(
+        modifier = modifier.fillMaxWidth(),
+        onClick = onClick,
     ) {
         Box(modifier = Modifier.padding(16.dp)) {
             content()

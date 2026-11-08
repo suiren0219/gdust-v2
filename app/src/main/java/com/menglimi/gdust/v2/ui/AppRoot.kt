@@ -1,5 +1,6 @@
 package com.menglimi.gdust.v2.ui
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -139,52 +140,43 @@ private fun MainScaffold(
             }
         }
 
-        // 悬浮胶囊底栏 + 设置圆钮
-        Row(
+        // 悬浮胶囊底栏：Glasmio 原生液态玻璃导航栏
+        val compact = remember { mutableStateOf(0f) }
+        Box(
             Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
+                .padding(horizontal = 16.dp)
                 .padding(bottom = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Row(
-                Modifier
-                    .padding(4.dp)
-                    .background(ds.card.copy(alpha = 0.95f), RoundedCornerShape(28.dp))
-                    .padding(horizontal = 6.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TABS.forEachIndexed { i, label ->
-                    val selected = tab == i
-                    Box(
-                        Modifier
-                            .background(
-                                if (selected) ds.accentSoft else androidx.compose.ui.graphics.Color.Transparent,
-                                RoundedCornerShape(20.dp),
-                            )
-                            .clickable { onTab(i) }
-                            .padding(horizontal = 17.dp, vertical = 10.dp),
-                    ) {
-                        Text(
-                            label,
-                            fontSize = 13.sp,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selected) ds.accent else ds.sub,
-                        )
-                    }
-                }
-            }
-            Box(
-                Modifier
-                    .size(52.dp)
-                    .background(ds.card.copy(alpha = 0.95f), CircleShape)
-                    .clickable { onSettings() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("设", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.sub)
-            }
+            io.github.neoruaa.glasmio.ui.GlasmioNavigationBar(
+                items = listOf(
+                    io.github.neoruaa.glasmio.ui.GlasmioTabItem(0, "今日", io.github.neoruaa.glasmio.icons.SfSymbol.House),
+                    io.github.neoruaa.glasmio.ui.GlasmioTabItem(1, "课表", io.github.neoruaa.glasmio.icons.SfSymbol.Clock),
+                    io.github.neoruaa.glasmio.ui.GlasmioTabItem(2, "电费", io.github.neoruaa.glasmio.icons.SfSymbol.Sparkles),
+                    io.github.neoruaa.glasmio.ui.GlasmioTabItem(3, "待办", io.github.neoruaa.glasmio.icons.SfSymbol.Star),
+                ),
+                selectedKey = tab,
+                onSelected = onTab,
+                onExpand = { },
+                compactProgress = compact,
+                compactSize = 56.dp,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        // 设置圆钮（保留轻量入口）
+        Box(
+            Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(end = 12.dp)
+                .padding(bottom = 22.dp)
+                .size(46.dp)
+                .background(ds.card.copy(alpha = 0.9f), CircleShape)
+                .clickable { onSettings() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("设", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = ds.sub)
         }
     }
 }
