@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -47,7 +48,12 @@ import com.menglimi.gdust.v2.ui.UiStyle
 import kotlinx.coroutines.launch
 
 @Composable
-fun LoginScreen(repo: Repository, onLoggedIn: () -> Unit, onOpenSettings: () -> Unit) {
+fun LoginScreen(
+    repo: Repository,
+    onLoggedIn: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onPreview: () -> Unit,
+) {
     val ds = LocalDs.current
     val scope = rememberCoroutineScope()
 
@@ -134,6 +140,16 @@ fun LoginScreen(repo: Repository, onLoggedIn: () -> Unit, onOpenSettings: () -> 
             color = ds.sub,
             modifier = Modifier.padding(top = 20.dp),
         )
+        // 免登录预览：不接触网络数据，只看界面
+        Text(
+            text = "先看看界面（不登录）›",
+            fontSize = 13.sp,
+            color = ds.accent,
+            modifier = Modifier
+                .padding(top = 10.dp)
+                .clickable { onPreview() },
+        )
+
         // 未登录也能进设置（外观/关于等，先看再登录）
         Text(
             text = "设置与外观 ›",
@@ -232,27 +248,31 @@ fun Button(text: String, enabled: Boolean = true, onClick: () -> Unit) {
     }
 }
 
-/** 钉钉一键登录：SSE 连接 → 跳钉钉授权 → ticket 换 TOKEN。 */
+/** 钉钉扫码登录：SSE 拿 clientId → App 自绘二维码 → 钉钉扫 → ticket 回传换 TOKEN。 */
 @Composable
 private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (String) -> Unit) {
     val ds = LocalDs.current
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val scope = rememberCoroutineScope()
     var active by remember { mutableStateOf(false) }
     var clientId by remember { mutableStateOf<String?>(null) }
+    var status by remember { mutableStateOf("") }
 
     LaunchedEffect(active) {
         if (!active) return@LaunchedEffect
+        status = "正在连接认证服务…"
         repo.subscribeSse().collect { ev ->
             when (ev) {
-                is com.menglimi.gdust.v2.data.SseEvent.Hello -> clientId = ev.clientId
+                is com.menglimi.gdust.v2.data.SseEvent.Hello -> {
+                    clientId = ev.clientId
+                    status = "二维码已就绪，用钉钉扫一扫"
+                }
                 is com.menglimi.gdust.v2.data.SseEvent.Ticket -> {
+                    status = "授权成功，正在进入…"
                     runCatching { repo.finishSso(ev.ticket) }
                         .onSuccess { onLoggedIn() }
                         .onFailure { onError("票据换取失败：${it.message}") }
                 }
                 is com.menglimi.gdust.v2.data.SseEvent.NeedBind ->
-                    onError("钉钉未绑定校园账号，请在授权页完成绑定后重试")
+                    onError("钉钉未绑定校园账号，请在钉钉打开的页面里完成绑定后重试")
                 is com.menglimi.gdust.v2.data.SseEvent.Error -> onError(ev.message)
             }
         }
@@ -260,24 +280,61 @@ private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (
 
     GlassCard {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("或使用钉钉一键登录（免密码）", fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = ds.text)
-            Button(
-                text = if (clientId == null) "连接认证服务" else "打开钉钉授权",
-                onClick = {
-                    if (!active) {
-                        active = true
-                    } else {
-                        val cid = clientId ?: return@Button
-                        val url = repo.mobieAuthUrl(cid)
-                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
-                            .setPackage("com.alibaba.android.rimet")
-                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                        val ok = runCatching { ctx.startActivity(intent) }.isSuccess ||
-                            runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess
-                        if (!ok) onError("打不开钉钉：请确认已安装钉钉")
-                    }
-                },
+            Text("或使用钉钉扫码登录（免密码）", fontSize = 15.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = ds.text)
+            val cid = clientId
+            if (cid == null) {
+                Text("点下方按钮生成二维码，用钉钉扫一扫即可授权", fontSize = 12.sp, color = ds.sub)
+                Button(text = if (active) "连接中…" else "生成登录二维码", enabled = !active) { active = true }
+            } else {
+                // 自绘二维码：内容 = CAS 授权页 URL（钉钉内打开会走 JSAPI 免登）
+                val url = repo.mobieAuthUrl(cid)
+                Box(
+                    Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    QrCodeImage(content = url, size = 210.dp)
+                }
+                Text(status.ifEmpty { "用钉钉扫一扫上面的二维码" }, fontSize = 12.sp, color = ds.sub)
+                Text("也可复制授权链接到钉钉内打开", fontSize = 11.sp, color = ds.sub)
+            }
+        }
+    }
+}
+
+/** ZXing 生成矩阵 → Compose Canvas 画黑白块（不引扫码 SDK）。 */
+@Composable
+private fun QrCodeImage(content: String, size: androidx.compose.ui.unit.Dp) {
+    val matrix = remember(content) {
+        runCatching {
+            com.google.zxing.qrcode.QRCodeWriter().encode(
+                content,
+                com.google.zxing.BarcodeFormat.QR_CODE,
+                512,
+                512,
+                mapOf(com.google.zxing.EncodeHintType.MARGIN to 1),
             )
+        }.getOrNull()
+    }
+    val dark = LocalDs.current.text
+    androidx.compose.foundation.Canvas(
+        Modifier
+            .size(size)
+            .background(androidx.compose.ui.graphics.Color.White, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+            .padding(10.dp),
+    ) {
+        if (matrix == null) return@Canvas
+        val n = matrix.width
+        val cell = size.toPx() / n
+        for (y in 0 until n) {
+            for (x in 0 until n) {
+                if (matrix[x, y]) {
+                    drawRect(
+                        color = dark,
+                        topLeft = androidx.compose.ui.geometry.Offset(x * cell, y * cell),
+                        size = androidx.compose.ui.geometry.Size(cell, cell),
+                    )
+                }
+            }
         }
     }
 }

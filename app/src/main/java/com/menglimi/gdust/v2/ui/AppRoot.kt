@@ -94,6 +94,7 @@ fun AppRoot(
                     sync()
                 },
                 onOpenSettings = { showSettings.value = true },
+                onPreview = { loggedIn = true },
             )
             "settings" -> SettingsScreen(
                 repo = repo,
@@ -239,12 +240,13 @@ private fun BoxScope.LiquidBottomBar(
             modifier = Modifier.fillMaxWidth(),
         )
     }
+    // 设置钮与 Glasmio 导航栏同一水平、贴右缘（不再悬空错位）
     Box(
         Modifier
             .align(Alignment.BottomEnd)
             .navigationBarsPadding()
-            .padding(end = 12.dp)
-            .padding(bottom = 92.dp)
+            .padding(end = 8.dp)
+            .padding(bottom = 20.dp)
             .size(44.dp)
             .background(LocalDs.current.card.copy(alpha = 0.9f), CircleShape)
             .clickable { onSettings() },
