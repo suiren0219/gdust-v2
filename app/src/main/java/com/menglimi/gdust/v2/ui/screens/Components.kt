@@ -150,3 +150,55 @@ fun <T> SegmentedChoice(
         }
     }
 }
+
+/**
+ * 学校官网不可达弹窗：网络层失败（连不上/超时/DNS）时给用户可读提示。
+ * LIQUID 走 GlasmioAlertDialog；SOFT 自绘玻璃卡弹窗。
+ */
+@Composable
+fun NetworkDownDialog(visible: Boolean, onDismiss: () -> Unit) {
+    if (!visible) return
+    if (LocalUiStyle.current.value == UiStyle.LIQUID) {
+        io.github.neoruaa.glasmio.ui.GlasmioAlertDialog(
+            visible = true,
+            title = "学校官网无法访问",
+            message = "连不上学校服务器（教务/水电），可能是校园网波动或学校维护中。\n检查手机网络后稍后再试。",
+            onDismissRequest = onDismiss,
+            buttons = listOf(
+                io.github.neoruaa.glasmio.ui.GlasmioAlertButtonSpec(label = "知道了", onClick = { onDismiss() }),
+            ),
+        )
+        return
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        val ds = LocalDs.current
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .background(ds.card, RoundedCornerShape(20.dp))
+                .padding(20.dp),
+        ) {
+            Column {
+                Text("学校官网无法访问", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = ds.text)
+                Text(
+                    "连不上学校服务器（教务/水电），可能是校园网波动或学校维护中。\n检查手机网络后稍后再试。",
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    color = ds.sub,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp)
+                        .background(ds.accent, RoundedCornerShape(12.dp))
+                        .clickable { onDismiss() }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("知道了", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            }
+        }
+    }
+}

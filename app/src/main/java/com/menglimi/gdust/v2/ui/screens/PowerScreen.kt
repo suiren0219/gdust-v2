@@ -36,6 +36,7 @@ import com.menglimi.gdust.v2.data.PowerDetail
 import com.menglimi.gdust.v2.data.PowerRoom
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.data.Store
+import com.menglimi.gdust.v2.data.isNetworkDown
 import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
 import kotlinx.coroutines.launch
@@ -52,6 +53,7 @@ fun PowerScreen(repo: Repository) {
     var detail by remember { mutableStateOf<PowerDetail?>(null) }
     var busy by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf("") }
+    var netDown by remember { mutableStateOf(false) }
     var interval by remember { mutableStateOf(store.sampleIntervalMinutes.toString()) }
     var intervalSaved by remember { mutableStateOf(false) }
 
@@ -65,7 +67,10 @@ fun PowerScreen(repo: Repository) {
                     d.odd?.let { store.addSample(it) }
                     msg = ""
                 }
-                .onFailure { msg = it.message ?: "查询失败" }
+                .onFailure {
+                    netDown = it.isNetworkDown()
+                    msg = it.message ?: "查询失败"
+                }
             busy = false
         }
     }
@@ -186,7 +191,10 @@ fun PowerScreen(repo: Repository) {
                                     rooms = it
                                     msg = if (it.isEmpty()) "该账号名下没有房间，检查账号与学校代码" else ""
                                 }
-                                .onFailure { msg = it.message ?: "查询失败" }
+                                .onFailure {
+                                    netDown = it.isNetworkDown()
+                                    msg = it.message ?: "查询失败"
+                                }
                             busy = false
                         }
                     }
@@ -215,6 +223,8 @@ fun PowerScreen(repo: Repository) {
         }
         Spacer(Modifier.height(110.dp))
     }
+
+    NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
 }
 
 /** Canvas 手绘小时折线（不引图表库）。 */

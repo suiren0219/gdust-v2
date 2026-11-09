@@ -35,8 +35,10 @@ import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.data.isNetworkDown
 import com.menglimi.gdust.v2.ui.schedule.ScheduleScreen
 import com.menglimi.gdust.v2.ui.screens.LoginScreen
+import com.menglimi.gdust.v2.ui.screens.NetworkDownDialog
 import com.menglimi.gdust.v2.ui.screens.PowerScreen
 import com.menglimi.gdust.v2.ui.screens.SettingsScreen
 import com.menglimi.gdust.v2.ui.screens.TodayScreen
@@ -59,13 +61,17 @@ fun AppRoot(
     var calendar by remember { mutableStateOf<CalendarInfo?>(repo.store.loadCalendar()) }
     var blocks by remember { mutableStateOf<List<CourseBlock>>(repo.store.loadBlocks()) }
     var syncError by remember { mutableStateOf<String?>(null) }
+    var netDown by remember { mutableStateOf(false) }
 
 
     fun sync() {
         scope.launch {
             runCatching { repo.syncSchedule() }
                 .onSuccess { (cal, list) -> calendar = cal; blocks = list; syncError = null }
-                .onFailure { syncError = it.message ?: "网络失败" }
+                .onFailure {
+                    netDown = it.isNetworkDown()
+                    syncError = it.message ?: "网络失败"
+                }
         }
     }
 
@@ -121,6 +127,9 @@ fun AppRoot(
             else -> Box(Modifier.fillMaxSize().background(LocalDs.current.bg))
         }
     }
+
+    // 网络层失败（连不上学校官网）时弹窗提示，业务错误仍走行内提示
+    NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
 }
 
 @Composable

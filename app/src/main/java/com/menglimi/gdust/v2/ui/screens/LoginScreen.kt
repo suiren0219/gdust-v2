@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.AuthFailed
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.data.isNetworkDown
 import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.ui.LocalUiStyle
@@ -65,6 +66,7 @@ fun LoginScreen(
     var seed by remember { mutableStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
+    var netDown by remember { mutableStateOf(false) }
 
     LaunchedEffect(seed) {
         runCatching { repo.fetchCaptcha() }
@@ -73,7 +75,10 @@ fun LoginScreen(
                 uuid = it.uuid
                 error = ""
             }
-            .onFailure { error = "验证码获取失败：${it.message}" }
+            .onFailure {
+                netDown = it.isNetworkDown()
+                error = "验证码获取失败：${it.message}"
+            }
     }
 
     Column(
@@ -114,6 +119,7 @@ fun LoginScreen(
                         runCatching { repo.login(account.trim(), password, code.trim(), uuid) }
                             .onSuccess { onLoggedIn() }
                             .onFailure {
+                                netDown = it.isNetworkDown()
                                 if (it is AuthFailed && it.code == 30001) {
                                     error = "验证码不对，已换一张，再试一次"
                                 } else {
@@ -175,6 +181,8 @@ fun LoginScreen(
         )
         Spacer(Modifier.height(40.dp))
     }
+
+    NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
 }
 
 @Composable
@@ -255,26 +263,36 @@ private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (
     var active by remember { mutableStateOf(false) }
     var clientId by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf("") }
+    var netDown by remember { mutableStateOf(false) }
 
     LaunchedEffect(active) {
         if (!active) return@LaunchedEffect
         status = "正在连接认证服务…"
-        repo.subscribeSse().collect { ev ->
-            when (ev) {
-                is com.menglimi.gdust.v2.data.SseEvent.Hello -> {
-                    clientId = ev.clientId
-                    status = "二维码已就绪，用钉钉扫一扫"
+        // SSE 连接失败会沿 flow 抛 IOException，不接住会崩协程
+        runCatching {
+            repo.subscribeSse().collect { ev ->
+                when (ev) {
+                    is com.menglimi.gdust.v2.data.SseEvent.Hello -> {
+                        clientId = ev.clientId
+                        status = "二维码已就绪，用钉钉扫一扫"
+                    }
+                    is com.menglimi.gdust.v2.data.SseEvent.Ticket -> {
+                        status = "授权成功，正在进入…"
+                        runCatching { repo.finishSso(ev.ticket) }
+                            .onSuccess { onLoggedIn() }
+                            .onFailure {
+                                if (it.isNetworkDown()) netDown = true
+                                onError("票据换取失败：${it.message}")
+                            }
+                    }
+                    is com.menglimi.gdust.v2.data.SseEvent.NeedBind ->
+                        onError("钉钉未绑定校园账号，请在钉钉打开的页面里完成绑定后重试")
+                    is com.menglimi.gdust.v2.data.SseEvent.Error -> onError(ev.message)
                 }
-                is com.menglimi.gdust.v2.data.SseEvent.Ticket -> {
-                    status = "授权成功，正在进入…"
-                    runCatching { repo.finishSso(ev.ticket) }
-                        .onSuccess { onLoggedIn() }
-                        .onFailure { onError("票据换取失败：${it.message}") }
-                }
-                is com.menglimi.gdust.v2.data.SseEvent.NeedBind ->
-                    onError("钉钉未绑定校园账号，请在钉钉打开的页面里完成绑定后重试")
-                is com.menglimi.gdust.v2.data.SseEvent.Error -> onError(ev.message)
             }
+        }.onFailure {
+            active = false
+            if (it.isNetworkDown()) netDown = true else onError(it.message ?: "连接失败")
         }
     }
 
@@ -299,6 +317,8 @@ private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (
             }
         }
     }
+
+    NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
 }
 
 /** ZXing 生成矩阵 → Compose Canvas 画黑白块（不引扫码 SDK）。 */

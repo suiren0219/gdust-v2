@@ -298,3 +298,13 @@ sealed class SseEvent {
     data class NeedBind(val unionId: String) : SseEvent()
     data class Error(val message: String) : SseEvent()
 }
+
+/** 沿 cause 链找 IOException：连不上/超时/DNS 失败都算「学校官网不可达」，供 UI 弹窗分流。 */
+fun Throwable.isNetworkDown(): Boolean {
+    var t: Throwable? = this
+    while (t != null) {
+        if (t is java.io.IOException) return true
+        t = t.cause
+    }
+    return false
+}
