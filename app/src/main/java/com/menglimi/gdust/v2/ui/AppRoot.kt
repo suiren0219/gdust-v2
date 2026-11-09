@@ -50,10 +50,11 @@ fun AppRoot(
     repo: Repository,
     tab: androidx.compose.runtime.MutableIntState,
     showSettings: androidx.compose.runtime.MutableState<Boolean>,
+    loggedIn: androidx.compose.runtime.MutableState<Boolean>,
+    checked: androidx.compose.runtime.MutableState<Boolean>,
 ) {
     val scope = rememberCoroutineScope()
-    var checked by remember { mutableStateOf(false) }
-    var loggedIn by remember { mutableStateOf(false) }
+    // loggedIn/checked 由 MainActivity（主题树外）持有：切风格重建主题树也不丢
 
     var calendar by remember { mutableStateOf<CalendarInfo?>(repo.store.loadCalendar()) }
     var blocks by remember { mutableStateOf<List<CourseBlock>>(repo.store.loadBlocks()) }
@@ -70,17 +71,17 @@ fun AppRoot(
 
     LaunchedEffect(Unit) {
         if (repo.store.hasSession) {
-            loggedIn = repo.isSessionAlive()
-            if (loggedIn && blocks.isEmpty()) sync()
+            loggedIn.value = repo.isSessionAlive()
+            if (loggedIn.value && blocks.isEmpty()) sync()
         }
-        checked = true
+        checked.value = true
     }
 
     Crossfade(
         targetState = when {
-            !checked -> "loading"
+            !checked.value -> "loading"
             showSettings.value -> "settings"
-            !loggedIn -> "login"
+            !loggedIn.value -> "login"
             else -> "main"
         },
         animationSpec = tween(220),
@@ -90,11 +91,11 @@ fun AppRoot(
             "login" -> LoginScreen(
                 repo = repo,
                 onLoggedIn = {
-                    loggedIn = true
+                    loggedIn.value = true
                     sync()
                 },
                 onOpenSettings = { showSettings.value = true },
-                onPreview = { loggedIn = true },
+                onPreview = { loggedIn.value = true },
             )
             "settings" -> SettingsScreen(
                 repo = repo,
@@ -102,10 +103,10 @@ fun AppRoot(
                 onSync = { sync() },
                 onLogout = {
                     repo.store.logout()
-                    loggedIn = false
+                    loggedIn.value = false
                     showSettings.value = false
                 },
-                loggedIn = loggedIn,
+                loggedIn = loggedIn.value,
                 onBack = { showSettings.value = false },
             )
             "main" -> MainScaffold(
