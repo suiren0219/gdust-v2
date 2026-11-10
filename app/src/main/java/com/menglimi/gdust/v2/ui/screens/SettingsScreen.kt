@@ -1,5 +1,7 @@
 package com.menglimi.gdust.v2.ui.screens
 
+import android.net.Uri
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -47,6 +49,8 @@ fun SettingsScreen(
     onImport: () -> Unit,
     onProfile: () -> Unit,
     onAbout: () -> Unit,
+    onExportBackup: androidx.activity.compose.ManagedActivityResultLauncher<String, Uri?>,
+    onImportBackup: (Uri) -> Unit,
     onLogout: () -> Unit,
     onBack: () -> Unit,
     loggedIn: Boolean = true,
@@ -73,6 +77,18 @@ fun SettingsScreen(
     var termWeeksText by remember { mutableStateOf(store.termWeeks.takeIf { it > 0 }?.toString() ?: "") }
     var termWeekText by remember { mutableStateOf(store.termCurrentWeek.takeIf { it > 0 }?.toString() ?: "") }
     var termSaved by remember { mutableStateOf(false) }
+    var backupMsg by remember { mutableStateOf<String?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText().orEmpty()
+        }.map { repo.store.importBackup(it) }
+            .onSuccess { backupMsg = "已恢复：$it" }
+            .onFailure { backupMsg = "导入失败：${it.message}" }
+    }
     val intervalOptions = listOf(15, 30, 60, 120)
 
     fun toggle(section: String) {
@@ -329,6 +345,25 @@ fun SettingsScreen(
                     )
                     Text("间隔越密，走势越细；后台仍按 15 分钟巡检", fontSize = 11.sp, color = ds.sub)
                 }
+            }
+        }
+
+        // ── 备份与恢复 ──
+        SectionHeader("备份与恢复")
+        SettingGroup {
+            SettingOption(
+                title = "导出备份",
+                subtitle = "课表/校历/待办/偏好/水电绑定存为 JSON（不含登录凭证与密码）",
+                onClick = { onExportBackup.launch("gdust-backup-${java.time.LocalDate.now()}.json") },
+            )
+            SettingDivider()
+            SettingOption(
+                title = "导入备份",
+                subtitle = "从 JSON 恢复；导入会覆盖现有课表与偏好",
+                onClick = { importLauncher.launch(arrayOf("application/json", "text/*")) },
+            )
+            if (backupMsg != null) {
+                SettingEditor { Text(backupMsg!!, fontSize = 12.sp, color = ds.sub) }
             }
         }
 

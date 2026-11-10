@@ -7,3 +7,6 @@ local.properties
 # 签名密钥不进 git
 signing/*.jks
 signing/keystore.properties
+
+# 本地构建验证日志
+build-*.log

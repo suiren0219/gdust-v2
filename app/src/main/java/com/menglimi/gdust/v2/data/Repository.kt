@@ -217,6 +217,70 @@ class Store(context: Context) {
         }
         android.webkit.WebStorage.getInstance().deleteAllData()
     }
+
+    // ── 备份与恢复：只含课表/校历/待办/采样/偏好；不含登录凭证与密码 ──
+
+    fun exportBackup(): String {
+        val payload = mapOf(
+            "app" to "gdust-v2",
+            "schema" to 1,
+            "exportedAt" to System.currentTimeMillis(),
+            "calendar" to plain.getString("calendar", null),
+            "blocks" to plain.getString("blocks", null),
+            "schedule_source" to scheduleSource,
+            "todos" to plain.getString("todos", null),
+            "samples" to plain.getString("samples", null),
+            "term_start" to termStartDate,
+            "term_weeks" to termWeeks,
+            "term_week" to termCurrentWeek,
+            "start_tab" to startTab,
+            "ui_style" to uiStyle,
+            "monet_enabled" to monetEnabled,
+            "sample_interval" to sampleIntervalMinutes,
+            "warn_th" to warnThreshold,
+            "warn_drop" to warnDropRate,
+            "power" to if (hasPowerBinding) mapOf(
+                "account" to powerAccount, "code" to powerCode,
+                "verify" to powerRoomVerify, "name" to powerRoomName,
+            ) else null,
+        )
+        return gson.toJson(payload)
+    }
+
+    /** 恢复备份并返回条目摘要；结构不认识的字段忽略，坏文件抛异常。 */
+    fun importBackup(json: String): String {
+        val root = runCatching { gson.fromJson(json, Map::class.java) as Map<*, *> }
+            .getOrElse { error("备份文件格式无效") }
+        require(root["app"] == "gdust-v2") { "不是本应用的备份文件" }
+        val edit = plain.edit()
+        (root["calendar"] as? String)?.let { edit.putString("calendar", it) }
+        (root["blocks"] as? String)?.let { edit.putString("blocks", it) }
+        (root["schedule_source"] as? String)?.let { edit.putString("schedule_source", it) }
+        (root["todos"] as? String)?.let { edit.putString("todos", it) }
+        (root["samples"] as? String)?.let { edit.putString("samples", it) }
+        (root["term_start"] as? String)?.let { edit.putString("term_start", it) }
+        (root["term_weeks"] as? Double)?.let { edit.putInt("term_weeks", it.toInt()) }
+        (root["term_week"] as? Double)?.let { edit.putInt("term_week", it.toInt()) }
+        (root["start_tab"] as? Double)?.let { edit.putInt("start_tab", it.toInt()) }
+        (root["ui_style"] as? String)?.let { edit.putString("ui_style", it) }
+        (root["monet_enabled"] as? Boolean)?.let { edit.putBoolean("monet_enabled", it) }
+        (root["sample_interval"] as? Double)?.let { edit.putInt("sample_interval", it.toInt()) }
+        (root["warn_th"] as? Double)?.let { edit.putFloat("warn_th", it.toFloat()) }
+        (root["warn_drop"] as? Double)?.let { edit.putFloat("warn_drop", it.toFloat()) }
+        (root["power"] as? Map<*, *>)?.let { p ->
+            secure.edit()
+                .putString("pacc", p["account"]?.toString().orEmpty())
+                .putInt("pcode", (p["code"] as? Double)?.toInt() ?: 0)
+                .putString("prv", p["verify"]?.toString().orEmpty())
+                .putString("prn", p["name"]?.toString().orEmpty())
+                .apply()
+        }
+        edit.apply()
+        publishPowerWorkerConfig()
+        val blocks = loadBlocks().size
+        val todos = loadTodos().size
+        return "课表 $blocks 张卡 · 待办 $todos 条 · 偏好与水电绑定已恢复"
+    }
 }
 
 /** 会话门面：所有数据操作的唯一入口。 */

@@ -74,6 +74,21 @@ fun AppRoot(
     var showImport by remember { mutableStateOf(false) }
     var showProfile by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
+    // 备份导出：SAF 建文档，写入后提示
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                runCatching {
+                    context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
+                        it.write(repo.store.exportBackup())
+                    } ?: error("无法写入所选位置")
+                }
+            }
+        }
+    }
     var importReport by remember { mutableStateOf<String?>(null) }
     // 设置页当前展开的编辑区（切风格重建时收起即可，不影响页面栈）
     val openSection = remember { mutableStateOf<String?>(null) }
@@ -106,6 +121,8 @@ fun AppRoot(
     }
 
     LaunchedEffect(Unit) {
+        // App 打开即刷新桌面小组件（课程/电量可能变了）
+        runCatching { com.menglimi.gdust.v2.widget.TodayWidget.refresh(context) }
         // 先恢复本机会话和缓存页面，网络校验在后；超时不让启动卡在空白页。
         val offlineSchedule = blocks.isNotEmpty()
         loggedIn.value = loggedIn.value || repo.store.hasSession || offlineSchedule
@@ -168,6 +185,19 @@ fun AppRoot(
                 onImport = { showImport = true },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },
+                onExportBackup = exportLauncher,
+                onImportBackup = { uri ->
+                    runCatching {
+                        context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText().orEmpty()
+                    }.map { repo.store.importBackup(it) }
+                        .onSuccess { result ->
+                            calendar = repo.store.loadCalendar()
+                            blocks = repo.store.loadBlocks()
+                            syncError = null
+                            importReport = "备份已恢复：$result"
+                        }
+                        .onFailure { syncError = it.message ?: "导入失败" }
+                },
                 onLogout = {
                     repo.store.logout()
                     blocks = emptyList()

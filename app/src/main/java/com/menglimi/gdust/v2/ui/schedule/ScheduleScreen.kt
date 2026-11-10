@@ -70,6 +70,11 @@ fun ScheduleScreen(
     var dragPx by remember { mutableStateOf(0f) }
     val density = androidx.compose.ui.platform.LocalDensity.current
     val dragThreshold = with(density) { 90.dp.toPx() }
+    // 点课表格子弹详情
+    var selected by remember { mutableStateOf<CourseBlock?>(null) }
+    selected?.let { block ->
+        LessonDetailDialog(block = block, week = displayWeek, calendar = calendar, onDismiss = { selected = null })
+    }
 
     Column(
         Modifier
@@ -149,6 +154,7 @@ fun ScheduleScreen(
             week = displayWeek,
             calendar = calendar,
             blocks = weekBlocks,
+            onLessonClick = { selected = it },
             modifier = Modifier
                 .offset { androidx.compose.ui.unit.IntOffset(dragPx.toInt(), 0) }
                 .pointerInput(Unit) {
@@ -173,7 +179,13 @@ fun ScheduleScreen(
 }
 
 @Composable
-private fun WeekGrid(week: Int, calendar: CalendarInfo?, blocks: List<CourseBlock>, modifier: Modifier = Modifier) {
+private fun WeekGrid(
+    week: Int,
+    calendar: CalendarInfo?,
+    blocks: List<CourseBlock>,
+    onLessonClick: (CourseBlock) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val ds = LocalDs.current
     val today = LocalDate.now()
     val now = LocalTime.now()
@@ -273,6 +285,7 @@ private fun WeekGrid(week: Int, calendar: CalendarInfo?, blocks: List<CourseBloc
                             blocks.filter { it.day == day }.forEach { b ->
                                 LessonCard(
                                     block = b,
+                                    onClick = { onLessonClick(b) },
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .offset(y = sectionY(b.startSection) + 2.dp)
@@ -306,7 +319,7 @@ private fun BreakBand(text: String, modifier: Modifier) {
 }
 
 @Composable
-private fun LessonCard(block: CourseBlock, modifier: Modifier) {
+private fun LessonCard(block: CourseBlock, onClick: () -> Unit, modifier: Modifier) {
     val ds = LocalDs.current
     val bg = Color(if (ds.isDark) CourseColors.bgDark(block.name) else CourseColors.bg(block.name))
     val fg = if (ds.isDark) ds.text else Color(0xFF3A3A3C)
@@ -321,6 +334,7 @@ private fun LessonCard(block: CourseBlock, modifier: Modifier) {
     Box(
         modifier
             .background(bg, RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
             .padding(horizontal = 5.dp, vertical = 5.dp),
     ) {
         Column {
@@ -360,6 +374,60 @@ private fun LessonCard(block: CourseBlock, modifier: Modifier) {
                     .size(6.dp)
                     .background(Color(0xFFE8A23C), CircleShape),
             )
+        }
+    }
+}
+
+/** 课程详情弹窗：点格子查看完整信息；颜色沿用格子同源色。 */
+@Composable
+private fun LessonDetailDialog(block: CourseBlock, week: Int, calendar: CalendarInfo?, onDismiss: () -> Unit) {
+    val ds = LocalDs.current
+    val bg = Color(if (ds.isDark) CourseColors.bgDark(block.name) else CourseColors.bg(block.name))
+    val start = ScheduleTimes.start(block.startSection)
+    val end = ScheduleTimes.end(block.endSection)
+    val date = calendar?.startDate?.let {
+        runCatching { java.time.LocalDate.parse(it).plusDays((week - 1) * 7L + block.day - 1L).toString() }.getOrNull()
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(ds.card, RoundedCornerShape(20.dp))
+                .padding(20.dp),
+        ) {
+            Box(
+                Modifier
+                    .background(bg, RoundedCornerShape(12.dp))
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+            ) {
+                Text(block.name, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (ds.isDark) ds.text else Color(0xFF3A3A3C))
+            }
+            Spacer(Modifier.height(14.dp))
+            listOf(
+                "时间" to "周${ScheduleTimes.dayNames[block.day - 1]} · 第 ${block.startSection}–${block.endSection} 节" +
+                    (if (start.isNotEmpty() && end.isNotEmpty()) "（$start–$end）" else ""),
+                "教室" to block.room.ifEmpty { "未填写" },
+                "教师" to block.teacher.ifEmpty { "未填写" },
+                "周次" to "第 $week 周" + if (block.weekParity == 1) "（单周）" else if (block.weekParity == 2) "（双周）" else "",
+                "日期" to (date ?: "未知（需校历）"),
+            ).forEach { (k, v) ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                    Text(k, fontSize = 13.sp, color = ds.sub, modifier = Modifier.width(44.dp))
+                    Text(v, fontSize = 13.sp, color = ds.text, modifier = Modifier.weight(1f))
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .background(ds.accent, RoundedCornerShape(12.dp))
+                    .clickable(onClick = onDismiss)
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("知道了", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
         }
     }
 }
