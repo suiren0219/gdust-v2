@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -38,6 +40,7 @@ import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.data.isNetworkDown
 import com.menglimi.gdust.v2.ui.schedule.ScheduleScreen
 import com.menglimi.gdust.v2.ui.screens.LoginScreen
+import com.menglimi.gdust.v2.ui.screens.InfoDialog
 import com.menglimi.gdust.v2.ui.screens.NetworkDownDialog
 import com.menglimi.gdust.v2.ui.screens.PowerScreen
 import com.menglimi.gdust.v2.ui.screens.SettingsScreen
@@ -63,11 +66,19 @@ fun AppRoot(
     var blocks by remember { mutableStateOf<List<CourseBlock>>(repo.store.loadBlocks()) }
     var syncError by remember { mutableStateOf<String?>(null) }
     var netDown by remember { mutableStateOf(false) }
+    var syncing by remember { mutableStateOf(false) }
+    var needLogin by remember { mutableStateOf(false) }
     // 设置页当前展开的编辑区（切风格重建时收起即可，不影响页面栈）
     val openSection = remember { mutableStateOf<String?>(null) }
 
 
     fun sync() {
+        if (!repo.store.hasSession) {
+            needLogin = true
+            return
+        }
+        syncing = true
+        syncError = null
         scope.launch {
             runCatching { repo.syncSchedule() }
                 .onSuccess { (cal, list) -> calendar = cal; blocks = list; syncError = null }
@@ -75,6 +86,7 @@ fun AppRoot(
                     netDown = it.isNetworkDown()
                     syncError = it.message ?: "网络失败"
                 }
+            syncing = false
         }
     }
 
@@ -118,6 +130,7 @@ fun AppRoot(
                 loggedIn = loggedIn.value,
                 monetEnabled = monetEnabled,
                 openSection = openSection,
+                syncing = syncing,
                 onBack = { showSettings.value = false },
             )
             "main" -> MainScaffold(
@@ -135,6 +148,20 @@ fun AppRoot(
 
     // 网络层失败（连不上学校官网）时弹窗提示，业务错误仍走行内提示
     NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
+    if (needLogin) {
+        InfoDialog(
+            title = "还没登录",
+            message = "同步课表需要先登录统一身份认证。\n回到登录页用学号密码或钉钉扫码登录，登录后会自动同步。",
+            onDismiss = { needLogin = false },
+        )
+    }
+    if (!netDown && syncError != null && !syncing) {
+        InfoDialog(
+            title = "同步失败",
+            message = syncError!!.take(200),
+            onDismiss = { syncError = null },
+        )
+    }
 }
 
 @Composable
@@ -164,22 +191,23 @@ private fun MainScaffold(
             }
         }
 
-        // 底栏按风格分派
-        if (LocalUiStyle.current.value == UiStyle.LIQUID) {
-            LiquidBottomBar(tab = tab, onTab = onTab, onSettings = onSettings)
-        } else {
-            SoftGlassBottomBar(tab = tab, onTab = onTab, onSettings = onSettings, ds = ds)
-        }
+        // 底栏两套风格共用同一套点击热区实现（不受 Glasmio 内部动画/compaction 影响）
+        UnifiedBottomBar(tab = tab, onTab = onTab, onSettings = onSettings, ds = ds)
     }
 }
 
-/** 风格一：softglass 柔光玻璃胶囊。 */
+/** 统一底栏：四个 tab + 设置钮，两套玻璃风格只在外观上分派，点击逻辑只有一份。 */
 @Composable
-private fun BoxScope.SoftGlassBottomBar(
+private fun BoxScope.UnifiedBottomBar(
     tab: Int, onTab: (Int) -> Unit, onSettings: () -> Unit, ds: Ds,
 ) {
-    val backdrop = LocalBackdrop.current
+    val liquid = LocalUiStyle.current.value == UiStyle.LIQUID
+    val backdrop = if (liquid) null else LocalBackdrop.current
     val pillShape = com.haooz.softglass.shape.ContinuousCapsule()
+    fun Modifier.pill(): Modifier =
+        if (backdrop != null) this.drawBackdrop(backdrop = backdrop, shape = { pillShape }, effects = { blur(20f) })
+        else this.background(ds.card, RoundedCornerShape(28.dp)).border(1.dp, ds.sub.copy(alpha = 0.16f), RoundedCornerShape(28.dp))
+
     Row(
         Modifier
             .align(Alignment.BottomCenter)
@@ -189,9 +217,7 @@ private fun BoxScope.SoftGlassBottomBar(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(
-            Modifier
-                .drawBackdrop(backdrop = backdrop, shape = { pillShape }, effects = { blur(20f) })
-                .padding(horizontal = 8.dp, vertical = 8.dp),
+            Modifier.pill().padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
@@ -205,63 +231,40 @@ private fun BoxScope.SoftGlassBottomBar(
                         )
                         .clickable { onTab(i) }
                         .padding(horizontal = 17.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        label,
-                        fontSize = 13.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                        color = if (selected) ds.accent else ds.sub,
-                    )
+                    if (liquid) {
+                        val symbol = when (i) {
+                            0 -> io.github.neoruaa.glasmio.icons.SfSymbol.House
+                            1 -> io.github.neoruaa.glasmio.icons.SfSymbol.Clock
+                            2 -> io.github.neoruaa.glasmio.icons.SfSymbol.Sparkles
+                            else -> io.github.neoruaa.glasmio.icons.SfSymbol.Star
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            io.github.neoruaa.glasmio.icons.SfIcon(
+                                symbol = symbol,
+                                contentDescription = null,
+                                size = 20.dp,
+                                tint = if (selected) ds.accent else ds.sub,
+                            )
+                            Text(label, fontSize = 11.sp, color = if (selected) ds.accent else ds.sub)
+                        }
+                    } else {
+                        Text(
+                            label,
+                            fontSize = 13.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (selected) ds.accent else ds.sub,
+                        )
+                    }
                 }
             }
         }
         Box(
-            Modifier
-                .drawBackdrop(backdrop = backdrop, shape = { pillShape }, effects = { blur(20f) })
-                .size(52.dp)
-                .clickable { onSettings() },
+            Modifier.pill().size(52.dp).clickable { onSettings() },
             contentAlignment = Alignment.Center,
         ) {
             Text("设", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.sub)
         }
-    }
-}
-
-/** 风格二：Glasmio 原生液态玻璃导航栏。 */
-@Composable
-private fun BoxScope.LiquidBottomBar(
-    tab: Int, onTab: (Int) -> Unit, onSettings: () -> Unit,
-) {
-    val compact = remember { androidx.compose.runtime.mutableStateOf(0f) }
-    val tabItems = remember {
-        listOf(
-            io.github.neoruaa.glasmio.ui.GlasmioTabItem(0, "今日", io.github.neoruaa.glasmio.icons.SfSymbol.House),
-            io.github.neoruaa.glasmio.ui.GlasmioTabItem(1, "课表", io.github.neoruaa.glasmio.icons.SfSymbol.Clock),
-            io.github.neoruaa.glasmio.ui.GlasmioTabItem(2, "电费", io.github.neoruaa.glasmio.icons.SfSymbol.Sparkles),
-            io.github.neoruaa.glasmio.ui.GlasmioTabItem(3, "待办", io.github.neoruaa.glasmio.icons.SfSymbol.Star),
-        )
-    }
-    // 官方 trailingItem：设置齿轮独占一颗 icon-only 胶囊，与 4 个 tab 并排不重叠
-    val settingsItem = remember {
-        io.github.neoruaa.glasmio.ui.GlasmioTabItem(4, "设置", io.github.neoruaa.glasmio.icons.SfSymbol.Settings)
-    }
-    Box(
-        Modifier
-            .align(Alignment.BottomCenter)
-            .navigationBarsPadding()
-            .padding(horizontal = 16.dp)
-            .padding(bottom = 14.dp),
-    ) {
-        io.github.neoruaa.glasmio.scaffold.GlasmioNavigationBarWithTrailingItem(
-            items = tabItems,
-            trailingItem = settingsItem,
-            selectedKey = tab,
-            onSelected = { if (it < 4) onTab(it) else onSettings() },
-            onExpand = { },
-            compactProgress = compact,
-            compactSize = 56.dp,
-            detachTrailingItem = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
 }

@@ -47,6 +47,7 @@ fun SettingsScreen(
     loggedIn: Boolean = true,
     monetEnabled: androidx.compose.runtime.MutableState<Boolean>,
     openSection: androidx.compose.runtime.MutableState<String?>,
+    syncing: Boolean = false,
 ) {
     val ds = LocalDs.current
     val store = repo.store
@@ -63,6 +64,10 @@ fun SettingsScreen(
     var dropText by remember { mutableStateOf(store.warnDropRate.toInt().toString()) }
     var thresholdSaved by remember { mutableStateOf(false) }
     var synced by remember { mutableStateOf(false) }
+    var termStart by remember { mutableStateOf(store.termStartDate) }
+    var termWeeksText by remember { mutableStateOf(store.termWeeks.takeIf { it > 0 }?.toString() ?: "") }
+    var termWeekText by remember { mutableStateOf(store.termCurrentWeek.takeIf { it > 0 }?.toString() ?: "") }
+    var termSaved by remember { mutableStateOf(false) }
     val intervalOptions = listOf(15, 30, 60, 120)
 
     fun toggle(section: String) {
@@ -125,6 +130,7 @@ fun SettingsScreen(
                 title = "同步课表",
                 subtitle = "拉取课表 + 校历，连堂自动合并成整卡",
                 detail = when {
+                    syncing -> "同步中…"
                     syncError != null -> "失败"
                     synced -> "已同步 ✓"
                     else -> null
@@ -141,6 +147,35 @@ fun SettingsScreen(
                 title = "校历",
                 detail = store.loadCalendar()?.let { "第 ${it.week}/${it.allWeek} 周" } ?: "未同步",
             )
+        }
+
+        // ── 学期设置（拾光式：开学日期 / 总周数 / 当前周）──
+        SectionHeader("学期设置")
+        SettingGroup {
+            SettingOption(
+                title = "开学日期",
+                subtitle = "学期第一周周一，YYYY-MM-DD；留空则用校历",
+                detail = store.termStartDate.ifBlank { "跟随校历" },
+                onClick = { toggle("term") },
+            )
+            if (openSection.value == "term") {
+                SettingDivider()
+                SettingEditor {
+                    InputField(termStart, { termStart = it; termSaved = false }, "开学日期，如 2026-09-07")
+                    InputField(termWeeksText, { termWeeksText = it; termSaved = false }, "学期总周数，如 20", KeyboardType.Number)
+                    InputField(termWeekText, { termWeekText = it; termSaved = false }, "当前第几周，如 10", KeyboardType.Number)
+                    Button(if (termSaved) "已保存 ✓ 重新同步生效" else "保存学期设置") {
+                        store.termStartDate = termStart.trim()
+                        store.termWeeks = termWeeksText.toIntOrNull() ?: 0
+                        store.termCurrentWeek = termWeekText.toIntOrNull() ?: 0
+                        termSaved = true
+                    }
+                    Text(
+                        "学校门户只返回本周课表，这里按单双周标记把它铺到全学期。注意：门户没给每门课的开课周范围，只在前几周开的课也会被铺满，属上游数据限制；填完点「同步课表」生效。",
+                        fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub,
+                    )
+                }
+            }
         }
 
         // ── 通知 AI 总结 ──

@@ -33,12 +33,15 @@ data class CalendarInfo(
 data class Lesson(
     val week: Int, val day: Int, val section: Int,
     val name: String, val room: String, val teacher: String, val date: String,
+    /** 门户单双周标记：0=每周，1=单周，2=双周（用于把本周课表铺到全学期）。 */
+    val weekParity: Int = 0,
 )
 
 /** 连堂合并后的整卡（数据层就完成，不交给 UI 拼）。 */
 data class CourseBlock(
     val week: Int, val day: Int, val startSection: Int, val endSection: Int,
     val name: String, val room: String, val teacher: String, val date: String,
+    val weekParity: Int = 0,
 )
 
 data class Notice(val title: String, val url: String, val type: String, val issuer: String?, val time: Long)
@@ -143,6 +146,11 @@ class GdustApi {
                 room = o.get("classroomName")?.asString.orEmpty(),
                 teacher = o.get("teacher")?.asString.orEmpty(),
                 date = o.get("courseDate")?.asString.orEmpty(),
+                weekParity = when (o.get("singleOrDoubleWeek")?.asString?.trim()) {
+                    "单" -> 1
+                    "双" -> 2
+                    else -> 0
+                },
             )
         }
     }
@@ -283,7 +291,7 @@ fun mergeLessons(lessons: List<Lesson>): List<CourseBlock> {
                 cur = p!!.copy(endSection = l.section)
             } else {
                 p?.let { out.add(it) }
-                cur = CourseBlock(l.week, l.day, l.section, l.section, l.name, l.room, l.teacher, l.date)
+                cur = CourseBlock(l.week, l.day, l.section, l.section, l.name, l.room, l.teacher, l.date, l.weekParity)
             }
         }
         cur?.let { out.add(it) }

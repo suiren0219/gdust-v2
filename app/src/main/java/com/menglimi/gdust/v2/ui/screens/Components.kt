@@ -246,6 +246,12 @@ fun <T> SegmentedChoice(
     }
 }
 
+/** 通用提示弹窗（同步失败/需登录等）：两套风格都走同一套文案与按钮。 */
+@Composable
+fun InfoDialog(title: String, message: String, onDismiss: () -> Unit) {
+    NetworkDownDialogStyle(title = title, message = message, onDismiss = onDismiss)
+}
+
 /**
  * 学校官网不可达弹窗：网络层失败（连不上/超时/DNS）时给用户可读提示。
  * LIQUID 走 GlasmioAlertDialog；SOFT 自绘玻璃卡弹窗。
@@ -253,11 +259,20 @@ fun <T> SegmentedChoice(
 @Composable
 fun NetworkDownDialog(visible: Boolean, onDismiss: () -> Unit) {
     if (!visible) return
+    NetworkDownDialogStyle(
+        title = "学校官网无法访问",
+        message = "连不上学校服务器（教务/水电），可能是校园网波动或学校维护中。\n检查手机网络后稍后再试。",
+        onDismiss = onDismiss,
+    )
+}
+
+@Composable
+private fun NetworkDownDialogStyle(title: String, message: String, onDismiss: () -> Unit) {
     if (LocalUiStyle.current.value == UiStyle.LIQUID) {
         io.github.neoruaa.glasmio.ui.GlasmioAlertDialog(
             visible = true,
-            title = "学校官网无法访问",
-            message = "连不上学校服务器（教务/水电），可能是校园网波动或学校维护中。\n检查手机网络后稍后再试。",
+            title = title,
+            message = message,
             onDismissRequest = onDismiss,
             buttons = listOf(
                 io.github.neoruaa.glasmio.ui.GlasmioAlertButtonSpec(label = "知道了", onClick = { onDismiss() }),
@@ -274,9 +289,9 @@ fun NetworkDownDialog(visible: Boolean, onDismiss: () -> Unit) {
                 .padding(20.dp),
         ) {
             Column {
-                Text("学校官网无法访问", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = ds.text)
+                Text(title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = ds.text)
                 Text(
-                    "连不上学校服务器（教务/水电），可能是校园网波动或学校维护中。\n检查手机网络后稍后再试。",
+                    message,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
                     color = ds.sub,

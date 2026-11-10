@@ -118,6 +118,22 @@ class Store(context: Context) {
         get() = plain.getBoolean("monet_enabled", false)
         set(v) = plain.edit().putBoolean("monet_enabled", v).apply()
 
+    // ── 学期设置（拾光式：用户可校正，门户只给单周课表，按此铺全学期）──
+    /** 学期第一周周一，YYYY-MM-DD；空=用校历 startTime。 */
+    var termStartDate: String
+        get() = plain.getString("term_start", "") ?: ""
+        set(v) = plain.edit().putString("term_start", v).apply()
+
+    /** 学期总周数；0=用校历 allWeek。 */
+    var termWeeks: Int
+        get() = plain.getInt("term_weeks", 0)
+        set(v) = plain.edit().putInt("term_weeks", v).apply()
+
+    /** 手动指定当前周；0=用校历 week。 */
+    var termCurrentWeek: Int
+        get() = plain.getInt("term_week", 0)
+        set(v) = plain.edit().putInt("term_week", v).apply()
+
     var sampleIntervalMinutes: Int
         get() = plain.getInt("sample_interval", 60)
         set(v) { plain.edit().putInt("sample_interval", v).apply(); publishPowerWorkerConfig() }
@@ -190,11 +206,31 @@ class Repository(context: Context) {
     fun subscribeSse() = api.subscribeSse()
     fun mobieAuthUrl(clientId: String) = api.mobieAuthUrl(clientId)
 
-    /** 同步课表+校历：拉取、合并连堂、缓存。 */
+    /** 同步课表+校历：门户只返回单周，按学期设置把这一周铺成全学期。 */
     suspend fun syncSchedule(): Pair<CalendarInfo, List<CourseBlock>> {
-        val cal = api.calendar(store.portalToken, store.jobNumber)
-        val lessons = api.lessons(store.portalToken, store.jobNumber)
-        val blocks = mergeLessons(lessons)
+        val raw = api.calendar(store.portalToken, store.jobNumber)
+        // 用户可在设置里校正开学日期/总周数/当前周（拾光式）
+        val cal = raw.copy(
+            startDate = store.termStartDate.ifBlank { raw.startDate },
+            allWeek = if (store.termWeeks > 0) store.termWeeks else raw.allWeek,
+            week = if (store.termCurrentWeek > 0) store.termCurrentWeek else raw.week,
+        )
+        val weekLessons = api.lessons(store.portalToken, store.jobNumber)
+        val weekBlocks = mergeLessons(weekLessons)
+        // 门户没给周次范围，只能按单双周标记把本周课表复制到全学期
+        val total = cal.allWeek.coerceIn(1, 30)
+        val blocks = buildList {
+            for (w in 1..total) {
+                weekBlocks.forEach { b ->
+                    val parityOk = when (b.weekParity) {
+                        1 -> w % 2 == 1
+                        2 -> w % 2 == 0
+                        else -> true
+                    }
+                    if (parityOk) add(b.copy(week = w))
+                }
+            }
+        }
         store.saveCalendar(cal)
         store.saveBlocks(blocks)
         return cal to blocks

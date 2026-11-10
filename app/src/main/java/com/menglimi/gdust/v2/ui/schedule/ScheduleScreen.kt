@@ -113,9 +113,17 @@ fun ScheduleScreen(
 
         if (syncError != null) {
             Text(
-                text = "同步失败：$syncError（下拉/设置里重试）",
+                text = "同步失败：$syncError（设置里重试）",
                 fontSize = 12.sp,
                 color = ds.danger,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            )
+        } else if (blocks.isEmpty()) {
+            Text(
+                text = "还没有课表数据。先登录，再到「设置 → 同步课表」拉一次；全学期周次可在「学期设置」里校正。",
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                color = ds.sub,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
             )
         }
