@@ -321,8 +321,10 @@ private fun BreakBand(text: String, modifier: Modifier) {
 @Composable
 private fun LessonCard(block: CourseBlock, onClick: () -> Unit, modifier: Modifier) {
     val ds = LocalDs.current
-    val bg = Color(if (ds.isDark) CourseColors.bgDark(block.name) else CourseColors.bg(block.name))
-    val fg = if (ds.isDark) ds.text else Color(0xFF3A3A3C)
+    // Nexio 视觉：tint 低透明度底 + tint 原色文字（CourseCard.kt 规则）
+    val tint = CourseColors.tint(block.name)
+    val bg = CourseColors.bg(block.name, ds.isDark)
+    val fg = tint
 
     // 上课中：右下角状态点
     val now = LocalTime.now()
@@ -340,9 +342,9 @@ private fun LessonCard(block: CourseBlock, onClick: () -> Unit, modifier: Modifi
         Column {
             Text(
                 block.name,
-                fontSize = 11.sp,
-                lineHeight = 14.sp,
-                fontWeight = FontWeight.Medium,
+                fontSize = 12.7.sp,
+                lineHeight = 14.2.sp,
+                fontWeight = FontWeight.Bold,
                 color = fg,
                 maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
@@ -350,17 +352,19 @@ private fun LessonCard(block: CourseBlock, onClick: () -> Unit, modifier: Modifi
             if (block.room.isNotEmpty()) {
                 Text(
                     "@${block.room}",
-                    fontSize = 9.sp,
-                    color = fg.copy(alpha = 0.8f),
+                    fontSize = 11.sp,
+                    lineHeight = 12.sp,
+                    color = fg,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (block.endSection - block.startSection >= 1 && block.teacher.isNotEmpty()) {
+            if (block.teacher.isNotEmpty()) {
                 Text(
                     block.teacher,
-                    fontSize = 8.sp,
-                    color = fg.copy(alpha = 0.65f),
+                    fontSize = 11.sp,
+                    lineHeight = 12.sp,
+                    color = fg,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -382,7 +386,8 @@ private fun LessonCard(block: CourseBlock, onClick: () -> Unit, modifier: Modifi
 @Composable
 private fun LessonDetailDialog(block: CourseBlock, week: Int, calendar: CalendarInfo?, onDismiss: () -> Unit) {
     val ds = LocalDs.current
-    val bg = Color(if (ds.isDark) CourseColors.bgDark(block.name) else CourseColors.bg(block.name))
+    val bg = CourseColors.bg(block.name, ds.isDark)
+    val tint = CourseColors.tint(block.name)
     val start = ScheduleTimes.start(block.startSection)
     val end = ScheduleTimes.end(block.endSection)
     val date = calendar?.startDate?.let {
@@ -401,7 +406,7 @@ private fun LessonDetailDialog(block: CourseBlock, week: Int, calendar: Calendar
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 12.dp),
             ) {
-                Text(block.name, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (ds.isDark) ds.text else Color(0xFF3A3A3C))
+                Text(block.name, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = tint)
             }
             Spacer(Modifier.height(14.dp))
             listOf(

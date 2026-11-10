@@ -122,7 +122,9 @@ fun AppRoot(
 
     LaunchedEffect(Unit) {
         // App 打开即刷新桌面小组件（课程/电量可能变了）
-        runCatching { com.menglimi.gdust.v2.widget.TodayWidget.refresh(context) }
+        runCatching {
+            com.menglimi.gdust.v2.widget.TodayWidget().refreshAll(context)
+        }
         // 先恢复本机会话和缓存页面，网络校验在后；超时不让启动卡在空白页。
         val offlineSchedule = blocks.isNotEmpty()
         loggedIn.value = loggedIn.value || repo.store.hasSession || offlineSchedule
