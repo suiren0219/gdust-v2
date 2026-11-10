@@ -43,8 +43,9 @@ class MainActivity : ComponentActivity() {
             val showSettings = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
             val loggedIn = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
             val checked = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
-            AppTheme(styleState = style) {
-                AppRoot(app.repo, tab = tab, showSettings = showSettings, loggedIn = loggedIn, checked = checked)
+            val monetEnabled = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(app.repo.store.monetEnabled) }
+            AppTheme(styleState = style, monetEnabled = monetEnabled.value) {
+                AppRoot(app.repo, tab = tab, showSettings = showSettings, loggedIn = loggedIn, checked = checked, monetEnabled = monetEnabled)
             }
         }
     }

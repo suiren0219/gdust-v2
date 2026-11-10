@@ -1,12 +1,15 @@
 package com.menglimi.gdust.v2.ui.screens
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -111,6 +114,98 @@ fun SettingRow(
     }
 }
 
+/**
+ * 分组设置卡：一整张玻璃卡里装多行选项，行间细分隔，不再一张卡一个选项。
+ * 两套玻璃风格共用，颜色全部走 Ds（含莫奈取色）。
+ */
+@Composable
+fun SettingGroup(
+    modifier: Modifier = Modifier,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    val ds = LocalDs.current
+    val shape = RoundedCornerShape(20.dp)
+    Column(
+        modifier
+            .fillMaxWidth()
+            .background(ds.card, shape)
+            .then(
+                Modifier.border(
+                    width = 1.dp,
+                    color = ds.sub.copy(alpha = 0.16f),
+                    shape = shape,
+                )
+            )
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+    ) {
+        content()
+    }
+    Spacer(Modifier.height(12.dp))
+}
+
+/** 分组里的一行：标题+副标题 / 右侧值或箭头 / 可选开关，点击整行。 */
+@Composable
+fun SettingOption(
+    title: String,
+    subtitle: String? = null,
+    detail: String? = null,
+    danger: Boolean = false,
+    switch: Boolean? = null,
+    onSwitch: ((Boolean) -> Unit)? = null,
+    onClick: (() -> Unit)? = null,
+) {
+    val ds = LocalDs.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = if (danger) ds.danger else ds.text)
+            if (subtitle != null) {
+                Text(subtitle, fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub, modifier = Modifier.padding(top = 3.dp))
+            }
+        }
+        if (detail != null) Text(detail, fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(start = 8.dp))
+        if (switch != null && onSwitch != null) {
+            androidx.compose.material3.Switch(
+                checked = switch,
+                onCheckedChange = onSwitch,
+                modifier = Modifier.padding(start = 8.dp),
+                colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = ds.accent),
+            )
+        } else if (onClick != null) {
+            Text("›", fontSize = 18.sp, color = ds.sub, modifier = Modifier.padding(start = 8.dp))
+        }
+    }
+}
+
+/** 行间细分隔线（分组卡内用）。 */
+@Composable
+fun SettingDivider() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 14.dp)
+            .height(1.dp)
+            .background(LocalDs.current.sub.copy(alpha = 0.12f)),
+    )
+}
+
+/** 展开式编辑区：只有当前选中的选项才展开输入框/按钮，避免整页平铺。 */
+@Composable
+fun SettingEditor(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        content = content,
+    )
+}
+
 /** 两个/多个选项的分段选择器（两套风格都用同一视觉，颜色随 Ds）。 */
 @Composable
 fun <T> SegmentedChoice(
@@ -123,7 +218,7 @@ fun <T> SegmentedChoice(
     Row(
         modifier
             .fillMaxWidth()
-            .background(ds.bg.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+            .background(ds.sub.copy(alpha = 0.10f), RoundedCornerShape(12.dp))
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {

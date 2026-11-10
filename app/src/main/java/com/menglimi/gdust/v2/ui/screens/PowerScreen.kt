@@ -54,7 +54,6 @@ fun PowerScreen(repo: Repository) {
     var busy by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf("") }
     var netDown by remember { mutableStateOf(false) }
-    var interval by remember { mutableStateOf(store.sampleIntervalMinutes.toString()) }
     var intervalSaved by remember { mutableStateOf(false) }
 
     fun refresh() {
@@ -156,7 +155,6 @@ fun PowerScreen(repo: Repository) {
                                     )
                                     .clickable {
                                         store.sampleIntervalMinutes = m
-                                        interval = m.toString()
                                         intervalSaved = true
                                     }
                                     .padding(vertical = 10.dp),

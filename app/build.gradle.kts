@@ -93,4 +93,7 @@ dependencies {
     implementation("io.github.neoruaa.glasmio:glasmio-scaffold:0.1.2")
     implementation("io.github.neoruaa.glasmio:glasmio-preference:0.1.2")
     implementation("io.github.neoruaa.glasmio:glasmio-ui:0.1.2")
+
+    // 莫奈取色：MaterialKolor 纯 Kotlin 引擎（MIT，无 Compose/native 依赖，不会抬 runtime 版本）
+    implementation("com.materialkolor:material-color-utilities:6.0.0")
 }

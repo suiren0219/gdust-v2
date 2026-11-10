@@ -12,6 +12,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.haooz.softglass.backdrop.backdrops.LayerBackdrop
@@ -39,6 +40,33 @@ fun dsFor(dark: Boolean): Ds = if (dark) Ds(
     text = Color(0xFF1C1C1E), sub = Color(0xFF8A8A8F), accent = Color(0xFF007AFF),
     accentSoft = Color(0x14007AFF), breakBar = Color(0xFFECECF1), danger = Color(0xFFE5484D), isDark = false,
 )
+
+/**
+ * 莫奈取色：拿系统壁纸色（Material You）当种子，经 MaterialKolor 生成完整色调方案。
+ * API 33+ 无需权限、无需 AppCompat；取不到就回落默认 Ds。两套玻璃风格共用。
+ */
+@Composable
+fun monetDs(dark: Boolean, base: Ds, enabled: Boolean): Ds {
+    if (!enabled || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) return base
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val system = if (dark) androidx.compose.material3.dynamicDarkColorScheme(ctx)
+    else androidx.compose.material3.dynamicLightColorScheme(ctx)
+    val scheme = com.materialkolor.scheme.SchemeTonalSpot(
+        sourceColorHct = com.materialkolor.hct.Hct.fromInt(system.primary.toArgb()),
+        isDark = dark,
+        contrastLevel = 0.0,
+    )
+    return base.copy(
+        bg = Color(scheme.background),
+        card = Color(scheme.surface),
+        text = Color(scheme.onSurface),
+        sub = Color(scheme.onSurfaceVariant),
+        accent = Color(scheme.primary),
+        accentSoft = Color(scheme.primary).copy(alpha = 0.14f),
+        breakBar = Color(scheme.surfaceContainerHigh),
+        danger = Color(scheme.error),
+    )
+}
 
 /** Material 排版统一（两套风格共用，颜色随 Ds）。 */
 @Composable

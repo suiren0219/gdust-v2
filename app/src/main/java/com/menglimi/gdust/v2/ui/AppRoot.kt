@@ -54,6 +54,7 @@ fun AppRoot(
     showSettings: androidx.compose.runtime.MutableState<Boolean>,
     loggedIn: androidx.compose.runtime.MutableState<Boolean>,
     checked: androidx.compose.runtime.MutableState<Boolean>,
+    monetEnabled: androidx.compose.runtime.MutableState<Boolean>,
 ) {
     val scope = rememberCoroutineScope()
     // loggedIn/checked 由 MainActivity（主题树外）持有：切风格重建主题树也不丢
@@ -62,6 +63,8 @@ fun AppRoot(
     var blocks by remember { mutableStateOf<List<CourseBlock>>(repo.store.loadBlocks()) }
     var syncError by remember { mutableStateOf<String?>(null) }
     var netDown by remember { mutableStateOf(false) }
+    // 设置页当前展开的编辑区（切风格重建时收起即可，不影响页面栈）
+    val openSection = remember { mutableStateOf<String?>(null) }
 
 
     fun sync() {
@@ -113,6 +116,8 @@ fun AppRoot(
                     showSettings.value = false
                 },
                 loggedIn = loggedIn.value,
+                monetEnabled = monetEnabled,
+                openSection = openSection,
                 onBack = { showSettings.value = false },
             )
             "main" -> MainScaffold(
@@ -228,6 +233,18 @@ private fun BoxScope.LiquidBottomBar(
     tab: Int, onTab: (Int) -> Unit, onSettings: () -> Unit,
 ) {
     val compact = remember { androidx.compose.runtime.mutableStateOf(0f) }
+    val tabItems = remember {
+        listOf(
+            io.github.neoruaa.glasmio.ui.GlasmioTabItem(0, "今日", io.github.neoruaa.glasmio.icons.SfSymbol.House),
+            io.github.neoruaa.glasmio.ui.GlasmioTabItem(1, "课表", io.github.neoruaa.glasmio.icons.SfSymbol.Clock),
+            io.github.neoruaa.glasmio.ui.GlasmioTabItem(2, "电费", io.github.neoruaa.glasmio.icons.SfSymbol.Sparkles),
+            io.github.neoruaa.glasmio.ui.GlasmioTabItem(3, "待办", io.github.neoruaa.glasmio.icons.SfSymbol.Star),
+        )
+    }
+    // 官方 trailingItem：设置齿轮独占一颗 icon-only 胶囊，与 4 个 tab 并排不重叠
+    val settingsItem = remember {
+        io.github.neoruaa.glasmio.ui.GlasmioTabItem(4, "设置", io.github.neoruaa.glasmio.icons.SfSymbol.Settings)
+    }
     Box(
         Modifier
             .align(Alignment.BottomCenter)
@@ -235,33 +252,16 @@ private fun BoxScope.LiquidBottomBar(
             .padding(horizontal = 16.dp)
             .padding(bottom = 14.dp),
     ) {
-        io.github.neoruaa.glasmio.ui.GlasmioNavigationBar(
-            items = listOf(
-                io.github.neoruaa.glasmio.ui.GlasmioTabItem(0, "今日", io.github.neoruaa.glasmio.icons.SfSymbol.House),
-                io.github.neoruaa.glasmio.ui.GlasmioTabItem(1, "课表", io.github.neoruaa.glasmio.icons.SfSymbol.Clock),
-                io.github.neoruaa.glasmio.ui.GlasmioTabItem(2, "电费", io.github.neoruaa.glasmio.icons.SfSymbol.Sparkles),
-                io.github.neoruaa.glasmio.ui.GlasmioTabItem(3, "待办", io.github.neoruaa.glasmio.icons.SfSymbol.Star),
-            ),
+        io.github.neoruaa.glasmio.scaffold.GlasmioNavigationBarWithTrailingItem(
+            items = tabItems,
+            trailingItem = settingsItem,
             selectedKey = tab,
-            onSelected = { if (it < 4) onTab(it) },
+            onSelected = { if (it < 4) onTab(it) else onSettings() },
             onExpand = { },
             compactProgress = compact,
             compactSize = 56.dp,
+            detachTrailingItem = true,
             modifier = Modifier.fillMaxWidth(),
         )
-    }
-    // 设置钮与 Glasmio 导航栏同一水平、贴右缘（不再悬空错位）
-    Box(
-        Modifier
-            .align(Alignment.BottomEnd)
-            .navigationBarsPadding()
-            .padding(end = 8.dp)
-            .padding(bottom = 20.dp)
-            .size(44.dp)
-            .background(LocalDs.current.card.copy(alpha = 0.9f), CircleShape)
-            .clickable { onSettings() },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text("设", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = LocalDs.current.sub)
     }
 }

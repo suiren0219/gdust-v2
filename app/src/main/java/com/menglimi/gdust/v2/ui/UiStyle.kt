@@ -20,12 +20,12 @@ val LocalUiStyle = compositionLocalOf<MutableState<UiStyle>> { error("no UiStyle
 
 /** 全局主题入口：按风格把状态注入，再分派到对应实现。 */
 @Composable
-fun AppTheme(styleState: MutableState<UiStyle>, content: @Composable () -> Unit) {
+fun AppTheme(styleState: MutableState<UiStyle>, monetEnabled: Boolean = false, content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
     CompositionLocalProvider(LocalUiStyle provides styleState) {
         when (styleState.value) {
-            UiStyle.SOFT -> SoftGlassAppTheme(dark = dark, content = content)
-            UiStyle.LIQUID -> LiquidGlassAppTheme(dark = dark, content = content)
+            UiStyle.SOFT -> SoftGlassAppTheme(dark = dark, monetEnabled = monetEnabled, content = content)
+            UiStyle.LIQUID -> LiquidGlassAppTheme(dark = dark, monetEnabled = monetEnabled, content = content)
         }
     }
 }

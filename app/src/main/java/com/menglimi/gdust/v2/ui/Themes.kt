@@ -14,8 +14,8 @@ import com.haooz.softglass.backdrop.backdrops.layerBackdrop
 
 /** 风格一：HyperOS 柔光（softglass）。 */
 @Composable
-fun SoftGlassAppTheme(dark: Boolean, content: @Composable () -> Unit) {
-    val ds = dsFor(dark)
+fun SoftGlassAppTheme(dark: Boolean, monetEnabled: Boolean = false, content: @Composable () -> Unit) {
+    val ds = monetDs(dark, dsFor(dark), monetEnabled)
     SoftGlassTheme(
         preset = GlassPreset.Default,
         level = GlassMaterialLevel.SOFT,
@@ -37,11 +37,12 @@ fun SoftGlassAppTheme(dark: Boolean, content: @Composable () -> Unit) {
 
 /** 风格二：iOS 27 液态玻璃（Glasmio）。 */
 @Composable
-fun LiquidGlassAppTheme(dark: Boolean, content: @Composable () -> Unit) {
-    val ds = dsFor(dark)
+fun LiquidGlassAppTheme(dark: Boolean, monetEnabled: Boolean = false, content: @Composable () -> Unit) {
+    val base = monetDs(dark, dsFor(dark), monetEnabled)
     io.github.neoruaa.glasmio.core.GlasmioTheme(isDark = dark) {
         val glass = io.github.neoruaa.glasmio.core.GlasmioTheme.colors
-        val mapped = ds.copy(
+        // 莫奈开启时保留取色结果，不让 Glasmio 原生色盖掉（关则沿用原生 iOS 配色）
+        val mapped = if (monetEnabled) base.copy(cardStroke = glass.separator) else base.copy(
             bg = glass.groupedBackground,
             card = glass.container,
             text = glass.content,

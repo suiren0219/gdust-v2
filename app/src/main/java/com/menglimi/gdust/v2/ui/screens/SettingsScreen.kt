@@ -1,7 +1,6 @@
 package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -30,12 +28,15 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
-import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.ui.LocalUiStyle
 import com.menglimi.gdust.v2.ui.UiStyle
 import kotlinx.coroutines.launch
 
+/**
+ * 设置：分组行式选项，编辑区点开才展开（不再一页平铺一堆输入框和大卡）。
+ * openSection 由 AppRoot（主题树内）持有，切风格收起编辑区即可，不丢页面栈。
+ */
 @Composable
 fun SettingsScreen(
     repo: Repository,
@@ -44,6 +45,8 @@ fun SettingsScreen(
     onLogout: () -> Unit,
     onBack: () -> Unit,
     loggedIn: Boolean = true,
+    monetEnabled: androidx.compose.runtime.MutableState<Boolean>,
+    openSection: androidx.compose.runtime.MutableState<String?>,
 ) {
     val ds = LocalDs.current
     val store = repo.store
@@ -60,6 +63,11 @@ fun SettingsScreen(
     var dropText by remember { mutableStateOf(store.warnDropRate.toInt().toString()) }
     var thresholdSaved by remember { mutableStateOf(false) }
     var synced by remember { mutableStateOf(false) }
+    val intervalOptions = listOf(15, 30, 60, 120)
+
+    fun toggle(section: String) {
+        openSection.value = if (openSection.value == section) null else section
+    }
 
     Column(
         Modifier
@@ -74,143 +82,187 @@ fun SettingsScreen(
 
         // ── 外观 ──
         SectionHeader("外观")
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("界面风格", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
-                Text("切换后整套主题、卡片、输入框、按钮、底栏都换风格", fontSize = 12.sp, color = ds.sub)
-                val styleState = LocalUiStyle.current
-                SegmentedChoice(
-                    options = UiStyle.entries.map { it to it.label },
-                    selected = styleState.value,
-                    onSelect = { styleState.value = it },
-                )
-                Text(styleState.value.desc, fontSize = 11.sp, color = ds.sub)
+        SettingGroup {
+            val styleState = LocalUiStyle.current
+            SettingOption(
+                title = "界面风格",
+                subtitle = "整套主题、卡片、输入框、按钮、底栏都跟着换",
+                detail = styleState.value.label,
+                onClick = { toggle("style") },
+            )
+            if (openSection.value == "style") {
+                SettingDivider()
+                SettingEditor {
+                    SegmentedChoice(
+                        options = UiStyle.entries.map { it to it.label },
+                        selected = styleState.value,
+                        onSelect = { styleState.value = it },
+                    )
+                    Text(styleState.value.desc, fontSize = 11.sp, color = ds.sub)
+                }
             }
+            SettingDivider()
+            SettingOption(
+                title = "莫奈取色",
+                subtitle = "跟随系统壁纸配色；关闭则用默认蓝",
+                switch = monetEnabled.value,
+                onSwitch = {
+                    monetEnabled.value = it
+                    store.monetEnabled = it
+                },
+            )
         }
 
         // ── 账号与数据 ──
         SectionHeader("账号与数据")
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(store.realName.ifEmpty { "未登录" }, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = ds.text)
-                SettingRow(
-                    title = "学号",
-                    detail = store.jobNumber.ifEmpty { "—" },
-                )
-                Text("本机直连门户，登录凭证只存本机；密码不落盘", fontSize = 11.sp, color = ds.sub)
+        SettingGroup {
+            SettingOption(
+                title = store.realName.ifEmpty { "未登录" },
+                subtitle = if (store.jobNumber.isEmpty()) "登录凭证只存本机，密码不落盘" else "学号 ${store.jobNumber}",
+            )
+            SettingDivider()
+            SettingOption(
+                title = "同步课表",
+                subtitle = "拉取课表 + 校历，连堂自动合并成整卡",
+                detail = when {
+                    syncError != null -> "失败"
+                    synced -> "已同步 ✓"
+                    else -> null
+                },
+                onClick = { onSync(); synced = true },
+            )
+            if (syncError != null) {
+                SettingEditor { Text("失败：$syncError", fontSize = 11.sp, color = ds.danger) }
             }
-        }
-        Spacer(Modifier.height(10.dp))
-        GlassCard(onClick = {
-            onSync()
-            synced = true
-        }) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("同步课表", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = ds.text)
-                    Text("拉取课表 + 校历，连堂自动合并成整卡", fontSize = 11.sp, color = ds.sub, modifier = Modifier.padding(top = 3.dp))
-                    if (synced && syncError == null) {
-                        Text("已同步 ✓", fontSize = 11.sp, color = ds.accent, modifier = Modifier.padding(top = 4.dp))
-                    }
-                    if (syncError != null) {
-                        Text("失败：$syncError", fontSize = 11.sp, color = ds.danger, modifier = Modifier.padding(top = 4.dp))
-                    }
-                }
-                Text("›", fontSize = 18.sp, color = ds.sub)
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("课表数据", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
-                SettingRow(title = "本地缓存课程", detail = "${store.loadBlocks().size} 张卡")
-                SettingRow(title = "校历", detail = store.loadCalendar()?.let { "第 ${it.week}/${it.allWeek} 周" } ?: "未同步")
-            }
+            SettingDivider()
+            SettingOption(title = "本地缓存课程", detail = "${store.loadBlocks().size} 张卡")
+            SettingDivider()
+            SettingOption(
+                title = "校历",
+                detail = store.loadCalendar()?.let { "第 ${it.week}/${it.allWeek} 周" } ?: "未同步",
+            )
         }
 
         // ── 通知 AI 总结 ──
         SectionHeader("通知 AI 总结")
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("中转站配置", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
-                Text("用户自填 OpenAI 兼容端点；不填则不启用，密钥只存本机", fontSize = 11.sp, color = ds.sub)
-                InputField(base, { base = it; saved = false }, "API Base，如 https://…/v1")
-                InputField(key, { key = it; saved = false }, "API Key", visual = PasswordVisualTransformation())
-                InputField(model, { model = it; saved = false }, "模型名")
-                Button(
-                    text = if (saved) "已保存 ✓" else "保存配置",
-                    enabled = base.isNotBlank() && key.isNotBlank() && model.isNotBlank(),
-                    onClick = {
-                        store.llmBase = base.trim()
-                        store.llmKey = key.trim()
-                        store.llmModel = model.trim()
-                        saved = true
-                    },
-                )
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("生成总结", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
-                summary?.let { Text(it, fontSize = 13.sp, lineHeight = 18.sp, color = ds.text) }
-                    ?: Text(
-                        if (store.hasLlm) "把最近的学校公告交给你的模型提炼要点"
-                        else "先填好上面的中转站配置，才能生成总结",
-                        fontSize = 12.sp,
-                        color = ds.sub,
+        SettingGroup {
+            SettingOption(
+                title = "中转站配置",
+                subtitle = "自填 OpenAI 兼容端点，密钥只存本机",
+                detail = if (store.hasLlm) "已配置" else "未配置",
+                onClick = { toggle("llm") },
+            )
+            if (openSection.value == "llm") {
+                SettingDivider()
+                SettingEditor {
+                    InputField(base, { base = it; saved = false }, "API Base，如 https://…/v1")
+                    InputField(key, { key = it; saved = false }, "API Key", visual = PasswordVisualTransformation())
+                    InputField(model, { model = it; saved = false }, "模型名")
+                    Button(
+                        text = if (saved) "已保存 ✓" else "保存配置",
+                        enabled = base.isNotBlank() && key.isNotBlank() && model.isNotBlank(),
+                        onClick = {
+                            store.llmBase = base.trim()
+                            store.llmKey = key.trim()
+                            store.llmModel = model.trim()
+                            saved = true
+                        },
                     )
-                Button(
-                    text = if (summarizing) "思考中…" else if (summary == null) "生成总结" else "重新总结",
-                    enabled = store.hasLlm && !summarizing,
-                    onClick = {
-                        summarizing = true
-                        summaryError = ""
-                        scope.launch {
-                            runCatching { repo.summarize() }
-                                .onSuccess { summary = it }
-                                .onFailure { summaryError = it.message ?: "总结失败" }
-                            summarizing = false
-                        }
-                    },
-                )
-                if (summaryError.isNotEmpty()) Text(summaryError, fontSize = 12.sp, color = ds.danger)
+                }
+            }
+            SettingDivider()
+            SettingOption(
+                title = "生成总结",
+                subtitle = if (store.hasLlm) "把最近的学校公告交给你的模型提炼要点" else "先填好上面的中转站配置",
+                detail = if (summary != null) "查看" else null,
+                onClick = { toggle("summary") },
+            )
+            if (openSection.value == "summary") {
+                SettingDivider()
+                SettingEditor {
+                    summary?.let { Text(it, fontSize = 13.sp, lineHeight = 18.sp, color = ds.text) }
+                        ?: Text(
+                            if (store.hasLlm) "点下方按钮生成" else "中转站还没配置好",
+                            fontSize = 12.sp, color = ds.sub,
+                        )
+                    Button(
+                        text = if (summarizing) "思考中…" else if (summary == null) "生成总结" else "重新总结",
+                        enabled = store.hasLlm && !summarizing,
+                        onClick = {
+                            summarizing = true
+                            summaryError = ""
+                            scope.launch {
+                                runCatching { repo.summarize() }
+                                    .onSuccess { summary = it }
+                                    .onFailure { summaryError = it.message ?: "总结失败" }
+                                summarizing = false
+                            }
+                        },
+                    )
+                    if (summaryError.isNotEmpty()) Text(summaryError, fontSize = 12.sp, color = ds.danger)
+                }
             }
         }
 
         // ── 水电预警 ──
         SectionHeader("水电预警")
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("阈值与采样", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
-                Text("后台每 15 分钟巡检，按自选间隔采样；同类预警 12 小时冷却", fontSize = 11.sp, color = ds.sub)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    InputField(thresholdText, { thresholdText = it; thresholdSaved = false }, "低电量阈值(度)", KeyboardType.Number, Modifier.weight(1f))
-                    InputField(dropText, { dropText = it; thresholdSaved = false }, "掉电速率(度/时)", KeyboardType.Number, Modifier.weight(1f))
+        SettingGroup {
+            SettingOption(
+                title = "低电量阈值",
+                subtitle = "剩余电量低于此值时提醒",
+                detail = "${store.warnThreshold.toInt()} 度",
+                onClick = { toggle("warn") },
+            )
+            if (openSection.value == "warn") {
+                SettingDivider()
+                SettingEditor {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        InputField(thresholdText, { thresholdText = it; thresholdSaved = false }, "低电量阈值(度)", KeyboardType.Number, Modifier.weight(1f))
+                        InputField(dropText, { dropText = it; thresholdSaved = false }, "掉电速率(度/时)", KeyboardType.Number, Modifier.weight(1f))
+                    }
+                    Button(if (thresholdSaved) "已保存 ✓" else "保存阈值") {
+                        thresholdText.toFloatOrNull()?.let { store.warnThreshold = it }
+                        dropText.toFloatOrNull()?.let { store.warnDropRate = it }
+                        thresholdSaved = true
+                    }
+                    Text("后台每 15 分钟巡检，同类预警 12 小时冷却", fontSize = 11.sp, color = ds.sub)
                 }
-                Button(if (thresholdSaved) "已保存 ✓" else "保存阈值") {
-                    thresholdText.toFloatOrNull()?.let { store.warnThreshold = it }
-                    dropText.toFloatOrNull()?.let { store.warnDropRate = it }
-                    thresholdSaved = true
+            }
+            SettingDivider()
+            SettingOption(
+                title = "采样间隔",
+                subtitle = "记录电量走势的时间间隔",
+                detail = "${store.sampleIntervalMinutes} 分钟",
+                onClick = { toggle("interval") },
+            )
+            if (openSection.value == "interval") {
+                SettingDivider()
+                SettingEditor {
+                    SegmentedChoice(
+                        options = intervalOptions.map { it to "${it}分" },
+                        selected = store.sampleIntervalMinutes,
+                        onSelect = { store.sampleIntervalMinutes = it },
+                    )
+                    Text("间隔越密，走势越细；后台仍按 15 分钟巡检", fontSize = 11.sp, color = ds.sub)
                 }
-                Text("采样间隔：在「电费」页可切换 15 / 30 / 60 / 120 分钟", fontSize = 11.sp, color = ds.sub)
             }
         }
 
-        // ── 关于与账户 ──
+        // ── 关于 ──
         SectionHeader("关于")
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                SettingRow(title = "版本", detail = "v2 · 双风格")
-                SettingRow(title = "数据链路", detail = "本机直连")
-                Text("课表/校历/通知 → 学校门户；水电 → 完美校园；总结 → 你自填的 API", fontSize = 11.sp, color = ds.sub)
-                Text("不使用任何自建服务器，无账号体系、无遥测", fontSize = 11.sp, color = ds.sub)
-            }
+        SettingGroup {
+            SettingOption(title = "版本", detail = "v2 · 双风格")
+            SettingDivider()
+            SettingOption(title = "数据链路", detail = "本机直连")
+            SettingDivider()
+            SettingOption(
+                title = "隐私",
+                subtitle = "课表/校历/通知 → 学校门户；水电 → 完美校园；总结 → 你自填的 API。无自建服务器、无账号体系、无遥测",
+            )
         }
         if (loggedIn) {
-            Spacer(Modifier.height(10.dp))
-            GlassCard(onClick = onLogout) {
-                Text("退出登录并清除本机数据", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = ds.danger)
+            SettingGroup {
+                SettingOption(title = "退出登录并清除本机数据", danger = true, onClick = onLogout)
             }
         }
 

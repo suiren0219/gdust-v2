@@ -113,6 +113,11 @@ class Store(context: Context) {
         get() = plain.getString("ui_style", "SOFT") ?: "SOFT"
         set(v) = plain.edit().putString("ui_style", v).apply()
 
+    /** 莫奈取色：用系统壁纸色（Material You）生成整套 Ds 令牌；关=默认蓝。 */
+    var monetEnabled: Boolean
+        get() = plain.getBoolean("monet_enabled", false)
+        set(v) = plain.edit().putBoolean("monet_enabled", v).apply()
+
     var sampleIntervalMinutes: Int
         get() = plain.getInt("sample_interval", 60)
         set(v) { plain.edit().putInt("sample_interval", v).apply(); publishPowerWorkerConfig() }
