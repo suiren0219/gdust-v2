@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -89,6 +91,10 @@ fun PowerScreen(repo: Repository) {
         PageTitle(title = "宿舍电费", subtitle = "完美校园智能水电 · 本机直连查询")
 
         if (store.hasPowerBinding) {
+            val weekUse = detail?.weekUse.orEmpty()
+            // 预计可用天数：近 7 日平均日耗为 0 时（如刚充值）不显示估算，避免误导
+            val avgDaily = weekUse.map { it.second }.takeIf { it.isNotEmpty() }?.average()?.takeIf { it > 0.01 }
+            val daysLeft = avgDaily?.let { detail?.odd?.div(it) }
             GlassCard {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(store.powerRoomName, fontSize = 14.sp, color = ds.sub)
@@ -100,8 +106,20 @@ fun PowerScreen(repo: Repository) {
                         modifier = Modifier.padding(top = 4.dp),
                     )
                     Text("剩余电量（度）", fontSize = 12.sp, color = ds.sub)
-                    detail?.todayUse?.let {
-                        Text("今日用 %.1f 度".format(it), fontSize = 12.sp, color = ds.sub, modifier = Modifier.padding(top = 6.dp))
+                    Row(
+                        Modifier.padding(top = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        detail?.todayUse?.let { Text("今日 %.1f 度".format(it), fontSize = 12.sp, color = ds.sub) }
+                        daysLeft?.let {
+                            Text(
+                                "约可用 %.0f 天".format(it),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (it < 3) ds.danger else ds.sub,
+                            )
+                        }
                     }
                 }
             }
@@ -114,8 +132,8 @@ fun PowerScreen(repo: Repository) {
                     if (samples.size < 2) {
                         Text("采样点还不够，等下一个间隔自动记点（或点下方刷新）", fontSize = 12.sp, color = ds.sub)
                     } else {
-                        UsageChart(samples.takeLast(24))
-                        Text("共 ${samples.size} 个采样点 · 每 ${store.sampleIntervalMinutes} 分钟一次", fontSize = 11.sp, color = ds.sub)
+                        UsageChart(samples.takeLast(24), store.warnThreshold)
+                        Text("共 ${samples.size} 个采样点 · 每 ${store.sampleIntervalMinutes} 分钟一次 · 虚线为预警线（${store.warnThreshold.toInt()} 度）", fontSize = 11.sp, color = ds.sub)
                     }
                 }
             }
@@ -124,13 +142,31 @@ fun PowerScreen(repo: Repository) {
             // 接口自带近 7 日
             val week = detail?.weekUse.orEmpty()
             if (week.isNotEmpty()) {
+                val maxUse = week.maxOf { it.second }.coerceAtLeast(0.1)
                 GlassCard {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("近 7 日用电（接口自带）", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
                         week.forEach { (day, use) ->
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(day, fontSize = 13.sp, color = ds.text)
-                                Text("%.1f 度".format(use), fontSize = 13.sp, color = ds.sub)
+                            Column {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text(day, fontSize = 13.sp, color = ds.text)
+                                    Text("%.1f 度".format(use), fontSize = 13.sp, color = ds.sub)
+                                }
+                                // 用量比例条：一眼看出哪天用电最多
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 3.dp)
+                                        .height(4.dp)
+                                        .background(ds.sub.copy(alpha = 0.1f), androidx.compose.foundation.shape.RoundedCornerShape(2.dp)),
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .fillMaxWidth((use / maxUse).toFloat().coerceIn(0.02f, 1f))
+                                            .height(4.dp)
+                                            .background(ds.accent.copy(alpha = 0.6f), androidx.compose.foundation.shape.RoundedCornerShape(2.dp)),
+                                    )
+                                }
                             }
                         }
                     }
@@ -225,34 +261,121 @@ fun PowerScreen(repo: Repository) {
     NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
 }
 
-/** Canvas 手绘小时折线（不引图表库）。 */
+/**
+ * 电量走势图（不引图表库）：
+ * Y 轴刻度数值 + X 轴时间刻度 + 网格线 + 面积渐变 + 预警阈值虚线 + 最新值标签。
+ * 数据点不足时退化为提示文案，不画空轴。
+ */
 @Composable
-private fun UsageChart(samples: List<Store.Sample>) {
+private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
     val ds = LocalDs.current
     val values = samples.map { it.odd.toFloat() }
-    val min = values.minOrNull() ?: 0f
-    val max = values.maxOrNull() ?: 1f
-    val span = (max - min).coerceAtLeast(1f)
-    Canvas(Modifier.fillMaxWidth().height(110.dp)) {
-        val w = size.width
-        val h = size.height
-        val stepX = if (values.size > 1) w / (values.size - 1) else w
-        val pts = values.mapIndexed { i, v ->
-            Offset(i * stepX, h - (v - min) / span * (h * 0.8f) - h * 0.1f)
+    val minV = values.min()
+    val maxV = values.max()
+    // 纵轴留 8% 余量并取整刻度，避免数据贴边
+    val lo = (minV - (maxV - minV).coerceAtLeast(1f) * 0.1f).let { kotlin.math.floor(it * 2f) / 2f }
+    val hi = (maxV + (maxV - minV).coerceAtLeast(1f) * 0.1f).let { kotlin.math.ceil(it * 2f) / 2f }
+    val span = (hi - lo).coerceAtLeast(0.5f)
+
+    // 横轴时间刻度：取首/1/3、2/3/尾共 3~4 个采样点标 HH:mm
+    val xLabels = remember(samples) {
+        val n = samples.size
+        val idx = when {
+            n <= 4 -> samples.indices.toList()
+            else -> listOf(0, n / 3, n * 2 / 3, n - 1).distinct()
         }
-        val path = Path().apply {
-            moveTo(pts.first().x, pts.first().y)
-            pts.drop(1).forEach { lineTo(it.x, it.y) }
-        }
-        drawPath(path, color = ds.accent, style = Stroke(width = 3f))
-        pts.forEach { drawCircle(color = ds.accent, radius = 3.5f, center = it) }
-        drawLine(
-            color = ds.sub.copy(alpha = 0.3f),
-            start = Offset(0f, h - 1f), end = Offset(w, h - 1f), strokeWidth = 1f,
-        )
+        val fmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.CHINA)
+        idx.map { i -> i to fmt.format(java.util.Date(samples[i].time)) }
     }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text("%.1f".format(values.last()), fontSize = 11.sp, color = ds.sub)
-        Text("%.1f° ~ %.1f°".format(min, max), fontSize = 11.sp, color = ds.sub)
+
+    Column {
+        Row(Modifier.fillMaxWidth().height(150.dp)) {
+            // Y 轴刻度：lo / 中点 / hi 三个数值标签
+            Column(
+                Modifier.width(34.dp).fillMaxHeight(),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.End,
+            ) {
+                Text("%.0f".format(hi), fontSize = 10.sp, color = ds.sub)
+                Text("%.0f".format((lo + hi) / 2f), fontSize = 10.sp, color = ds.sub)
+                Text("%.0f".format(lo), fontSize = 10.sp, color = ds.sub)
+            }
+            Canvas(Modifier.weight(1f).fillMaxHeight().padding(start = 6.dp)) {
+                val w = size.width
+                val h = size.height
+                val left = 8f
+                val plotW = w - left
+                fun y(v: Float) = h - (v - lo) / span * (h - 20f) - 10f
+                fun x(i: Int) = left + if (values.size > 1) i * plotW / (values.size - 1) else plotW / 2f
+
+                // 水平网格线（3 条，最淡）
+                listOf(hi, (lo + hi) / 2f, lo).forEach { v ->
+                    drawLine(
+                        color = ds.sub.copy(alpha = 0.12f),
+                        start = Offset(left, y(v)), end = Offset(w, y(v)),
+                        strokeWidth = 1f,
+                    )
+                }
+                // 低电量阈值虚线（越界才画，避免噪音）
+                if (warnThreshold in lo..hi) {
+                    val ty = y(warnThreshold)
+                    val seg = 10f
+                    var px = left
+                    while (px < w) {
+                        drawLine(
+                            color = ds.danger.copy(alpha = 0.5f),
+                            start = Offset(px, ty),
+                            end = Offset(minOf(px + seg, w), ty),
+                            strokeWidth = 2f,
+                        )
+                        px += seg * 2
+                    }
+                }
+                // 面积渐变（从折线到底部），然后折线
+                val pts = values.mapIndexed { i, v -> Offset(x(i), y(v)) }
+                val area = Path().apply {
+                    moveTo(pts.first().x, h - 10f)
+                    pts.forEach { lineTo(it.x, it.y) }
+                    lineTo(pts.last().x, h - 10f)
+                    close()
+                }
+                drawPath(
+                    area,
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        0f to ds.accent.copy(alpha = 0.18f),
+                        1f to ds.accent.copy(alpha = 0f),
+                    ),
+                )
+                val line = Path().apply {
+                    moveTo(pts.first().x, pts.first().y)
+                    pts.drop(1).forEach { lineTo(it.x, it.y) }
+                }
+                drawPath(line, color = ds.accent, style = Stroke(width = 3.5f))
+                // 只在端点画圆点，中间点保持干净
+                drawCircle(color = ds.accent, radius = 4.5f, center = pts.last())
+                drawCircle(color = ds.card, radius = 2.5f, center = pts.last())
+                pts.takeIf { it.size <= 6 }?.forEach { drawCircle(color = ds.accent, radius = 3f, center = it) }
+            }
+        }
+        // X 轴时间刻度
+        Row(Modifier.fillMaxWidth().padding(start = 40.dp, top = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            xLabels.forEach { (_, label) ->
+                Text(label, fontSize = 10.sp, color = ds.sub)
+            }
+        }
+        // 最新值 + 区间摘要
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .background(ds.accent.copy(alpha = 0.14f), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            ) {
+                Text("最新 %.1f 度".format(values.last()), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ds.accent)
+            }
+            Text(
+                "%.0f 度/小时".format(if (values.size > 1) kotlin.math.abs(values.last() - values.first()) / ((samples.last().time - samples.first().time) / 3600000f).coerceAtLeast(0.25f) else 0f),
+                fontSize = 11.sp, color = ds.sub,
+            )
+        }
     }
 }

@@ -34,7 +34,7 @@ data class CalendarInfo(
 data class Lesson(
     val week: Int, val day: Int, val section: Int,
     val name: String, val room: String, val teacher: String, val date: String,
-    /** 门户单双周标记：0=每周，1=单周，2=双周（用于把本周课表铺到全学期）。 */
+    /** 门户原始单双周标记，仅作元数据；不能据此推断其他周。 */
     val weekParity: Int = 0,
 )
 
@@ -88,6 +88,7 @@ class GdustApi {
         form?.let { b.post(it) }
         http.newCall(b.build()).execute().use { r ->
             val text = r.body?.string().orEmpty()
+            if (token != null) schoolAuthFailure(r.code, text)?.let { throw it }
             if (!r.isSuccessful) throw RuntimeException("HTTP ${r.code}: ${text.take(120)}")
             return text
         }
@@ -154,6 +155,34 @@ class GdustApi {
                 },
             )
         }
+    }
+
+    /** 复用已登录教务的 Cookie；不向其他主机发送凭证，不把登录页当课表解析。 */
+    suspend fun termSchedule(session: TeachingSession, calendar: CalendarInfo): List<CourseBlock> = io {
+        require(isTeachingEndpoint(session.endpoint))
+        val form = FormBody.Builder().add("xnm", calendar.year).add("xqm", calendar.semester)
+            .add("kzlx", "ck").add("xsdm", "").add("kclbdm", "").build()
+        val request = Request.Builder().url(session.endpoint)
+            .header("Cookie", session.cookie)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 13)")
+            .post(form).build()
+        http.newBuilder().followRedirects(false).followSslRedirects(false).build()
+            .newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val location = response.header("Location").orEmpty()
+                if (response.code == 401 || response.code == 901 ||
+                    (response.code in 300..399 && (location.contains("login", true) || location.contains("/cas", true)))) {
+                    throw AuthFailed(401, "教务登录会话已失效，请重新登录教务")
+                }
+                if (!response.isSuccessful) error("教务请求失败 HTTP ${response.code}")
+                val json = runCatching { jsonObj(body) }.getOrElse {
+                    if (body.contains("login_slogin", true) || body.contains("name=\"yhm\"", true)) {
+                        throw AuthFailed(401, "教务登录会话已失效，请重新登录教务")
+                    }
+                    error("教务未返回课表 JSON，已保留登录会话和旧课表")
+                }
+                ZfScheduleParser.parse(json.toString(), calendar)
+            }
     }
 
     suspend fun notices(token: String, job: String): List<Notice> = io {

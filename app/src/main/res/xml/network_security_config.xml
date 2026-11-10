@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <!-- 拾光 GDUST 适配的教务内网与校外入口使用 HTTP，仅放行这两个主机。 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">172.16.254.1</domain>
+        <domain includeSubdomains="false">gkjx.gdust.edu.cn</domain>
+    </domain-config>
+</network-security-config>

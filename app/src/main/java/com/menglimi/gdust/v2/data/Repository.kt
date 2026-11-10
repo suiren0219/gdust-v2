@@ -70,12 +70,27 @@ class Store(context: Context) {
         runCatching { gson.fromJson(it, CalendarInfo::class.java) }.getOrNull()
     }
 
-    fun saveBlocks(blocks: List<CourseBlock>) = plain.edit().putString("blocks", gson.toJson(blocks)).apply()
+    val scheduleSource: String get() = plain.getString("schedule_source", "legacy") ?: "legacy"
+
+    fun saveBlocks(blocks: List<CourseBlock>, source: String = "portal_week") = plain.edit()
+        .putString("blocks", gson.toJson(blocks))
+        .putString("schedule_source", source)
+        .apply()
+
     fun loadBlocks(): List<CourseBlock> {
         val t = object : TypeToken<List<CourseBlock>>() {}.type
-        return runCatching {
+        val blocks = runCatching {
             gson.fromJson<List<CourseBlock>>(plain.getString("blocks", "[]"), t)
         }.getOrDefault(emptyList())
+        if (scheduleSource != "legacy") return blocks
+        // 旧版曾复制单周缓存：只有日期与真实周次一致的条目可以继续显示。
+        val start = runCatching { java.time.LocalDate.parse(loadCalendar()?.startDate) }.getOrNull()
+            ?: return emptyList()
+        return blocks.filter { block ->
+            val date = runCatching { java.time.LocalDate.parse(block.date) }.getOrNull()
+            date != null && date.dayOfWeek.value == block.day &&
+                java.time.temporal.ChronoUnit.DAYS.between(start, date) / 7 + 1 == block.week.toLong()
+        }
     }
 
     // ── 待办 ──
@@ -118,7 +133,7 @@ class Store(context: Context) {
         get() = plain.getBoolean("monet_enabled", false)
         set(v) = plain.edit().putBoolean("monet_enabled", v).apply()
 
-    // ── 学期设置（拾光式：用户可校正，门户只给单周课表，按此铺全学期）──
+    // ── 学期日历设置：只校正日期映射，不生成课程 ──
     /** 学期第一周周一，YYYY-MM-DD；空=用校历 startTime。 */
     var termStartDate: String
         get() = plain.getString("term_start", "") ?: ""
@@ -162,9 +177,40 @@ class Store(context: Context) {
     val hasPowerBinding: Boolean get() = powerAccount.isNotEmpty() && powerRoomVerify.isNotEmpty()
     val hasLlm: Boolean get() = llmBase.isNotEmpty() && llmKey.isNotEmpty() && llmModel.isNotEmpty()
 
+    fun saveTeachingSession(session: TeachingSession) {
+        require(isTeachingEndpoint(session.endpoint))
+        secure.edit()
+            .putString("teaching_endpoint", session.endpoint)
+            .putString("teaching_cookie", session.cookie)
+            .putString("teaching_page", session.pageUrl)
+            .apply()
+    }
+
+    fun loadTeachingSession(): TeachingSession? {
+        val endpoint = "teaching_endpoint".s
+        val cookie = "teaching_cookie".s
+        if (!isTeachingEndpoint(endpoint) || cookie.isBlank()) return null
+        return TeachingSession(endpoint, cookie, "teaching_page".s)
+    }
+
+    fun clearTeachingSession() {
+        secure.edit().remove("teaching_endpoint").remove("teaching_cookie")
+            .remove("teaching_page").apply()
+    }
+
+    fun clearPortalSession() {
+        secure.edit().remove("token").apply()
+    }
+
     fun logout() {
-        secure.edit().remove("token").remove("job").remove("name").apply()
-        plain.edit().remove("blocks").remove("calendar").apply()
+        clearPortalSession()
+        clearTeachingSession()
+        secure.edit().remove("job").remove("name").apply()
+        plain.edit().remove("blocks").remove("calendar").remove("schedule_source").apply()
+        android.webkit.CookieManager.getInstance().removeAllCookies {
+            android.webkit.CookieManager.getInstance().flush()
+        }
+        android.webkit.WebStorage.getInstance().deleteAllData()
     }
 }
 
@@ -176,7 +222,29 @@ class Repository(context: Context) {
 
     suspend fun isSessionAlive(): Boolean {
         if (!store.hasSession) return false
-        return runCatching { api.calendar(store.portalToken, store.jobNumber) }.isSuccess
+        return try {
+            api.calendar(store.portalToken, store.jobNumber)
+            true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (e is AuthFailed) store.clearPortalSession()
+            shouldKeepSession(true, e)
+        }
+    }
+
+    suspend fun syncTeachingSchedule(): Pair<CalendarInfo, List<CourseBlock>> {
+        val session = store.loadTeachingSession()
+            ?: throw AuthFailed(401, "请先登录教务一次，之后会自动复用会话")
+        val calendar = requireNotNull(store.loadCalendar()) { "请先选择要同步的学期" }
+        val blocks = try {
+            api.termSchedule(session, calendar)
+        } catch (e: AuthFailed) {
+            store.clearTeachingSession()
+            throw e
+        }
+        store.saveBlocks(blocks, "zf_term")
+        return calendar to blocks
     }
 
     suspend fun fetchCaptcha() = api.captcha()
@@ -206,31 +274,19 @@ class Repository(context: Context) {
     fun subscribeSse() = api.subscribeSse()
     fun mobieAuthUrl(clientId: String) = api.mobieAuthUrl(clientId)
 
-    /** 同步课表+校历：门户只返回单周，按学期设置把这一周铺成全学期。 */
+    /** 同步门户实际返回的课程；单周响应不能推断其他周。 */
     suspend fun syncSchedule(): Pair<CalendarInfo, List<CourseBlock>> {
         val raw = api.calendar(store.portalToken, store.jobNumber)
-        // 用户可在设置里校正开学日期/总周数/当前周（拾光式）
         val cal = raw.copy(
             startDate = store.termStartDate.ifBlank { raw.startDate },
             allWeek = if (store.termWeeks > 0) store.termWeeks else raw.allWeek,
             week = if (store.termCurrentWeek > 0) store.termCurrentWeek else raw.week,
         )
-        val weekLessons = api.lessons(store.portalToken, store.jobNumber)
-        val weekBlocks = mergeLessons(weekLessons)
-        // 门户没给周次范围，只能按单双周标记把本周课表复制到全学期
-        val total = cal.allWeek.coerceIn(1, 30)
-        val blocks = buildList {
-            for (w in 1..total) {
-                weekBlocks.forEach { b ->
-                    val parityOk = when (b.weekParity) {
-                        1 -> w % 2 == 1
-                        2 -> w % 2 == 0
-                        else -> true
-                    }
-                    if (parityOk) add(b.copy(week = w))
-                }
-            }
+        // 已有真实学期课表时，门户快照不参与覆盖；更新应重新读取正方学期响应。
+        if (store.scheduleSource == "zf_term") {
+            return requireNotNull(store.loadCalendar()) to store.loadBlocks()
         }
+        val blocks = mergeLessons(api.lessons(store.portalToken, store.jobNumber))
         store.saveCalendar(cal)
         store.saveBlocks(blocks)
         return cal to blocks

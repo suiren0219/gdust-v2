@@ -57,6 +57,7 @@ fun ScheduleScreen(
     syncError: String?,
     onPrevWeek: () -> Unit,
     onNextWeek: () -> Unit,
+    fullTermImported: Boolean = false,
 ) {
     val ds = LocalDs.current
     val currentWeek = calendar?.week ?: 1
@@ -120,7 +121,7 @@ fun ScheduleScreen(
             )
         } else if (blocks.isEmpty()) {
             Text(
-                text = "还没有课表数据。先登录，再到「设置 → 同步课表」拉一次；全学期周次可在「学期设置」里校正。",
+                text = "尚未获取课表，请到「设置 → 教务学期导入」读取实际排课。",
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
                 color = ds.sub,
@@ -129,6 +130,14 @@ fun ScheduleScreen(
         }
 
         val weekBlocks = remember(blocks, displayWeek) { blocks.filter { it.week == displayWeek } }
+        if (weekBlocks.isEmpty() && blocks.isNotEmpty()) {
+            Text(
+                if (fullTermImported) "教务当前响应中，本周没有排课；后续调课请重新导入核对。"
+                else "第 $displayWeek 周尚未获取。门户仅返回部分周次，请使用教务学期导入。",
+                fontSize = 12.sp, color = ds.sub,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            )
+        }
         WeekGrid(
             week = displayWeek,
             calendar = calendar,

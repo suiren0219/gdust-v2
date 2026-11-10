@@ -42,6 +42,7 @@ fun SettingsScreen(
     repo: Repository,
     syncError: String?,
     onSync: () -> Unit,
+    onImport: () -> Unit,
     onLogout: () -> Unit,
     onBack: () -> Unit,
     loggedIn: Boolean = true,
@@ -127,8 +128,14 @@ fun SettingsScreen(
             )
             SettingDivider()
             SettingOption(
-                title = "同步课表",
-                subtitle = "拉取课表 + 校历，连堂自动合并成整卡",
+                title = "教务学期导入",
+                subtitle = "登录正方教务，读取每门课程的实际周次",
+                onClick = onImport,
+            )
+            SettingDivider()
+            SettingOption(
+                title = if (store.scheduleSource == "zf_term") "更新教务学期课表" else "同步门户本周课表",
+                subtitle = if (store.scheduleSource == "zf_term") "重新读取教务响应，核对最新调课" else "只保存门户实际返回的周次，不补造其他周",
                 detail = when {
                     syncing -> "同步中…"
                     syncError != null -> "失败"
@@ -171,7 +178,7 @@ fun SettingsScreen(
                         termSaved = true
                     }
                     Text(
-                        "学校门户只返回本周课表，这里按单双周标记把它铺到全学期。注意：门户没给每门课的开课周范围，只在前几周开的课也会被铺满，属上游数据限制；填完点「同步课表」生效。",
+                        "这里只调整周次与日期的对应关系，不会新增课程。学期课程请使用「教务学期导入」；未取得的周次不能视为无课。",
                         fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub,
                     )
                 }

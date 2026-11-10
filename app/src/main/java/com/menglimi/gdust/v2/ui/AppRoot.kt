@@ -46,6 +46,7 @@ import com.menglimi.gdust.v2.ui.screens.PowerScreen
 import com.menglimi.gdust.v2.ui.screens.SettingsScreen
 import com.menglimi.gdust.v2.ui.screens.TodayScreen
 import com.menglimi.gdust.v2.ui.screens.TodoScreen
+import com.menglimi.gdust.v2.ui.screens.TermImportScreen
 import kotlinx.coroutines.launch
 
 private val TABS = listOf("今日", "课表", "电费", "待办")
@@ -68,39 +69,54 @@ fun AppRoot(
     var netDown by remember { mutableStateOf(false) }
     var syncing by remember { mutableStateOf(false) }
     var needLogin by remember { mutableStateOf(false) }
+    var showImport by remember { mutableStateOf(false) }
+    var importReport by remember { mutableStateOf<String?>(null) }
     // 设置页当前展开的编辑区（切风格重建时收起即可，不影响页面栈）
     val openSection = remember { mutableStateOf<String?>(null) }
 
 
     fun sync() {
-        if (!repo.store.hasSession) {
+        if (syncing) return
+        val teaching = repo.store.scheduleSource == "zf_term"
+        if (teaching && repo.store.loadTeachingSession() == null) {
+            showImport = true
+            return
+        }
+        if (!teaching && !repo.store.hasSession) {
             needLogin = true
             return
         }
         syncing = true
         syncError = null
         scope.launch {
-            runCatching { repo.syncSchedule() }
+            runCatching { if (teaching) repo.syncTeachingSchedule() else repo.syncSchedule() }
                 .onSuccess { (cal, list) -> calendar = cal; blocks = list; syncError = null }
                 .onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
                     netDown = it.isNetworkDown()
                     syncError = it.message ?: "网络失败"
+                    if (it is com.menglimi.gdust.v2.data.AuthFailed && teaching) showImport = true
                 }
             syncing = false
         }
     }
 
     LaunchedEffect(Unit) {
-        if (repo.store.hasSession) {
-            loggedIn.value = repo.isSessionAlive()
-            if (loggedIn.value && blocks.isEmpty()) sync()
-        }
+        // 先恢复本机会话和缓存页面，网络校验在后；超时不让启动卡在空白页。
+        val offlineSchedule = blocks.isNotEmpty()
+        loggedIn.value = loggedIn.value || repo.store.hasSession || offlineSchedule
         checked.value = true
+        if (repo.store.hasSession) {
+            val alive = repo.isSessionAlive()
+            if (!alive && !offlineSchedule) loggedIn.value = false
+            if (alive && blocks.isEmpty()) sync()
+        }
     }
 
     Crossfade(
         targetState = when {
             !checked.value -> "loading"
+            showImport -> "import"
             showSettings.value -> "settings"
             !loggedIn.value -> "login"
             else -> "main"
@@ -109,6 +125,19 @@ fun AppRoot(
         label = "root",
     ) { state ->
         when (state) {
+            "import" -> TermImportScreen(
+                repo = repo,
+                onBack = { showImport = false },
+                onImported = { cal, list ->
+                    calendar = cal
+                    blocks = list
+                    showImport = false
+                    showSettings.value = false
+                    loggedIn.value = true
+                    tab.intValue = 1
+                    importReport = "已读取 ${list.size} 条实际排课，覆盖 ${list.map { it.week }.distinct().size} 个周次。仅显示教务返回的课程；后续调课请重新导入核对。"
+                },
+            )
             "login" -> LoginScreen(
                 repo = repo,
                 onLoggedIn = {
@@ -122,8 +151,12 @@ fun AppRoot(
                 repo = repo,
                 syncError = syncError,
                 onSync = { sync() },
+                onImport = { showImport = true },
                 onLogout = {
                     repo.store.logout()
+                    blocks = emptyList()
+                    calendar = null
+                    syncError = null
                     loggedIn.value = false
                     showSettings.value = false
                 },
@@ -146,6 +179,9 @@ fun AppRoot(
         }
     }
 
+    if (importReport != null) {
+        InfoDialog("教务课表已导入", importReport!!, onDismiss = { importReport = null })
+    }
     // 网络层失败（连不上学校官网）时弹窗提示，业务错误仍走行内提示
     NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
     if (needLogin) {
@@ -185,6 +221,7 @@ private fun MainScaffold(
                     syncError = syncError,
                     onPrevWeek = {},
                     onNextWeek = {},
+                    fullTermImported = repo.store.scheduleSource == "zf_term",
                 )
                 2 -> PowerScreen(repo)
                 else -> TodoScreen(repo)
