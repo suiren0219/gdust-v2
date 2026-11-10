@@ -128,6 +128,11 @@ class Store(context: Context) {
         get() = plain.getString("ui_style", "SOFT") ?: "SOFT"
         set(v) = plain.edit().putString("ui_style", v).apply()
 
+    /** 启动默认 tab：0 今日 / 1 课表 / 2 电费 / 3 待办。 */
+    var startTab: Int
+        get() = plain.getInt("start_tab", 1)
+        set(v) = plain.edit().putInt("start_tab", v.coerceIn(0, 3)).apply()
+
     /** 莫奈取色：用系统壁纸色（Material You）生成整套 Ds 令牌；关=默认蓝。 */
     var monetEnabled: Boolean
         get() = plain.getBoolean("monet_enabled", false)

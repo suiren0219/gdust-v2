@@ -7,6 +7,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -70,8 +72,10 @@ fun TermImportScreen(
             web?.stopLoading(); web?.destroy(); web = null
         }
     }
-    Column(Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().navigationBarsPadding().imePadding().padding(horizontal = 16.dp)) {
-        if (!browser) {
+    // 表单与浏览器两个分支共享的状态在外层，内容拆成两个内部组合
+    @Composable
+    fun ImportForm() {
+        Column(Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().navigationBarsPadding().imePadding().padding(horizontal = 16.dp)) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 Spacer(Modifier.height(16.dp))
                 PageTitle("教务学期导入", "按拾光 GDUST 适配的正方接口读取", onBack)
@@ -100,8 +104,13 @@ fun TermImportScreen(
                 }
                 if (message.isNotEmpty()) Text(message, color = ds.danger, fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp))
             }
-        } else {
-            Text("教务登录 · ${year} 学年 · ${if (semester == "3") "第一" else "第二"}学期", color = ds.text, fontSize = 16.sp, modifier = Modifier.padding(vertical = 10.dp))
+        }
+    }
+
+    @Composable
+    fun ImportBrowser() {
+        Column(Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().navigationBarsPadding().padding(horizontal = 16.dp)) {
+        Text("教务登录 · ${year} 学年 · ${if (semester == "3") "第一" else "第二"}学期", color = ds.text, fontSize = 16.sp, modifier = Modifier.padding(vertical = 10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) { Button("返回") { onBack() } }
                 Box(Modifier.weight(1f)) { Button("门户入口") { web?.loadUrl("https://portal.gdust.edu.cn") } }
@@ -203,6 +212,8 @@ fun TermImportScreen(
             Spacer(Modifier.height(10.dp))
         }
     }
+
+    // 轮询读取网页内 fetch 结果（evaluateJavascript 不等待 Promise）
     LaunchedEffect(busy) {
         if (!busy) return@LaunchedEffect
         repeat(60) {
@@ -232,5 +243,33 @@ fun TermImportScreen(
         }
         busy = false
         message = "教务读取超时，旧课表已保留，请重试。"
+    }
+
+    // 左滑返回：仅在设置表单页生效（浏览器页交给 WebView 处理）
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val importBackThreshold = with(density) { 96.dp.toPx() }
+    var importBackPx by remember { mutableStateOf(Float.NaN) }
+    if (!browser) {
+        androidx.compose.foundation.layout.Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { start -> importBackPx = if (start.x < 80f) 0f else Float.NaN },
+                        onDragEnd = {
+                            if (!importBackPx.isNaN() && importBackPx >= importBackThreshold) onBack()
+                            importBackPx = 0f
+                        },
+                        onDragCancel = { importBackPx = 0f },
+                    ) { change, dragAmount ->
+                        if (!importBackPx.isNaN()) importBackPx += dragAmount
+                        change.consume()
+                    }
+                },
+        ) {
+            ImportForm()
+        }
+    } else {
+        ImportBrowser()
     }
 }

@@ -25,6 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
@@ -75,11 +77,29 @@ fun SettingsScreen(
         openSection.value = if (openSection.value == section) null else section
     }
 
+    // 左滑返回：从屏幕左缘向右拖 1/4 屏即返回（避免和列表纵向滚动冲突）
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val backThreshold = with(density) { 96.dp.toPx() }
+    var backPx by remember { mutableStateOf(0f) }
+
     Column(
         Modifier
             .fillMaxSize()
             .background(ds.bg)
             .statusBarsPadding()
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { start -> backPx = if (start.x < 80f) 0f else Float.NaN },
+                    onDragEnd = {
+                        if (!backPx.isNaN() && backPx >= backThreshold) onBack()
+                        backPx = 0f
+                    },
+                    onDragCancel = { backPx = 0f },
+                ) { change, dragAmount ->
+                    if (!backPx.isNaN()) backPx += dragAmount
+                    change.consume()
+                }
+            }
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),
     ) {
@@ -105,6 +125,25 @@ fun SettingsScreen(
                         onSelect = { styleState.value = it },
                     )
                     Text(styleState.value.desc, fontSize = 11.sp, color = ds.sub)
+                }
+            }
+            SettingDivider()
+            SettingOption(
+                title = "启动页",
+                subtitle = "打开 App 默认进入的页面",
+                detail = when (store.startTab) {
+                    0 -> "今日"; 2 -> "电费"; 3 -> "待办"; else -> "课表"
+                },
+                onClick = { toggle("startTab") },
+            )
+            if (openSection.value == "startTab") {
+                SettingDivider()
+                SettingEditor {
+                    SegmentedChoice(
+                        options = listOf(0 to "今日", 1 to "课表", 2 to "电费", 3 to "待办"),
+                        selected = store.startTab,
+                        onSelect = { store.startTab = it },
+                    )
                 }
             }
             SettingDivider()

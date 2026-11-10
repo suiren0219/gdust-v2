@@ -46,14 +46,23 @@ class PowerWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         val dropLimit = prefs.getFloat("drop_rate", 5f).toDouble()
         val prev = prefs.getFloat("prev_odd", -1f).toDouble()
 
+        // 预计可用天数：随预警一起带出，比单纯“电量低了”更可行动
+        val weekUse = runCatching {
+            api.powerDetail(account, code, verify).weekUse.map { it.second }
+        }.getOrDefault(emptyList())
+        val daysLeft = weekUse.takeIf { it.isNotEmpty() }
+            ?.let { list -> list.average().takeIf { it > 0.01 }?.let { avg -> odd / avg } }
+
         if (cooldown("low") && odd <= threshold) {
-            notify("宿舍电量不足", "$name 剩余 $odd 度（阈值 $threshold），记得充值", 1)
+            val suffix = daysLeft?.let { "，约还能用 %.0f 天".format(it) }.orEmpty()
+            notify("宿舍电量不足", "$name 剩余 $odd 度（阈值 $threshold）$suffix，记得充值", 1)
             mark("low")
         } else if (cooldown("drop") && prev >= 0 && last > 0) {
             val hours = ((now - last) / 3600000.0).coerceAtLeast(0.25)
             val rate = (prev - odd) / hours
             if (rate >= dropLimit) {
-                notify("宿舍掉电异常", "$name 每小时掉电 %.1f 度，注意大功率电器".format(rate), 2)
+                val suffix = daysLeft?.let { "，约还能用 %.0f 天".format(it) }.orEmpty()
+                notify("宿舍掉电异常", "$name 每小时掉电 %.1f 度$suffix，注意大功率电器".format(rate), 2)
                 mark("drop")
             }
         }

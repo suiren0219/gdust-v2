@@ -3,6 +3,7 @@ package com.menglimi.gdust.v2.ui.screens
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -78,7 +80,14 @@ fun PowerScreen(repo: Repository) {
 
     LaunchedEffect(Unit) { refresh() }
     val samples = remember(detail, busy) { store.loadSamples() }
+    val pullState = androidx.compose.material3.pulltorefresh.PullToRefreshState()
 
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        isRefreshing = busy && store.hasPowerBinding,
+        onRefresh = { refresh() },
+        state = pullState,
+        modifier = Modifier.fillMaxSize(),
+    ) {
     Column(
         Modifier
             .fillMaxSize()
@@ -257,6 +266,7 @@ fun PowerScreen(repo: Repository) {
         }
         Spacer(Modifier.height(110.dp))
     }
+    } // PullToRefreshBox
 
     NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
 }
@@ -287,6 +297,10 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
         val fmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.CHINA)
         idx.map { i -> i to fmt.format(java.util.Date(samples[i].time)) }
     }
+    // 点按选中：点最近的数据点查看具体时间与数值（-1 = 未选中，显示最新值标签）
+    var selectedIndex by remember(samples) { mutableStateOf(-1) }
+    val fmtFull = remember { java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.CHINA) }
+    val shownIndex = if (selectedIndex in values.indices) selectedIndex else values.size - 1
 
     Column {
         Row(Modifier.fillMaxWidth().height(150.dp)) {
@@ -300,7 +314,21 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
                 Text("%.0f".format((lo + hi) / 2f), fontSize = 10.sp, color = ds.sub)
                 Text("%.0f".format(lo), fontSize = 10.sp, color = ds.sub)
             }
-            Canvas(Modifier.weight(1f).fillMaxHeight().padding(start = 6.dp)) {
+            Canvas(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .padding(start = 6.dp)
+                    .pointerInput(values) {
+                        detectTapGestures { tap ->
+                            // 吸附到最近的采样点（横向距离归一化）
+                            val n = values.size
+                            val plotW = size.width - 8f
+                            val rel = ((tap.x - 8f) / plotW).coerceIn(0f, 1f)
+                            selectedIndex = (rel * (n - 1)).toInt().coerceIn(0, n - 1)
+                        }
+                    },
+            ) {
                 val w = size.width
                 val h = size.height
                 val left = 8f
@@ -351,9 +379,14 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
                     pts.drop(1).forEach { lineTo(it.x, it.y) }
                 }
                 drawPath(line, color = ds.accent, style = Stroke(width = 3.5f))
-                // 只在端点画圆点，中间点保持干净
-                drawCircle(color = ds.accent, radius = 4.5f, center = pts.last())
-                drawCircle(color = ds.card, radius = 2.5f, center = pts.last())
+                // 选中点/最新点高亮：选中的白心大圆，未选中时中间点保持干净
+                if (selectedIndex in values.indices) {
+                    drawCircle(color = ds.accent, radius = 6f, center = pts[selectedIndex])
+                    drawCircle(color = ds.card, radius = 3f, center = pts[selectedIndex])
+                } else {
+                    drawCircle(color = ds.accent, radius = 4.5f, center = pts.last())
+                    drawCircle(color = ds.card, radius = 2.5f, center = pts.last())
+                }
                 pts.takeIf { it.size <= 6 }?.forEach { drawCircle(color = ds.accent, radius = 3f, center = it) }
             }
         }
@@ -363,19 +396,27 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
                 Text(label, fontSize = 10.sp, color = ds.sub)
             }
         }
-        // 最新值 + 区间摘要
+        // 最新值 / 选中点详情
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier
                     .background(ds.accent.copy(alpha = 0.14f), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
                     .padding(horizontal = 8.dp, vertical = 3.dp),
             ) {
-                Text("最新 %.1f 度".format(values.last()), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ds.accent)
+                Text(
+                    "${fmtFull.format(java.util.Date(samples[shownIndex].time))} · %.1f 度".format(values[shownIndex]),
+                    fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ds.accent,
+                )
             }
-            Text(
-                "%.0f 度/小时".format(if (values.size > 1) kotlin.math.abs(values.last() - values.first()) / ((samples.last().time - samples.first().time) / 3600000f).coerceAtLeast(0.25f) else 0f),
-                fontSize = 11.sp, color = ds.sub,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (selectedIndex in values.indices) {
+                    Text("点空白回最新", fontSize = 10.sp, color = ds.sub)
+                }
+                Text(
+                    "%.1f 度/小时".format(if (values.size > 1) kotlin.math.abs(values.last() - values.first()) / ((samples.last().time - samples.first().time) / 3600000f).coerceAtLeast(0.25f) else 0f),
+                    fontSize = 11.sp, color = ds.sub,
+                )
+            }
         }
     }
 }

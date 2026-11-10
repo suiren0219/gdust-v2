@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
             }
             // 页面状态提到主题外层：切风格会重建两套主题树，状态不能跟着丢
             // （rememberSaveable 救不了同 composition 内的树切换——slot 销毁时不会走存档）
-            val tab = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(1) }
+            val tab = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(app.repo.store.startTab) }
             val showSettings = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
             val loggedIn = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
             val checked = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }

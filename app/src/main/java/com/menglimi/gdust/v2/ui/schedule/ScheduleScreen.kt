@@ -7,6 +7,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -63,6 +66,10 @@ fun ScheduleScreen(
     val currentWeek = calendar?.week ?: 1
     var offset by remember { mutableIntStateOf(0) }
     val displayWeek = (currentWeek + offset).coerceAtLeast(1)
+    // 横向滑动翻周：拖拽期间内容跟手平移，松手过阈值切一周并带方向动画
+    var dragPx by remember { mutableStateOf(0f) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val dragThreshold = with(density) { 90.dp.toPx() }
 
     Column(
         Modifier
@@ -142,12 +149,31 @@ fun ScheduleScreen(
             week = displayWeek,
             calendar = calendar,
             blocks = weekBlocks,
+            modifier = Modifier
+                .offset { androidx.compose.ui.unit.IntOffset(dragPx.toInt(), 0) }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragPx = 0f },
+                        onDragEnd = {
+                            if (dragPx <= -dragThreshold) offset += 1
+                            else if (dragPx >= dragThreshold) offset -= 1
+                            dragPx = 0f
+                        },
+                        onDragCancel = { dragPx = 0f },
+                    ) { change, dragAmount ->
+                        // 右滑=上一周（offset-1），左滑=下一周（offset+1）；不越出学期边界
+                        val atStart = currentWeek + offset <= 1 && dragPx >= 0f
+                        val consuming = !(atStart && dragAmount > 0)
+                        if (consuming) dragPx += dragAmount
+                        change.consume()
+                    }
+                },
         )
     }
 }
 
 @Composable
-private fun WeekGrid(week: Int, calendar: CalendarInfo?, blocks: List<CourseBlock>) {
+private fun WeekGrid(week: Int, calendar: CalendarInfo?, blocks: List<CourseBlock>, modifier: Modifier = Modifier) {
     val ds = LocalDs.current
     val today = LocalDate.now()
     val now = LocalTime.now()
@@ -168,7 +194,7 @@ private fun WeekGrid(week: Int, calendar: CalendarInfo?, blocks: List<CourseBloc
 
     val gridH = sectionY(ScheduleTimes.TOTAL_SECTIONS) + ROW_H
 
-    Column(Modifier.fillMaxSize()) {
+    Column(modifier.fillMaxSize()) {
         // 表头
         Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
             Spacer(Modifier.width(SCALE_W))
