@@ -164,7 +164,8 @@ private fun WeekGrid(week: Int, calendar: CalendarInfo?, blocks: List<CourseBloc
         Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
             Spacer(Modifier.width(SCALE_W))
             days.forEach { day ->
-                val date = monday?.plusDays(((week - (calendar?.week ?: week)) * 7L + (day - 1)))
+                // startDate = 学期第一周周一（门户校历语义），不是当前周周一
+                val date = monday?.plusDays((week - 1) * 7L + (day - 1))
                 val isToday = date == today
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(

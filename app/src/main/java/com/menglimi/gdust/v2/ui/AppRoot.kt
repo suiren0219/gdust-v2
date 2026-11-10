@@ -260,11 +260,25 @@ private fun BoxScope.UnifiedBottomBar(
                 }
             }
         }
+        // 设置钮：独立圆钮 + 齿轮图标 + 强调色描边，和四个 tab 明确区分
         Box(
-            Modifier.pill().size(52.dp).clickable { onSettings() },
+            Modifier
+                .pill()
+                .size(56.dp)
+                .border(1.5.dp, ds.accent.copy(alpha = 0.35f), CircleShape)
+                .clickable { onSettings() },
             contentAlignment = Alignment.Center,
         ) {
-            Text("设", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.sub)
+            if (liquid) {
+                io.github.neoruaa.glasmio.icons.SfIcon(
+                    symbol = io.github.neoruaa.glasmio.icons.SfSymbol.Gearshape,
+                    contentDescription = "设置",
+                    size = 24.dp,
+                    tint = ds.accent,
+                )
+            } else {
+                Text("设", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = ds.accent)
+            }
         }
     }
 }

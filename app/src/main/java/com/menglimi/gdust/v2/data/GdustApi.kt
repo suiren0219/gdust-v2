@@ -1,5 +1,6 @@
 package com.menglimi.gdust.v2.data
 
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -96,10 +97,10 @@ class GdustApi {
 
     suspend fun captcha(): Captcha = io {
         val o = jsonObj(request("$CAS/cas-api/cas/loginCode")).getAsJsonObject("data")
-        val url = o.get("codeUrl").asString
+        val url = o.str("codeUrl").orEmpty()
         Captcha(
             imageBytes = java.util.Base64.getDecoder().decode(url.substringAfter("base64,")),
-            uuid = o.get("uuid").asString,
+            uuid = o.str("uuid").orEmpty(),
         )
     }
 
@@ -107,28 +108,28 @@ class GdustApi {
     suspend fun login(account: String, password: String, code: String, uuid: String): String = io {
         val body = """{"loginName":${str(account)},"loginPwd":${str(password)},"code":${str(code)},"uuid":${str(uuid)}}"""
         val resp = jsonObj(request("$CAS/cas-api/cas/loginByAccount", postJson = body))
-        if (resp.get("code").asInt != 0) throw AuthFailed(resp.get("code").asInt, resp.get("msg")?.asString ?: "登录失败")
-        resp.get("data").asString
+        if ((resp.num("code") ?: 0) != 0) throw AuthFailed(resp.num("code") ?: 0, resp.str("msg") ?: "登录失败")
+        resp.str("data").orEmpty()
     }
 
     // ── 门户 ──
 
     suspend fun exchangeToken(ticket: String): String = io {
         val url = "$PORTAL/smart-admin-api/user/login?loginCode=$ticket&appId=portalRemote"
-        jsonObj(request(url)).getAsJsonObject("data").getAsJsonObject("userBase").get("token").asString
+        jsonObj(request(url)).getAsJsonObject("data").getAsJsonObject("userBase").str("token").orEmpty()
     }
 
     suspend fun userInfo(token: String): Pair<String, String> = io {
         val d = jsonObj(request("$PORTAL/smart-admin-api/app/userInfo/addition", token)).getAsJsonObject("data")
-        (d.get("jobNum")?.asString.orEmpty()) to (d.get("realName")?.asString.orEmpty())
+        (d.str("jobNum").orEmpty()) to (d.str("realName").orEmpty())
     }
 
     suspend fun calendar(token: String, job: String): CalendarInfo = io {
         val d = jsonObj(request("$PORTAL/smart-admin-api/app/zf/get_school_calendar?jobNumber=$job", token)).getAsJsonObject("data")
         CalendarInfo(
-            week = d.get("week").asInt, allWeek = d.get("allWeek").asInt,
-            startDate = d.get("startTime").asString,
-            year = d.get("year").asString, semester = d.get("semester").asString,
+            week = d.num("week") ?: 0, allWeek = d.num("allWeek") ?: 0,
+            startDate = d.str("startTime").orEmpty(),
+            year = d.str("year").orEmpty(), semester = d.str("semester").orEmpty(),
         )
     }
 
@@ -137,16 +138,16 @@ class GdustApi {
         val arr = d.getAsJsonArray("courseList") ?: return@io emptyList()
         arr.mapNotNull { e ->
             val o = e.asJsonObject
-            val name = o.get("courseName")?.asString ?: return@mapNotNull null
+            val name = o.str("courseName") ?: return@mapNotNull null
             Lesson(
-                week = o.get("week")?.asInt ?: 0,
-                day = o.get("dayWeek")?.asInt ?: 0,
-                section = o.get("whichSection")?.asInt ?: 0,
+                week = o.num("week") ?: 0,
+                day = o.num("dayWeek") ?: 0,
+                section = o.num("whichSection") ?: 0,
                 name = name,
-                room = o.get("classroomName")?.asString.orEmpty(),
-                teacher = o.get("teacher")?.asString.orEmpty(),
-                date = o.get("courseDate")?.asString.orEmpty(),
-                weekParity = when (o.get("singleOrDoubleWeek")?.asString?.trim()) {
+                room = o.str("classroomName").orEmpty(),
+                teacher = o.str("teacher").orEmpty(),
+                date = o.str("courseDate").orEmpty(),
+                weekParity = when (o.str("singleOrDoubleWeek")?.trim()) {
                     "单" -> 1
                     "双" -> 2
                     else -> 0
@@ -161,11 +162,11 @@ class GdustApi {
         arr.map { e ->
             val n = e.asJsonObject
             Notice(
-                title = n.get("title")?.asString.orEmpty(),
-                url = n.get("url")?.asString.orEmpty(),
-                type = n.get("announcementType")?.asString.orEmpty(),
-                issuer = n.get("issuer")?.asString,
-                time = n.get("gmtCreate")?.asLong ?: 0L,
+                title = n.str("title").orEmpty(),
+                url = n.str("url").orEmpty(),
+                type = n.str("announcementType").orEmpty(),
+                issuer = n.str("issuer"),
+                time = n.numL("gmtCreate") ?: 0L,
             )
         }
     }
@@ -181,12 +182,12 @@ class GdustApi {
 
     suspend fun powerRooms(account: String, customerCode: Int): List<PowerRoom> = io {
         val outer = jsonObj(powerPost("getbindroom", """{"cmd":"getbindroom","account":${str(account)}}""", customerCode))
-        val arr = jsonObj(outer.get("body").asString).getAsJsonArray("roomlist") ?: return@io emptyList()
+        val arr = jsonObj(outer.str("body").orEmpty()).getAsJsonArray("roomlist") ?: return@io emptyList()
         arr.map { e ->
             val o = e.asJsonObject
             PowerRoom(
-                name = o.get("roomfullname")?.asString.orEmpty(),
-                verify = o.get("roomverify")?.asString.orEmpty(),
+                name = o.str("roomfullname").orEmpty(),
+                verify = o.str("roomverify").orEmpty(),
             )
         }
     }
@@ -196,12 +197,12 @@ class GdustApi {
         val ts = LocalDateTime.now().format(TS)
         val param = """{"cmd":"h5_getstuindexpage","account":${str(account)},"roomverify":${str(roomVerify)},"timestamp":${str(ts)}}"""
         val outer = jsonObj(powerPost("h5_getstuindexpage", param, customerCode))
-        val inner = jsonObj(outer.get("body").asString)
+        val inner = jsonObj(outer.str("body").orEmpty())
         val mod = inner.getAsJsonArray("modlist")?.firstOrNull()?.asJsonObject
             ?: inner
         fun dbl(o: com.google.gson.JsonObject?, vararg keys: String): Double? {
             if (o == null) return null
-            for (k in keys) o.get(k)?.let { return it.asString.toDoubleOrNull() }
+            for (k in keys) o.str(k)?.toDoubleOrNull()?.let { return it }
             return null
         }
         val odd = dbl(mod, "odd", "surpluselec", "surplusElec", "surplus_elec", "remain", "balance")
@@ -209,7 +210,7 @@ class GdustApi {
         val week = (mod.getAsJsonArray("weekuselist") ?: com.google.gson.JsonArray())
             .mapNotNull { e ->
                 val o = e.asJsonObject
-                val label = o.get("weekday")?.asString ?: return@mapNotNull null
+                val label = o.str("weekday") ?: return@mapNotNull null
                 val use = dbl(o, "dayuse", "use") ?: return@mapNotNull null
                 label.replace("星期", "") to use
             }
@@ -272,7 +273,7 @@ class GdustApi {
             val text = r.body?.string().orEmpty()
             if (!r.isSuccessful) throw RuntimeException("LLM HTTP ${r.code}: ${text.take(120)}")
             jsonObj(text).getAsJsonArray("choices")?.firstOrNull()?.asJsonObject
-                ?.getAsJsonObject("message")?.get("content")?.asString
+                ?.getAsJsonObject("message")?.str("content")
                 ?: throw RuntimeException("LLM 响应缺少 content")
         }
     }
@@ -316,3 +317,8 @@ fun Throwable.isNetworkDown(): Boolean {
     }
     return false
 }
+
+// ── JSON 安全取值：门户大量字段是字面 null（Gson JsonNull），?.asString 挡不住会抛 "JsonNull" ──
+internal fun JsonObject.str(key: String): String? = get(key)?.takeIf { !it.isJsonNull }?.asString
+internal fun JsonObject.num(key: String): Int? = get(key)?.takeIf { !it.isJsonNull }?.asInt
+internal fun JsonObject.numL(key: String): Long? = get(key)?.takeIf { !it.isJsonNull }?.asLong

@@ -39,6 +39,7 @@ fun TodoScreen(repo: Repository) {
     val ds = LocalDs.current
     var items by remember { mutableStateOf(repo.store.loadTodos()) }
     var draft by remember { mutableStateOf("") }
+    var hint by remember { mutableStateOf("") }
     var seq by remember { mutableStateOf(System.currentTimeMillis()) }
 
     Column(
@@ -71,20 +72,30 @@ fun TodoScreen(repo: Repository) {
                     },
                 )
                 Text(
-                    "添加",
+                    if (draft.isBlank()) "输入内容" else "添加",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (draft.isBlank()) ds.sub else ds.accent,
                     modifier = Modifier
-                        .clickable(enabled = draft.isNotBlank()) {
-                            val item = com.menglimi.gdust.v2.data.Store.Todo(seq++, draft.trim(), false)
-                            items = listOf(item) + items
-                            repo.store.saveTodos(items)
-                            draft = ""
+                        // 空输入也能点：给反馈而不是静默无视
+                        .clickable {
+                            if (draft.isBlank()) {
+                                hint = "先在上面写点什么，再点添加"
+                            } else {
+                                val item = com.menglimi.gdust.v2.data.Store.Todo(seq++, draft.trim(), false)
+                                items = listOf(item) + items
+                                repo.store.saveTodos(items)
+                                draft = ""
+                                hint = ""
+                            }
                         }
                         .padding(start = 12.dp, top = 8.dp, bottom = 8.dp),
                 )
             }
+        }
+
+        if (hint.isNotEmpty()) {
+            Text(hint, fontSize = 12.sp, color = ds.danger, modifier = Modifier.padding(start = 6.dp, top = 6.dp))
         }
 
         if (items.isEmpty()) {
