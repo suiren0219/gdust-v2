@@ -47,6 +47,8 @@ import com.menglimi.gdust.v2.ui.screens.SettingsScreen
 import com.menglimi.gdust.v2.ui.screens.TodayScreen
 import com.menglimi.gdust.v2.ui.screens.TodoScreen
 import com.menglimi.gdust.v2.ui.screens.TermImportScreen
+import com.menglimi.gdust.v2.ui.screens.ProfileScreen
+import com.menglimi.gdust.v2.ui.screens.AboutScreen
 import kotlinx.coroutines.launch
 
 private val TABS = listOf("今日", "课表", "电费", "待办")
@@ -70,6 +72,8 @@ fun AppRoot(
     var syncing by remember { mutableStateOf(false) }
     var needLogin by remember { mutableStateOf(false) }
     var showImport by remember { mutableStateOf(false) }
+    var showProfile by remember { mutableStateOf(false) }
+    var showAbout by remember { mutableStateOf(false) }
     var importReport by remember { mutableStateOf<String?>(null) }
     // 设置页当前展开的编辑区（切风格重建时收起即可，不影响页面栈）
     val openSection = remember { mutableStateOf<String?>(null) }
@@ -117,6 +121,8 @@ fun AppRoot(
         targetState = when {
             !checked.value -> "loading"
             showImport -> "import"
+            showProfile -> "profile"
+            showAbout -> "about"
             showSettings.value -> "settings"
             !loggedIn.value -> "login"
             else -> "main"
@@ -138,6 +144,14 @@ fun AppRoot(
                     importReport = "已读取 ${list.size} 条实际排课，覆盖 ${list.map { it.week }.distinct().size} 个周次。仅显示教务返回的课程；后续调课请重新导入核对。"
                 },
             )
+            "profile" -> {
+                androidx.activity.compose.BackHandler { showProfile = false }
+                ProfileScreen(repo = repo, onBack = { showProfile = false })
+            }
+            "about" -> {
+                androidx.activity.compose.BackHandler { showAbout = false }
+                AboutScreen(repo = repo, onBack = { showAbout = false })
+            }
             "login" -> LoginScreen(
                 repo = repo,
                 onLoggedIn = {
@@ -152,6 +166,8 @@ fun AppRoot(
                 syncError = syncError,
                 onSync = { sync() },
                 onImport = { showImport = true },
+                onProfile = { showProfile = true },
+                onAbout = { showAbout = true },
                 onLogout = {
                     repo.store.logout()
                     blocks = emptyList()

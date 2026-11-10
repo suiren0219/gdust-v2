@@ -45,6 +45,8 @@ fun SettingsScreen(
     syncError: String?,
     onSync: () -> Unit,
     onImport: () -> Unit,
+    onProfile: () -> Unit,
+    onAbout: () -> Unit,
     onLogout: () -> Unit,
     onBack: () -> Unit,
     loggedIn: Boolean = true,
@@ -163,7 +165,8 @@ fun SettingsScreen(
         SettingGroup {
             SettingOption(
                 title = store.realName.ifEmpty { "未登录" },
-                subtitle = if (store.jobNumber.isEmpty()) "登录凭证只存本机，密码不落盘" else "学号 ${store.jobNumber}",
+                subtitle = if (store.jobNumber.isEmpty()) "查看本机数据快照" else "学号 ${store.jobNumber}",
+                onClick = onProfile,
             )
             SettingDivider()
             SettingOption(
@@ -329,16 +332,19 @@ fun SettingsScreen(
             }
         }
 
-        // ── 关于 ──
+        // ── 关于（二级页入口）──
         SectionHeader("关于")
         SettingGroup {
-            SettingOption(title = "版本", detail = "v2 · 双风格")
-            SettingDivider()
-            SettingOption(title = "数据链路", detail = "本机直连")
+            SettingOption(
+                title = "个人信息",
+                subtitle = "身份、数据快照与隐私说明",
+                onClick = onProfile,
+            )
             SettingDivider()
             SettingOption(
-                title = "隐私",
-                subtitle = "课表/校历/通知 → 学校门户；水电 → 完美校园；总结 → 你自填的 API。无自建服务器、无账号体系、无遥测",
+                title = "关于与更新",
+                subtitle = "版本、本版更新说明、数据链路",
+                onClick = onAbout,
             )
         }
         if (loggedIn) {
@@ -347,13 +353,6 @@ fun SettingsScreen(
             }
         }
 
-        Spacer(Modifier.height(24.dp))
-        Text(
-            "广科课程表 · 闭源自用版",
-            fontSize = 11.sp,
-            color = ds.sub,
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-        )
         Spacer(Modifier.height(110.dp))
     }
 }
