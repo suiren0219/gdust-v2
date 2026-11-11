@@ -81,7 +81,11 @@ fun TermImportScreen(
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 Spacer(Modifier.height(16.dp))
                 PageTitle("教务学期导入", "按拾光 GDUST 适配的正方接口读取", onBack)
-                Text("选择学年与学期，从学校门户进入教务系统，再点读取。课程只使用教务返回的实际周次；开学日期仅用于换算日期。", color = ds.sub, fontSize = 13.sp)
+                Text(
+                    "这是兼容备用路线：在网页里登录教务后读取原始周次。\n" +
+                        "扫码登录不用走这里——回登录页点「生成登录二维码」，直接、免验证码。",
+                    color = ds.sub, fontSize = 13.sp, lineHeight = 18.sp,
+                )
                 Spacer(Modifier.height(16.dp))
                 InputField(year, { year = it }, "起始学年，如 2026", KeyboardType.Number)
                 Spacer(Modifier.height(10.dp))
@@ -128,7 +132,8 @@ fun TermImportScreen(
                 Box(Modifier.weight(1f)) { Button("WebVPN") { web?.loadUrl(VPN_LOGIN) } }
             }
             Text(
-                "校园网内请用「学校门户」（WebVPN 会拒绝校园网 IP）；校外网络才点 WebVPN。",
+                "校园网内请用「学校门户」（WebVPN 会拒绝校园网 IP）；校外网络才点 WebVPN。\n" +
+                    "要扫码登录请回登录页用 App 自带的二维码——这个网页不提供扫码。",
                 color = ds.sub, fontSize = 11.sp, lineHeight = 15.sp,
                 modifier = Modifier.padding(top = 4.dp),
             )

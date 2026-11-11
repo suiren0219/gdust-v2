@@ -147,6 +147,10 @@ fun AppRoot(
             if (!alive && !offlineSchedule) loggedIn.value = false
             if (alive && blocks.isEmpty()) sync()
         }
+        // 打开 App 顺手续租：有教务会话且距上次同步超过 6 小时，就静默刷新一次
+        val teachingReady = repo.store.casTicket.isNotBlank() || repo.hasTeachingSession()
+        val stale = System.currentTimeMillis() - repo.store.lastSyncAt > 6L * 60 * 60 * 1000
+        if (teachingReady && stale && repo.store.autoSyncEnabled) sync()
     }
 
     Crossfade(

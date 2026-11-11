@@ -158,6 +158,11 @@ class Store(context: Context) {
         get() = plain.getInt("term_week", 0)
         set(v) = plain.edit().putInt("term_week", v).apply()
 
+    /** 上次成功同步整学期的时间戳（用于 App 打开时判断要不要顺手续租刷新）。 */
+    var lastSyncAt: Long
+        get() = plain.getLong("last_sync_at", 0L)
+        set(v) = plain.edit().putLong("last_sync_at", v).apply()
+
     /** 登录后是否自动定时同步课表（12 小时一次）。 */
     var autoSyncEnabled: Boolean
         get() = plain.getBoolean("auto_sync", true)
@@ -289,9 +294,18 @@ class Repository(context: Context) {
     /** 登录后教务会话 Cookie 持久化在这里；后续同步、续租、定时任务共用。 */
     val teachingCookies = PersistentCookieJar(context)
 
+    /** 校历：优先本机缓存；没有再找门户；都没有就给可操作提示。 */
+    private suspend fun resolveCalendar(): CalendarInfo {
+        store.loadCalendar()?.let { return it }
+        if (store.portalToken.isNotBlank()) {
+            runCatching { api.calendar(store.portalToken, store.jobNumber) }.getOrNull()?.let { return it }
+        }
+        error("本机还没有校历。请先用「网页登录导入」填一次学期设置（或重新登录门户），再同步。")
+    }
+
     /** 账号密码快捷同步：优先复用现存正方 Cookie，明确认证失效时才用加密保存的 CAS ticket 续换。 */
     suspend fun syncTermWithLogin(): Pair<CalendarInfo, List<CourseBlock>> {
-        val cal = store.loadCalendar() ?: api.calendar(store.portalToken, store.jobNumber)
+        val cal = resolveCalendar()
         val hasTeachingCookie = listOf("172.16.254.1", "gkjx.gdust.edu.cn", "webvpn.gdust.edu.cn")
             .any(teachingCookies::hasSessionFor)
         val blocks = if (hasTeachingCookie) {
@@ -310,12 +324,13 @@ class Repository(context: Context) {
         }
         store.saveCalendar(cal)
         store.saveBlocks(blocks, "zf_term")
+        store.lastSyncAt = System.currentTimeMillis()
         return cal to blocks
     }
 
     /** 已有持久化 Cookie 时直接拉学期课表；OkHttp 没有则回退到网页登录留下的会话（后台定时任务走这条）。 */
     suspend fun syncTermWithCookies(): Pair<CalendarInfo, List<CourseBlock>> {
-        val cal = store.loadCalendar() ?: api.calendar(store.portalToken, store.jobNumber)
+        val cal = resolveCalendar()
         val hasDirectCookie = listOf("172.16.254.1", "gkjx.gdust.edu.cn", "webvpn.gdust.edu.cn")
             .any(teachingCookies::hasSessionFor)
         val blocks = if (hasDirectCookie) {
@@ -332,6 +347,7 @@ class Repository(context: Context) {
         }
         store.saveCalendar(cal)
         store.saveBlocks(blocks, "zf_term")
+        store.lastSyncAt = System.currentTimeMillis()
         return cal to blocks
     }
 
@@ -365,27 +381,35 @@ class Repository(context: Context) {
     suspend fun fetchCaptcha() = api.captcha()
 
     /**
-     * 登录：CAS → 门户 SSO → 会话落盘。
+     * 登录：CAS 拿 ticket → **先**换教务会话（ticket 一次性，教务更难打通，优先给它）→
+     * 再用同一 ticket 换门户 TOKEN（失败不阻塞课表同步，只是校历/公告暂不可用）。
      * 验证码错误以 AuthFailed(30001) 抛出，调用方换码重试。
      */
     suspend fun login(account: String, password: String, code: String, uuid: String) {
         val ticket = api.login(account, password, code, uuid)
-        val token = api.exchangeToken(ticket)
-        val (job, name) = runCatching { api.userInfo(token) }.getOrDefault(account to "")
-        store.portalToken = token
         store.casTicket = ticket
-        store.jobNumber = job.ifBlank { account }
-        store.realName = name
+        applySessions(account, ticket)
     }
 
     /** 扫码拿 ticket 后的收尾。 */
     suspend fun finishSso(ticket: String) {
-        val token = api.exchangeToken(ticket)
-        val (job, name) = runCatching { api.userInfo(token) }.getOrDefault("" to "")
-        store.portalToken = token
         store.casTicket = ticket
-        store.jobNumber = job
-        store.realName = name
+        applySessions("", ticket)
+    }
+
+    /** 票据一次性：教务优先，门户其次；两者都失败才算登录失败。 */
+    private suspend fun applySessions(fallbackJob: String, ticket: String) {
+        val teachingOk = runCatching { teachingSso.openSession(ticket, teachingCookies) }.getOrNull() != null
+        val token = runCatching { api.exchangeToken(ticket) }.getOrElse { "" }
+        if (token.isNotBlank()) {
+            val (job, name) = runCatching { api.userInfo(token) }.getOrDefault(fallbackJob to "")
+            store.portalToken = token
+            store.jobNumber = job.ifBlank { fallbackJob }
+            store.realName = name
+        }
+        if (!teachingOk && token.isBlank()) {
+            error("登录票据未能换取任何会话（教务与门户都被拒绝），请稍后重试或改用网页登录导入。")
+        }
     }
 
     fun subscribeSse() = api.subscribeSse()

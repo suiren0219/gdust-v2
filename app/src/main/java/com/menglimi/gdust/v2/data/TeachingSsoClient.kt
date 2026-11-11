@@ -30,13 +30,33 @@ class TeachingSsoClient {
         "https://webvpn.gdust.edu.cn/http/77726476706e69737468656265737421a1a013d2766626022b5cc7fd",
     )
 
-    private fun client(jar: CookieJar, followRedirects: Boolean = true) = OkHttpClient.Builder()
+    private fun client(
+        jar: CookieJar,
+        followRedirects: Boolean = true,
+        connectSec: Long = 15,
+        readSec: Long = 30,
+    ) = OkHttpClient.Builder()
         .cookieJar(jar)
         .followRedirects(followRedirects)
         .followSslRedirects(followRedirects)
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(connectSec, TimeUnit.SECONDS)
+        .readTimeout(readSec, TimeUnit.SECONDS)
         .build()
+
+    /**
+     * 只用 ticket 建立教务会话（不拉课表）。
+     * 必须在换门户 TOKEN **之前** 调用：CAS ticket 一次性，先给教务留着更容易打通。
+     * 返回成功建立会话的入口 base；全部失败返回 null。
+     */
+    suspend fun openSession(ticket: String, jar: CookieJar): String? = withContext(Dispatchers.IO) {
+        if (ticket.isBlank()) return@withContext null
+        for (base in bases) {
+            if (runCatching { exchangeTicket(ticket, base, jar, connectSec = 8, readSec = 12) }.isSuccess) {
+                return@withContext base
+            }
+        }
+        null
+    }
 
     /** 用 CAS ticket 换会话并拉课表；成功后 Cookie 已写入 jar，可持久复用。 */
     suspend fun loginAndFetch(
@@ -149,11 +169,17 @@ class TeachingSsoClient {
         false
     }
 
-    private fun exchangeTicket(ticket: String, base: String, jar: CookieJar) {
+    private fun exchangeTicket(
+        ticket: String,
+        base: String,
+        jar: CookieJar,
+        connectSec: Long = 15,
+        readSec: Long = 30,
+    ) {
         val ssoUrl = "$base/sso/lyiotlogin?ticket=${URLEncoder.encode(ticket, "UTF-8")}" +
             "&service=${URLEncoder.encode("$base/", "UTF-8")}"
         val req = Request.Builder().url(ssoUrl).header("User-Agent", ua).get().build()
-        client(jar).newCall(req).execute().use { resp ->
+        client(jar, connectSec = connectSec, readSec = readSec).newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) error("SSO HTTP ${resp.code} @ ${resp.request.url.host}")
             val finalUrl = resp.request.url.toString()
             if (finalUrl.contains("login_slogin") || finalUrl.contains("/cas/login") ||
