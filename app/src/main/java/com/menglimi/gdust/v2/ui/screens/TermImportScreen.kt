@@ -57,6 +57,21 @@ fun TermImportScreen(
     var browser by remember { mutableStateOf(false) }
     var importTarget by remember { mutableStateOf<CalendarInfo?>(null) }
     var requestedSession by remember { mutableStateOf<TeachingSession?>(null) }
+    // 网页内扫码需要摄像头：等网页真的申请权限时再问用户，不提前骚扰
+    val hostContext = androidx.compose.ui.platform.LocalContext.current
+    var pendingPermission by remember { mutableStateOf<android.webkit.PermissionRequest?>(null) }
+    val cameraLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val request = pendingPermission
+        pendingPermission = null
+        if (request != null) {
+            if (granted) request.grant(request.resources) else {
+                request.deny()
+                message = "网页扫码需要相机权限，已拒绝；可继续用其他方式登录。"
+            }
+        }
+    }
 
     fun schoolUrl(url: String): Boolean = runCatching {
         val uri = URI(url)
@@ -216,8 +231,19 @@ fun TermImportScreen(
                                 }
                             }
                             override fun onPermissionRequest(request: android.webkit.PermissionRequest) {
-                                // 网页内扫码偶尔会申请摄像头权限
-                                request.grant(request.resources)
+                                val wantsCamera = request.resources.any {
+                                    it == android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE
+                                }
+                                val granted = pendingPermission == null && androidx.core.content.ContextCompat.checkSelfPermission(
+                                    hostContext, android.Manifest.permission.CAMERA,
+                                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                if (wantsCamera && !granted) {
+                                    // 交给系统弹窗，结果在 cameraLauncher 里 grant/deny
+                                    pendingPermission = request
+                                    cameraLauncher.launch(android.Manifest.permission.CAMERA)
+                                } else {
+                                    request.grant(request.resources)
+                                }
                             }
                         }
                         web = this

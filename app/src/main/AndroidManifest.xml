@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 网页登录页内的扫码需要摄像头；仅在网页真正申请时才向用户询问 -->
+    <uses-permission android:name="android.permission.CAMERA" />
 
     <application
         android:name=".App"
