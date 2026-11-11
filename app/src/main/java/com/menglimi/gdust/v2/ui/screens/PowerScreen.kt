@@ -156,50 +156,63 @@ fun PowerScreen(repo: Repository) {
             }
             Spacer(Modifier.height(12.dp))
 
-            // 接口自带近 7 日（竖柱状，紧凑）
+            // 接口自带近 7 日（竖柱状）：明确「哪一天 · 多少度 · 哪天是今天」
             val week = detail?.weekUse.orEmpty()
             if (week.isNotEmpty()) {
                 val maxUse = week.maxOf { it.second }.coerceAtLeast(0.1)
+                val todayChar = when (java.time.LocalDate.now().dayOfWeek.value) {
+                    1 -> "一"; 2 -> "二"; 3 -> "三"; 4 -> "四"; 5 -> "五"; 6 -> "六"; else -> "日"
+                }
                 GlassCard {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("近 7 日用电（度）", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
+                            Text("近 7 日每天用电", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
                             Spacer(Modifier.weight(1f))
                             Text("峰值 %.1f 度".format(maxUse), fontSize = 11.sp, color = ds.sub)
                         }
-                        // 7 根等宽柱：高度按比例，宽度固定，避免高柱变竖条/矮柱变横条
+                        Text(
+                            "从左到右：最近 7 天（最右是今天）· 柱高=当天用电量 · 单位：度",
+                            fontSize = 10.sp, color = ds.sub, lineHeight = 14.sp,
+                        )
+                        // 7 根等宽柱：高度按比例，宽度固定
                         Row(
-                            Modifier.fillMaxWidth().height(104.dp),
+                            Modifier.fillMaxWidth().height(112.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.Bottom,
                         ) {
                             week.forEach { (day, use) ->
+                                val isToday = day.trim() == todayChar
                                 val ratio = (use / maxUse).toFloat().coerceIn(0f, 1f)
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Bottom,
-                                    modifier = Modifier.width(34.dp),
+                                    modifier = Modifier.width(36.dp),
                                 ) {
                                     Text(
-                                        "%.0f".format(use),
+                                        "%.1f".format(use),
                                         fontSize = 9.sp,
-                                        color = if (use >= maxUse) ds.accent else ds.sub,
+                                        color = if (isToday || use >= maxUse) ds.accent else ds.sub,
                                         maxLines = 1,
                                     )
                                     Box(
                                         Modifier
                                             .padding(top = 3.dp)
                                             .width(26.dp)
-                                            .height((68f * ratio).coerceAtLeast(8f).dp)
+                                            .height((66f * ratio).coerceAtLeast(8f).dp)
                                             .background(
-                                                if (use >= maxUse) ds.accent else ds.accent.copy(alpha = 0.42f),
+                                                when {
+                                                    isToday -> ds.accent
+                                                    use >= maxUse -> ds.accent.copy(alpha = 0.75f)
+                                                    else -> ds.accent.copy(alpha = 0.35f)
+                                                },
                                                 androidx.compose.foundation.shape.RoundedCornerShape(7.dp),
                                             ),
                                     )
                                     Text(
-                                        day.takeLast(2),
-                                        fontSize = 10.sp,
-                                        color = ds.sub,
+                                        if (isToday) "今天" else "周${day.trim()}",
+                                        fontSize = if (isToday) 10.sp else 10.sp,
+                                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isToday) ds.accent else ds.sub,
                                         maxLines = 1,
                                         modifier = Modifier.padding(top = 4.dp),
                                     )
