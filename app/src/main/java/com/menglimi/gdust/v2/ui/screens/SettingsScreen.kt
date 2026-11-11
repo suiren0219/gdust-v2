@@ -47,6 +47,7 @@ fun SettingsScreen(
     syncError: String?,
     onSync: () -> Unit,
     onWebImport: () -> Unit,
+    onWallpaperChanged: () -> Unit,
     onProfile: () -> Unit,
     onAbout: () -> Unit,
     onExportBackup: androidx.activity.compose.ManagedActivityResultLauncher<String, Uri?>,
@@ -78,6 +79,22 @@ fun SettingsScreen(
     var termWeekText by remember { mutableStateOf(store.termCurrentWeek.takeIf { it > 0 }?.toString() ?: "") }
     var termSaved by remember { mutableStateOf(false) }
     var backupMsg by remember { mutableStateOf<String?>(null) }
+    val hostContext = androidx.compose.ui.platform.LocalContext.current
+    var wallpaperPath by remember { mutableStateOf(store.wallpaperPath) }
+    var wallpaperBlur by remember { mutableStateOf(store.wallpaperBlur) }
+    var wallpaperDim by remember { mutableStateOf(store.wallpaperDim) }
+    val wallpaperLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            val path = com.menglimi.gdust.v2.ui.importWallpaper(hostContext, uri)
+            if (path.isNotBlank()) {
+                store.wallpaperPath = path
+                wallpaperPath = path
+                onWallpaperChanged()
+            }
+        }
+    }
     val context = androidx.compose.ui.platform.LocalContext.current
     val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
@@ -174,6 +191,55 @@ fun SettingsScreen(
                     store.monetEnabled = it
                 },
             )
+        }
+
+        // ── 壁纸 ──
+        SectionHeader("壁纸")
+        SettingGroup {
+            SettingOption(
+                title = "课表壁纸",
+                subtitle = "从相册选一张图作为页面背景；模糊与压暗可调",
+                detail = if (wallpaperPath.isBlank()) "未设置" else "已设置",
+                onClick = {
+                    wallpaperLauncher.launch(
+                        androidx.activity.result.PickVisualMediaRequest(
+                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
+                        )
+                    )
+                },
+            )
+            if (wallpaperPath.isNotBlank()) {
+                SettingDivider()
+                SettingEditor {
+                    Text("模糊 ${wallpaperBlur.toInt()} dp", fontSize = 12.sp, color = ds.sub)
+                    androidx.compose.material3.Slider(
+                        value = wallpaperBlur,
+                        onValueChange = {
+                            wallpaperBlur = it
+                            store.wallpaperBlur = it
+                            onWallpaperChanged()
+                        },
+                        valueRange = 0f..40f,
+                        steps = 19,
+                    )
+                    Text("压暗 ${(wallpaperDim * 100).toInt()}%", fontSize = 12.sp, color = ds.sub)
+                    androidx.compose.material3.Slider(
+                        value = wallpaperDim,
+                        onValueChange = {
+                            wallpaperDim = it
+                            store.wallpaperDim = it
+                            onWallpaperChanged()
+                        },
+                        valueRange = 0f..0.85f,
+                        steps = 16,
+                    )
+                    Button("清除壁纸") {
+                        store.wallpaperPath = ""
+                        wallpaperPath = ""
+                        onWallpaperChanged()
+                    }
+                }
+            }
         }
 
         // ── 账号与数据 ──

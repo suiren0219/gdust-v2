@@ -15,6 +15,7 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import com.menglimi.gdust.v2.data.Repository
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.LocalWallpaperActive
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -67,6 +69,7 @@ fun ScheduleScreen(
     syncError: String?,
     onPrevWeek: () -> Unit,
     onNextWeek: () -> Unit,
+    onSwitchTerm: (String) -> Unit = {},
     fullTermImported: Boolean = false,
 ) {
     val ds = LocalDs.current
@@ -79,6 +82,7 @@ fun ScheduleScreen(
     var showTeacher by remember { mutableStateOf(repo.store.showTeacherOnCard) }
     var showClassroom by remember { mutableStateOf(repo.store.showClassroomOnCard) }
     var showDisplaySettings by remember { mutableStateOf(false) }
+    var showTermSwitch by remember { mutableStateOf(false) }
 
     // 横向滑动翻周：跟手 + 松手惯性判定 + 平滑回弹（不再硬跳）
     var dragPx by remember { mutableStateOf(0f) }
@@ -94,6 +98,14 @@ fun ScheduleScreen(
     var selected by remember { mutableStateOf<CourseBlock?>(null) }
     selected?.let { block ->
         LessonDetailDialog(block = block, week = displayWeek, calendar = calendar, onDismiss = { selected = null })
+    }
+    if (showTermSwitch) {
+        TermSwitchDialog(
+            year = calendar?.year.orEmpty(),
+            current = calendar?.semester.orEmpty(),
+            onPick = { showTermSwitch = false; onSwitchTerm(it) },
+            onDismiss = { showTermSwitch = false },
+        )
     }
     if (showDisplaySettings) {
         LessonDisplayDialog(
@@ -112,56 +124,36 @@ fun ScheduleScreen(
             .fillMaxSize()
             .statusBarsPadding(),
     ) {
-        // ── 顶部：翻周 ──
-        Row(
-            Modifier.fillMaxWidth().padding(vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Spacer(Modifier.width(48.dp))
-            Text(
-                text = "<",
-                fontSize = 22.sp,
-                color = ds.sub,
-                modifier = Modifier
-                    .clickable { offset -= 1 }
-                    .padding(horizontal = 12.dp),
-            )
-            AnimatedContent(
-                targetState = displayWeek,
-                transitionSpec = {
-                    val forward = targetState > initialState
-                    val dir = if (forward) 1 else -1
-                    (slideInHorizontally(tween(240)) { it / 3 * dir } + fadeIn(tween(180)))
-                        .togetherWith(slideOutHorizontally(tween(240)) { -it / 3 * dir } + fadeOut(tween(180)))
-                },
-                modifier = Modifier.weight(1f),
-                label = "week",
-            ) { week ->
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    Text("第 $week 周", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = ds.text)
-                    if (week == currentWeek) {
-                        Text("本周", fontSize = 11.sp, color = ds.accent)
-                    }
-                }
-            }
-            Text(
-                text = ">",
-                fontSize = 22.sp,
-                color = ds.sub,
-                modifier = Modifier
-                    .clickable { offset += 1 }
-                    .padding(horizontal = 12.dp),
-            )
-            // 显示设置（字号 / 教师 / 地点），Nexio 式右上角入口
-            Box(
-                Modifier
-                    .padding(start = 2.dp, end = 10.dp)
-                    .size(34.dp)
-                    .background(ds.card.copy(alpha = 0.75f), CircleShape)
-                    .clickable { showDisplaySettings = true },
-                contentAlignment = Alignment.Center,
+        // ── 顶部：居中周次 + 右上切换课表/外观（Nexio 式，无左右箭头） ──
+        Box(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 8.dp)) {
+            Column(
+                Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("Aa", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = ds.accent)
+                Text("第 $displayWeek 周", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = ds.text)
+                if (displayWeek == currentWeek) Text("本周", fontSize = 11.sp, color = ds.accent)
+            }
+            Row(
+                Modifier.align(Alignment.CenterEnd).padding(end = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // 切换课表（整个学期）
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .background(ds.card.copy(alpha = if (LocalWallpaperActive.current) 0.55f else 0.8f), CircleShape)
+                        .clickable { showTermSwitch = true },
+                    contentAlignment = Alignment.Center,
+                ) { Text("⇄", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = ds.accent) }
+                // 外观设置
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .background(ds.card.copy(alpha = if (LocalWallpaperActive.current) 0.55f else 0.8f), CircleShape)
+                        .clickable { showDisplaySettings = true },
+                    contentAlignment = Alignment.Center,
+                ) { Text("Aa", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = ds.accent) }
             }
         }
 
@@ -412,9 +404,20 @@ private fun LessonCard(
     val ongoing = start.isNotEmpty() && end.isNotEmpty() &&
         !now.isBefore(LocalTime.parse(start)) && !now.isAfter(LocalTime.parse(end))
 
+    val onWallpaper = com.menglimi.gdust.v2.ui.LocalWallpaperActive.current
+    val cardBg = if (onWallpaper) {
+        if (ds.isDark) Color.Black.copy(alpha = 0.34f) else Color.White.copy(alpha = 0.66f)
+    } else bg
     Box(
         modifier
-            .background(bg, RoundedCornerShape(10.dp))
+            .background(cardBg, RoundedCornerShape(10.dp))
+            .then(
+                if (onWallpaper) Modifier.border(
+                    1.dp,
+                    Color.White.copy(alpha = if (ds.isDark) 0.10f else 0.7f),
+                    RoundedCornerShape(10.dp),
+                ) else Modifier
+            )
             .clickable(onClick = onClick)
             .padding(horizontal = 5.dp, vertical = 5.dp),
     ) {
@@ -582,5 +585,64 @@ private fun DisplayToggleRow(label: String, checked: Boolean, onChange: (Boolean
             onCheckedChange = onChange,
             colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = ds.accent),
         )
+    }
+}
+
+/** 切换课表（学期）：切换后清空当前展示并尝试重新同步该学期。 */
+@Composable
+private fun TermSwitchDialog(
+    year: String,
+    current: String,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val ds = LocalDs.current
+    val options = listOf("3" to "第一学期", "12" to "第二学期")
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(ds.card, RoundedCornerShape(20.dp))
+                .padding(20.dp),
+        ) {
+            Text("切换课表", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = ds.text)
+            Text(
+                if (year.isNotBlank()) "$year 学年" else "选择学期",
+                fontSize = 12.sp, color = ds.sub, modifier = Modifier.padding(top = 4.dp),
+            )
+            Spacer(Modifier.height(14.dp))
+            options.forEach { (code, label) ->
+                val picked = code == current
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(
+                            if (picked) ds.accent.copy(alpha = 0.14f) else Color.Transparent,
+                            RoundedCornerShape(12.dp),
+                        )
+                        .clickable { if (!picked) onPick(code) else onDismiss() }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(label, fontSize = 15.sp, color = ds.text, modifier = Modifier.weight(1f))
+                    if (picked) Text("当前", fontSize = 11.sp, color = ds.accent)
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+            Text(
+                "切换后会清空当前展示并尝试同步该学期课表；失败时可回到设置用网页导入。",
+                fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .background(ds.sub.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                    .clickable(onClick = onDismiss)
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text("取消", fontSize = 14.sp, color = ds.sub) }
+        }
     }
 }

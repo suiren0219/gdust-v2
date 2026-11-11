@@ -74,6 +74,7 @@ fun AppRoot(
     var showWebImport by remember { mutableStateOf(false) }
     var webImportReport by remember { mutableStateOf<String?>(null) }
     var directFallbackMessage by remember { mutableStateOf<String?>(null) }
+    var wallpaperTick by remember { mutableStateOf(0) }
     var showProfile by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     // 备份导出：SAF 建文档，写入后提示
@@ -206,6 +207,7 @@ fun AppRoot(
                 syncError = syncError,
                 onSync = { sync() },
                 onWebImport = { showWebImport = true },
+                onWallpaperChanged = { wallpaperTick++ },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },
                 onExportBackup = exportLauncher,
@@ -243,6 +245,18 @@ fun AppRoot(
                 calendar = calendar,
                 blocks = blocks,
                 syncError = syncError,
+                onSwitchTerm = { sem ->
+                    val cal = calendar
+                    if (cal != null && sem != cal.semester) {
+                        val updated = cal.copy(semester = sem)
+                        repo.store.saveCalendar(updated)
+                        calendar = updated
+                        // 切学期后旧课表不再代表当前学期：清空再同步（失败会明确提示）
+                        blocks = emptyList()
+                        sync()
+                    }
+                },
+                wallpaperTick = wallpaperTick,
             )
             else -> Box(Modifier.fillMaxSize().background(LocalDs.current.bg))
         }
@@ -296,28 +310,45 @@ private fun MainScaffold(
     calendar: CalendarInfo?,
     blocks: List<CourseBlock>,
     syncError: String?,
+    onSwitchTerm: (String) -> Unit = {},
+    wallpaperTick: Int = 0,
 ) {
     val ds = LocalDs.current
-    Box(Modifier.fillMaxSize().background(ds.bg)) {
-        Crossfade(targetState = tab, animationSpec = tween(220), label = "tabs") { page ->
-            when (page) {
-                0 -> TodayScreen(calendar = calendar, blocks = blocks)
-                1 -> ScheduleScreen(
-                    repo = repo,
-                    calendar = calendar,
-                    blocks = blocks,
-                    syncError = syncError,
-                    onPrevWeek = {},
-                    onNextWeek = {},
-                    fullTermImported = repo.store.scheduleSource == "zf_term",
+    // 壁纸：路径非空即启用；页面底色转透明，让壁纸透出来（tick 变化时重读）
+    val wallpaperPath = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperPath }
+    val wallpaperOn = wallpaperPath.isNotBlank()
+    androidx.compose.runtime.CompositionLocalProvider(LocalWallpaperActive provides wallpaperOn) {
+        Box(Modifier.fillMaxSize()) {
+            if (wallpaperOn) {
+                WallpaperBackdrop(
+                    path = wallpaperPath,
+                    blurDp = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperBlur },
+                    dim = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperDim },
                 )
-                2 -> PowerScreen(repo)
-                else -> TodoScreen(repo)
+            } else {
+                Box(Modifier.fillMaxSize().background(ds.bg))
             }
-        }
+            Crossfade(targetState = tab, animationSpec = tween(220), label = "tabs") { page ->
+                when (page) {
+                    0 -> TodayScreen(calendar = calendar, blocks = blocks)
+                    1 -> ScheduleScreen(
+                        repo = repo,
+                        calendar = calendar,
+                        blocks = blocks,
+                        syncError = syncError,
+                        onPrevWeek = {},
+                        onNextWeek = {},
+                        onSwitchTerm = onSwitchTerm,
+                        fullTermImported = repo.store.scheduleSource == "zf_term",
+                    )
+                    2 -> PowerScreen(repo)
+                    else -> TodoScreen(repo)
+                }
+            }
 
         // 底栏两套风格共用同一套点击热区实现（不受 Glasmio 内部动画/compaction 影响）
-        UnifiedBottomBar(tab = tab, onTab = onTab, onSettings = onSettings, ds = ds)
+            UnifiedBottomBar(tab = tab, onTab = onTab, onSettings = onSettings, ds = ds)
+        }
     }
 }
 
@@ -329,9 +360,19 @@ private fun BoxScope.UnifiedBottomBar(
     val liquid = LocalUiStyle.current.value == UiStyle.LIQUID
     val backdrop = if (liquid) null else LocalBackdrop.current
     val pillShape = com.haooz.softglass.shape.ContinuousCapsule()
-    fun Modifier.pill(): Modifier =
-        if (backdrop != null) this.drawBackdrop(backdrop = backdrop, shape = { pillShape }, effects = { blur(20f) })
-        else this.background(ds.card, RoundedCornerShape(28.dp)).border(1.dp, ds.sub.copy(alpha = 0.16f), RoundedCornerShape(28.dp))
+    val wallpaper = LocalWallpaperActive.current
+    fun Modifier.pill(): Modifier = when {
+        // 壁纸下：半透明磨砂胶囊（玻璃采样层透明后不能再用 drawBackdrop）
+        wallpaper -> this
+            .background(
+                if (ds.isDark) Color.Black.copy(alpha = 0.42f) else Color.White.copy(alpha = 0.72f),
+                RoundedCornerShape(28.dp),
+            )
+            .border(1.dp, Color.White.copy(alpha = if (ds.isDark) 0.12f else 0.7f), RoundedCornerShape(28.dp))
+        backdrop != null -> this.drawBackdrop(backdrop = backdrop, shape = { pillShape }, effects = { blur(20f) })
+        else -> this.background(ds.card, RoundedCornerShape(28.dp))
+            .border(1.dp, ds.sub.copy(alpha = 0.16f), RoundedCornerShape(28.dp))
+    }
 
     Row(
         Modifier

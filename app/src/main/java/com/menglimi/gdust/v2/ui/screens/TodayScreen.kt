@@ -46,7 +46,7 @@ fun TodayScreen(calendar: CalendarInfo?, blocks: List<CourseBlock>) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(ds.bg)
+            .background(com.menglimi.gdust.v2.ui.pageBackground())
             .statusBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),

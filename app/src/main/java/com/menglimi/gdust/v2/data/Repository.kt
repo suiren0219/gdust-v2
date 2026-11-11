@@ -158,6 +158,19 @@ class Store(context: Context) {
         get() = plain.getInt("term_week", 0)
         set(v) = plain.edit().putInt("term_week", v).apply()
 
+    /** 壁纸：本机文件路径（空=不用壁纸）；模糊 dp；压暗 0~0.8。 */
+    var wallpaperPath: String
+        get() = plain.getString("wallpaper_path", "") ?: ""
+        set(v) = plain.edit().putString("wallpaper_path", v).apply()
+
+    var wallpaperBlur: Float
+        get() = plain.getFloat("wallpaper_blur", 16f).coerceIn(0f, 40f)
+        set(v) = plain.edit().putFloat("wallpaper_blur", v.coerceIn(0f, 40f)).apply()
+
+    var wallpaperDim: Float
+        get() = plain.getFloat("wallpaper_dim", 0.35f).coerceIn(0f, 0.85f)
+        set(v) = plain.edit().putFloat("wallpaper_dim", v.coerceIn(0f, 0.85f)).apply()
+
     /** 课表格子字号倍率（0.85 小 / 1.0 标准 / 1.15 大 / 1.3 特大）。 */
     var courseTextScale: Float
         get() = plain.getFloat("course_text_scale", 1.0f).coerceIn(0.7f, 1.4f)

@@ -91,7 +91,7 @@ fun PowerScreen(repo: Repository) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(ds.bg)
+            .background(com.menglimi.gdust.v2.ui.pageBackground())
             .statusBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),
@@ -105,30 +105,38 @@ fun PowerScreen(repo: Repository) {
             val avgDaily = weekUse.map { it.second }.takeIf { it.isNotEmpty() }?.average()?.takeIf { it > 0.01 }
             val daysLeft = avgDaily?.let { detail?.odd?.div(it) }
             GlassCard {
-                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(store.powerRoomName, fontSize = 14.sp, color = ds.sub)
-                    Text(
-                        detail?.odd?.let { "%.1f".format(it) } ?: if (busy) "…" else "--",
-                        fontSize = 56.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = ds.accent,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    Text("剩余电量（度）", fontSize = 12.sp, color = ds.sub)
-                    Row(
-                        Modifier.padding(top = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        detail?.todayUse?.let { Text("今日 %.1f 度".format(it), fontSize = 12.sp, color = ds.sub) }
-                        daysLeft?.let {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // 左：大数字
+                    Column(Modifier.weight(1f)) {
+                        Text(store.powerRoomName, fontSize = 12.sp, color = ds.sub, maxLines = 1)
+                        Row(verticalAlignment = Alignment.Bottom) {
                             Text(
-                                "约可用 %.0f 天".format(it),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = if (it < 3) ds.danger else ds.sub,
+                                detail?.odd?.let { "%.1f".format(it) } ?: if (busy) "…" else "--",
+                                fontSize = 44.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ds.accent,
+                            )
+                            Text(
+                                " 度",
+                                fontSize = 13.sp,
+                                color = ds.sub,
+                                modifier = Modifier.padding(bottom = 8.dp, start = 2.dp),
                             )
                         }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    // 右：三个关键信息竖排，省高度
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        detail?.todayUse?.let {
+                            InfoPill("今日", "%.1f 度".format(it), ds)
+                        }
+                        daysLeft?.let {
+                            InfoPill("可用", "约 %.0f 天".format(it), ds, warn = it < 3)
+                        }
+                        InfoPill("预警", "%.0f 度".format(store.warnThreshold), ds)
                     }
                 }
             }
@@ -148,32 +156,50 @@ fun PowerScreen(repo: Repository) {
             }
             Spacer(Modifier.height(12.dp))
 
-            // 接口自带近 7 日
+            // 接口自带近 7 日（竖柱状，紧凑）
             val week = detail?.weekUse.orEmpty()
             if (week.isNotEmpty()) {
                 val maxUse = week.maxOf { it.second }.coerceAtLeast(0.1)
                 GlassCard {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("近 7 日用电（接口自带）", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
-                        week.forEach { (day, use) ->
-                            Column {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text(day, fontSize = 13.sp, color = ds.text)
-                                    Text("%.1f 度".format(use), fontSize = 13.sp, color = ds.sub)
-                                }
-                                // 用量比例条：一眼看出哪天用电最多
-                                Box(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 3.dp)
-                                        .height(4.dp)
-                                        .background(ds.sub.copy(alpha = 0.1f), androidx.compose.foundation.shape.RoundedCornerShape(2.dp)),
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("近 7 日用电", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
+                            Spacer(Modifier.weight(1f))
+                            Text("峰值 %.1f 度".format(maxUse), fontSize = 11.sp, color = ds.sub)
+                        }
+                        Row(
+                            Modifier.fillMaxWidth().height(96.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.Bottom,
+                        ) {
+                            week.forEach { (day, use) ->
+                                Column(
+                                    Modifier.weight(1f),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Bottom,
                                 ) {
+                                    Text(
+                                        "%.0f".format(use),
+                                        fontSize = 9.sp,
+                                        color = ds.sub,
+                                        maxLines = 1,
+                                    )
                                     Box(
                                         Modifier
-                                            .fillMaxWidth((use / maxUse).toFloat().coerceIn(0.02f, 1f))
-                                            .height(4.dp)
-                                            .background(ds.accent.copy(alpha = 0.6f), androidx.compose.foundation.shape.RoundedCornerShape(2.dp)),
+                                            .fillMaxWidth()
+                                            .padding(top = 3.dp)
+                                            .height((64f * (use / maxUse).toFloat()).coerceAtLeast(4f).dp)
+                                            .background(
+                                                if (use >= maxUse) ds.accent else ds.accent.copy(alpha = 0.45f),
+                                                androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                                            ),
+                                    )
+                                    Text(
+                                        day.takeLast(2),
+                                        fontSize = 10.sp,
+                                        color = ds.sub,
+                                        maxLines = 1,
+                                        modifier = Modifier.padding(top = 4.dp),
                                     )
                                 }
                             }
@@ -418,5 +444,26 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
                 )
             }
         }
+    }
+}
+
+/** 右侧信息小胶囊：标签 + 值。 */
+@Composable
+private fun InfoPill(label: String, value: String, ds: com.menglimi.gdust.v2.ui.Ds, warn: Boolean = false) {
+    Row(
+        Modifier
+            .background(ds.accent.copy(alpha = 0.10f), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, fontSize = 10.sp, color = ds.sub)
+        Text(
+            value,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            color = if (warn) ds.danger else ds.text,
+            maxLines = 1,
+        )
     }
 }

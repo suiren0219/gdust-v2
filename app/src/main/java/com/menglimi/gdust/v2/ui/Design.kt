@@ -1,6 +1,7 @@
 package com.menglimi.gdust.v2.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -95,6 +97,27 @@ fun GlassCard(
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    // 有壁纸时：不用 backdrop（采样层已透明），改成 Nexio 那种半透明磨砂 + 细边框
+    if (LocalWallpaperActive.current) {
+        val ds = LocalDs.current
+        val surface = if (ds.isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.62f)
+        Box(
+            modifier
+                .fillMaxWidth()
+                .background(surface, RoundedCornerShape(20.dp))
+                .then(
+                    Modifier.border(
+                        1.dp,
+                        if (ds.isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.75f),
+                        RoundedCornerShape(20.dp),
+                    )
+                )
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        ) {
+            Box(Modifier.padding(16.dp)) { content() }
+        }
+        return
+    }
     if (LocalUiStyle.current.value == UiStyle.SOFT) {
         val backdrop = LocalBackdrop.current
         val shape = ContinuousRoundedRectangle(20.dp)
