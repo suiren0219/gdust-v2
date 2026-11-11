@@ -13,5 +13,9 @@ class App : Application() {
         repo = Repository(this)
         repo.store.publishPowerWorkerConfig()
         com.menglimi.gdust.v2.work.PowerWorker.schedule(this)
+        // 登录过就开启定时同步整学期课表（12 小时一次；会话失效会通知重登）
+        if (repo.store.autoSyncEnabled && (repo.store.hasSession || repo.store.casTicket.isNotBlank())) {
+            com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(this)
+        }
     }
 }

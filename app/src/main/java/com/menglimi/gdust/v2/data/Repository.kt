@@ -158,6 +158,11 @@ class Store(context: Context) {
         get() = plain.getInt("term_week", 0)
         set(v) = plain.edit().putInt("term_week", v).apply()
 
+    /** 登录后是否自动定时同步课表（12 小时一次）。 */
+    var autoSyncEnabled: Boolean
+        get() = plain.getBoolean("auto_sync", true)
+        set(v) = plain.edit().putBoolean("auto_sync", v).apply()
+
     var sampleIntervalMinutes: Int
         get() = plain.getInt("sample_interval", 60)
         set(v) { plain.edit().putInt("sample_interval", v).apply(); publishPowerWorkerConfig() }
@@ -186,34 +191,12 @@ class Store(context: Context) {
     val hasPowerBinding: Boolean get() = powerAccount.isNotEmpty() && powerRoomVerify.isNotEmpty()
     val hasLlm: Boolean get() = llmBase.isNotEmpty() && llmKey.isNotEmpty() && llmModel.isNotEmpty()
 
-    fun saveTeachingSession(session: TeachingSession) {
-        require(isTeachingEndpoint(session.endpoint))
-        secure.edit()
-            .putString("teaching_endpoint", session.endpoint)
-            .putString("teaching_cookie", session.cookie)
-            .putString("teaching_page", session.pageUrl)
-            .apply()
-    }
-
-    fun loadTeachingSession(): TeachingSession? {
-        val endpoint = "teaching_endpoint".s
-        val cookie = "teaching_cookie".s
-        if (!isTeachingEndpoint(endpoint) || cookie.isBlank()) return null
-        return TeachingSession(endpoint, cookie, "teaching_page".s)
-    }
-
-    fun clearTeachingSession() {
-        secure.edit().remove("teaching_endpoint").remove("teaching_cookie")
-            .remove("teaching_page").apply()
-    }
-
     fun clearPortalSession() {
         secure.edit().remove("token").apply()
     }
 
     fun logout() {
         clearPortalSession()
-        clearTeachingSession()
         secure.edit().remove("ticket").remove("job").remove("name").apply()
         plain.edit().remove("blocks").remove("calendar").remove("schedule_source").apply()
         android.webkit.CookieManager.getInstance().removeAllCookies {
@@ -293,17 +276,33 @@ class Repository(context: Context) {
     val store = Store(context)
     private val api = GdustApi()
     private val teachingSso = TeachingSsoClient()
+    /** 登录后教务会话 Cookie 持久化在这里；后续同步、续租、定时任务共用。 */
+    val teachingCookies = PersistentCookieJar(context)
 
     /** 用登录时保存的 CAS ticket 直接换教务会话并拉整学期，不开 WebView。 */
     suspend fun syncTermWithLogin(): Pair<CalendarInfo, List<CourseBlock>> {
         val cal = store.loadCalendar() ?: api.calendar(store.portalToken, store.jobNumber)
         val ticket = store.casTicket
         require(ticket.isNotBlank()) { "登录票据已失效，请在登录页重新登录一次" }
-        val blocks = teachingSso.loginAndFetch(ticket, cal)
+        val blocks = teachingSso.loginAndFetch(ticket, cal, teachingCookies)
         store.saveCalendar(cal)
         store.saveBlocks(blocks, "zf_term")
         return cal to blocks
     }
+
+    /** 已有持久化 Cookie 时直接拉学期课表（后台定时任务走这条）。 */
+    suspend fun syncTermWithCookies(): Pair<CalendarInfo, List<CourseBlock>> {
+        val cal = store.loadCalendar() ?: api.calendar(store.portalToken, store.jobNumber)
+        val blocks = teachingSso.fetchWithCookies(cal, teachingCookies)
+        store.saveCalendar(cal)
+        store.saveBlocks(blocks, "zf_term")
+        return cal to blocks
+    }
+
+    /** 教务会话是否还活着（轻量探测，供续租与定时任务决定是否要重登）。 */
+    suspend fun teachingSessionAlive(): Boolean = runCatching {
+        teachingSso.probe(teachingCookies)
+    }.getOrDefault(false)
 
     suspend fun isSessionAlive(): Boolean {
         if (!store.hasSession) return false
@@ -316,20 +315,6 @@ class Repository(context: Context) {
             if (e is AuthFailed) store.clearPortalSession()
             shouldKeepSession(true, e)
         }
-    }
-
-    suspend fun syncTeachingSchedule(): Pair<CalendarInfo, List<CourseBlock>> {
-        val session = store.loadTeachingSession()
-            ?: throw AuthFailed(401, "请先登录教务一次，之后会自动复用会话")
-        val calendar = requireNotNull(store.loadCalendar()) { "请先选择要同步的学期" }
-        val blocks = try {
-            api.termSchedule(session, calendar)
-        } catch (e: AuthFailed) {
-            store.clearTeachingSession()
-            throw e
-        }
-        store.saveBlocks(blocks, "zf_term")
-        return calendar to blocks
     }
 
     suspend fun fetchCaptcha() = api.captcha()

@@ -46,7 +46,6 @@ import com.menglimi.gdust.v2.ui.screens.PowerScreen
 import com.menglimi.gdust.v2.ui.screens.SettingsScreen
 import com.menglimi.gdust.v2.ui.screens.TodayScreen
 import com.menglimi.gdust.v2.ui.screens.TodoScreen
-import com.menglimi.gdust.v2.ui.screens.TermImportScreen
 import com.menglimi.gdust.v2.ui.screens.ProfileScreen
 import com.menglimi.gdust.v2.ui.screens.AboutScreen
 import kotlinx.coroutines.launch
@@ -71,7 +70,6 @@ fun AppRoot(
     var netDown by remember { mutableStateOf(false) }
     var syncing by remember { mutableStateOf(false) }
     var needLogin by remember { mutableStateOf(false) }
-    var showImport by remember { mutableStateOf(false) }
     var showProfile by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     // 备份导出：SAF 建文档，写入后提示
@@ -145,7 +143,6 @@ fun AppRoot(
     Crossfade(
         targetState = when {
             !checked.value -> "loading"
-            showImport -> "import"
             showProfile -> "profile"
             showAbout -> "about"
             showSettings.value -> "settings"
@@ -156,19 +153,6 @@ fun AppRoot(
         label = "root",
     ) { state ->
         when (state) {
-            "import" -> TermImportScreen(
-                repo = repo,
-                onBack = { showImport = false },
-                onImported = { cal, list ->
-                    calendar = cal
-                    blocks = list
-                    showImport = false
-                    showSettings.value = false
-                    loggedIn.value = true
-                    tab.intValue = 1
-                    importReport = "已读取 ${list.size} 条实际排课，覆盖 ${list.map { it.week }.distinct().size} 个周次。仅显示教务返回的课程；后续调课请重新导入核对。"
-                },
-            )
             "profile" -> {
                 androidx.activity.compose.BackHandler { showProfile = false }
                 ProfileScreen(repo = repo, onBack = { showProfile = false })
@@ -181,6 +165,8 @@ fun AppRoot(
                 repo = repo,
                 onLoggedIn = {
                     loggedIn.value = true
+                    // 登录成功即开启定时同步
+                    runCatching { com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(context) }
                     sync()
                 },
                 onOpenSettings = { showSettings.value = true },
@@ -190,7 +176,6 @@ fun AppRoot(
                 repo = repo,
                 syncError = syncError,
                 onSync = { sync() },
-                onImport = { showImport = true },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },
                 onExportBackup = exportLauncher,

@@ -46,7 +46,6 @@ fun SettingsScreen(
     repo: Repository,
     syncError: String?,
     onSync: () -> Unit,
-    onImport: () -> Unit,
     onProfile: () -> Unit,
     onAbout: () -> Unit,
     onExportBackup: androidx.activity.compose.ManagedActivityResultLauncher<String, Uri?>,
@@ -187,7 +186,7 @@ fun SettingsScreen(
             SettingDivider()
             SettingOption(
                 title = "同步整学期课表",
-                subtitle = "用已登录的账号直接读取教务系统，按实际周次保存，不用再打开网页",
+                subtitle = "用登录账号直接读取教务系统，按每门课实际周次保存；不用打开网页、不用扫码",
                 detail = when {
                     syncing -> "同步中…"
                     syncError != null -> "失败"
@@ -199,12 +198,7 @@ fun SettingsScreen(
             if (syncError != null) {
                 SettingEditor { Text("失败：$syncError", fontSize = 11.sp, color = ds.danger) }
             }
-            SettingDivider()
-            SettingOption(
-                title = "教务网页登录（备用）",
-                subtitle = "仅在自动同步被学校拒绝时使用；需从学校门户进入教务系统",
-                onClick = onImport,
-            )
+
             SettingDivider()
             SettingOption(title = "本地缓存课程", detail = "${store.loadBlocks().size} 张卡")
             SettingDivider()

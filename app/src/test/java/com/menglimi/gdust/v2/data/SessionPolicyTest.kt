@@ -27,11 +27,4 @@ class SessionPolicyTest {
         assertNull(schoolAuthFailure(200, """{"code":null}"""))
         assertFalse(shouldKeepSession(false, null))
     }
-
-    @Test fun savedTeachingCookiesOnlyGoToExactSchoolEndpoints() {
-        assertTrue(isTeachingEndpoint(VPN_TEACHING_ENDPOINT))
-        assertTrue(isTeachingEndpoint(TEACHING_ENDPOINT))
-        assertFalse(isTeachingEndpoint("https://example.org"))
-        assertFalse(isTeachingEndpoint(VPN_TEACHING_ENDPOINT + "&redirect=https://example.org"))
-    }
 }
