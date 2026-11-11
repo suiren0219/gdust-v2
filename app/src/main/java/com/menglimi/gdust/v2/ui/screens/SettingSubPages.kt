@@ -33,7 +33,7 @@ import com.menglimi.gdust.v2.ui.LocalDs
 
 /** 作者署名与主页（改这里一处即可）。 */
 internal const val APP_AUTHOR = "穗稔"
-internal const val APP_GITHUB = "https://github.com/suiren0219"
+internal const val APP_GITHUB = "https://github.com/suiren0219/gdust-schedule"
 
 /** 设置二级页通用骨架：同款左缘右滑返回手势。 */
 @Composable
@@ -143,8 +143,8 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
             SettingOption(title = "作者", detail = APP_AUTHOR)
             SettingDivider()
             SettingOption(
-                title = "GitHub",
-                detail = "github.com/suiren0219",
+                title = "GitHub 项目",
+                detail = "github.com/suiren0219/gdust-schedule",
                 onClick = {
                     runCatching {
                         hostContext.startActivity(
@@ -188,7 +188,7 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            "广科课程表 · 由 $APP_AUTHOR 制作 · 闭源自用版",
+            "广科课程表 · 由 $APP_AUTHOR 制作 · 开源（MIT）",
             fontSize = 11.sp, color = ds.sub,
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp).wrapContentSize(Alignment.Center),
         )

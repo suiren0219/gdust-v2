@@ -1,31 +1,52 @@
-# 广科课程表 v2
+# 广科课程表
 
-广东科技学院专属安卓 App。**彻底重写**：不继承 Nexio 一行源码，仅复刻其视觉语言（周网格课表 / 玻璃卡 / 悬浮胶囊底栏 / 深浅色）。
+<p align="center">
+  <img src="docs/screenshot-schedule.png" width="270" alt="课表（壁纸）"/>
+  <img src="docs/screenshot-power.png" width="270" alt="电费"/>
+  <img src="docs/screenshot-login.png" width="270" alt="扫码登录"/>
+</p>
 
-## 架构原则
-
-- **单模块纯 Compose**：无 KMP、无 SQLDelight、无 Miuix fork、无 pager 魔改、无 alpha 门控
-- **本机直连**：CAS / 门户 / 完美校园全部 App 直连，不经过任何自建服务器
-- **隐私**：密码不落盘；TOKEN / 水电账号 / LLM Key 存 EncryptedSharedPreferences
-- **切页**：Crossfade 220ms 统一过渡，无硬切、无拆树重建
-- **课表**：门户按「节」返回 → 数据层 `mergeLessons` 合并连堂 → 一张整卡渲染
+广东科技学院专属课表 App —— 整学期课表导入 · 宿舍水电 · 待办 · AI 总结。所有数据由 App **本机直连**学校系统，无自建服务器、无账号体系、无遥测。
 
 ## 功能
 
-| 页 | 内容 |
-|---|---|
-| 今日 | 当天课程卡片、上课状态、最早一节课 |
-| 课表 | 周网格、连堂整卡、翻周动画、当前节次指示、午休/晚休条、智能隐藏周末 |
-| 电费 | 完美校园 SWAEServlet 绑定 + 剩余电量大字 + 15 分钟后台双预警（阈值/掉电速率、12h 冷却） |
-| 待办 | 本地增删勾选持久化的待办清单 |
-| 设置 | 账号、手动同步、LLM 自填配置、通知 AI 总结、预警阈值、退出登录 |
-| 登录 | 学号+密码+验证码（自动换码）；钉钉一键登录（SSE） |
+- **整学期课表导入**：登录统一身份认证后直接读取正方教务系统，按每门课**实际周次**保存——支持分段周（`1-8周`、`14-17周`）、单双周、独立调课，不是"本周复制到全学期"
+- **三种登录方式**：账号密码直连（票据自动续租）/ 钉钉扫码（SSE + App 自绘二维码，免验证码）/ 网页登录（兼容备用）。教务会话持久化，12 小时自动同步，失效才提醒重登
+- **宿舍水电**：完美校园接口直连，剩余电量大字 + 今日/近 7 日/当月用量 + 走势图（点按查看任意采样点）+ 低电量/掉电速率双预警（后台 15 分钟巡检，同类 12h 冷却）
+- **通知 AI 总结**：自填任意 OpenAI 兼容端点，把学校公告提炼成要点
+- **桌面小组件 ×3**：下一节课（2×1）/ 今日课程+电量（3×2）/ 电量大字（2×2），数据全部本机缓存，不打网络
+- **双 UI 风格**：HyperOS 柔光玻璃（[softglass](https://github.com/HaoZai000/softglass)）/ iOS 27 液态玻璃（[Glasmio](https://github.com/neoruaa/Glasmio)），一键切换
+- **更多**：莫奈动态取色、课表壁纸（模糊/压暗可调）、卡片字号/高度/圆角/对齐/文字颜色可调、点课程卡看详情、备份与恢复（SAF）、待办
+
+## 隐私
+
+- 登录凭证、CAS 票据、教务会话 Cookie 存本机**加密存储**（EncryptedSharedPreferences）；密码不落盘
+- 备份文件不含登录凭证与密码
+- 无自建服务器、无账号体系、无遥测；卸载即全部清除
+
+## 技术栈
+
+Kotlin · Jetpack Compose · Material 3 · [softglass](https://github.com/HaoZai000/softglass)（Apache-2.0）· [Glasmio](https://github.com/neoruaa/Glasmio)（Apache-2.0）· Glance · WorkManager · OkHttp/OkHttp-SSE · ZXing · [MaterialKolor](https://github.com/jordond/MaterialKolor)（MIT）
 
 ## 构建
 
-```
-cd D:/ai-projects/gdust-v2
-JAVA_HOME="C:\Program Files\Java\jdk-21" D:/android-sdk/gradle-dist/gradle-9.7.1/bin/gradle.bat :app:assembleDebug
+```bash
+# JDK 21 + Android SDK 37（compileSdk）/ minSdk 33（Android 13+）
+./gradlew assembleDebug
 ```
 
-产物：`app/build/outputs/apk/debug/app-debug.apk`（arm64 + x86_64 通用，纯 Compose 无 native 依赖）
+- 产物：`app/build/outputs/apk/debug/app-debug.apk`（纯 Kotlin/Compose，无 native 依赖）
+- release 签名文件不入库：自建 `signing/gdust-v2-release.jks` 与 `signing/keystore.properties`（`storePassword` / `keyAlias` / `keyPassword`），`build.gradle.kts` 检测到后自动签名
+
+## 数据来源
+
+| 数据 | 来源 |
+|---|---|
+| 校历 / 本周课表 / 公告 | 学校门户 smart-admin-api |
+| 整学期课表 | 正方教务（校园网内网 / 新教务公网 / WebVPN 三入口自动尝试） |
+| 水电 | 完美校园智能水电接口 |
+| AI 总结 | 用户自填的 OpenAI 兼容端点 |
+
+## License
+
+[MIT](LICENSE) © 2026 suiren0219
