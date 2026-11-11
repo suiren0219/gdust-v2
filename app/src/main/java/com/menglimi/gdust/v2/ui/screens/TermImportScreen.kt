@@ -31,6 +31,8 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
 private const val VPN_LOGIN = "https://webvpn.gdust.edu.cn/https/77726476706e69737468656265737421f3f652d220347d436a468ca88d1b203b/cas/?service=https%3A%2F%2Fwebvpn.gdust.edu.cn%2Flogin%3Fcas_login%3Dtrue"
+/** 默认入口：学校门户。校园网 IP 下 WebVPN 会明确拒绝登录，校外才需要 VPN。 */
+private const val PORTAL_ENTRY = "https://portal.gdust.edu.cn"
 private const val VPN_SCHEDULE = "/http/77726476706e69737468656265737421a1a013d2766626022b5cc7fd/kbcx/xskbcx_cxXsgrkb.html?vpn-12-o1-172.16.254.1&gnmkdm=N2151"
 private const val DIRECT_SCHEDULE = "/kbcx/xskbcx_cxXsgrkb.html?gnmkdm=N2151"
 
@@ -79,7 +81,7 @@ fun TermImportScreen(
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 Spacer(Modifier.height(16.dp))
                 PageTitle("教务学期导入", "按拾光 GDUST 适配的正方接口读取", onBack)
-                Text("选择学年与学期，登录后进入教务系统，再点读取。课程只使用教务返回的实际周次；开学日期仅用于换算日期。", color = ds.sub, fontSize = 13.sp)
+                Text("选择学年与学期，从学校门户进入教务系统，再点读取。课程只使用教务返回的实际周次；开学日期仅用于换算日期。", color = ds.sub, fontSize = 13.sp)
                 Spacer(Modifier.height(16.dp))
                 InputField(year, { year = it }, "起始学年，如 2026", KeyboardType.Number)
                 Spacer(Modifier.height(10.dp))
@@ -99,7 +101,7 @@ fun TermImportScreen(
                         val current = (ChronoUnit.DAYS.between(date, LocalDate.now()) / 7 + 1).toInt().coerceIn(1, total)
                         importTarget = CalendarInfo(current, total, date.toString(), year, semester)
                         browser = true
-                        message = "登录后请进入教务系统，再点击读取学期课表。"
+                        message = "正在打开学校门户…请在门户里进入教务系统，再点下方读取学期课表。"
                     }.onFailure { message = it.message ?: "学期设置无效" }
                 }
                 if (message.isNotEmpty()) Text(message, color = ds.danger, fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp))
@@ -110,12 +112,26 @@ fun TermImportScreen(
     @Composable
     fun ImportBrowser() {
         Column(Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().navigationBarsPadding().padding(horizontal = 16.dp)) {
-        Text("教务登录 · ${year} 学年 · ${if (semester == "3") "第一" else "第二"}学期", color = ds.text, fontSize = 16.sp, modifier = Modifier.padding(vertical = 10.dp))
+            Text(
+                "教务处 · 当前入口：${when {
+                    page.contains("webvpn.gdust.edu.cn") -> "WebVPN（仅校外使用）"
+                    page.contains("portal.gdust.edu.cn") -> "学校门户"
+                    page.contains("gkjx.gdust.edu.cn") || page.contains("172.16.254.1") -> "教务系统直连"
+                    else -> "学校门户"
+                }}",
+                color = ds.text, fontSize = 16.sp,
+                modifier = Modifier.padding(vertical = 10.dp),
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) { Button("返回") { onBack() } }
-                Box(Modifier.weight(1f)) { Button("门户入口") { web?.loadUrl("https://portal.gdust.edu.cn") } }
+                Box(Modifier.weight(1.3f)) { Button("学校门户") { web?.loadUrl(PORTAL_ENTRY) } }
                 Box(Modifier.weight(1f)) { Button("WebVPN") { web?.loadUrl(VPN_LOGIN) } }
             }
+            Text(
+                "校园网内请用「学校门户」（WebVPN 会拒绝校园网 IP）；校外网络才点 WebVPN。",
+                color = ds.sub, fontSize = 11.sp, lineHeight = 15.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
             Text(runCatching { URI(page).host }.getOrNull().orEmpty(), color = ds.sub, fontSize = 11.sp)
             AndroidView(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -142,7 +158,17 @@ fun TermImportScreen(
                             }
                             override fun onPageFinished(view: WebView, url: String) {
                                 page = url
-                                if (message == "正在加载学校页面…") message = "登录后进入教务系统，再点击读取学期课表。"
+                                if (message == "正在加载学校页面…") {
+                                    message = "页面已载入。请在门户中进入教务系统，再点下方「读取学期课表」。"
+                                }
+                                // WebVPN 在校园网 IP 下会返回拒绝页；把网页内容翻译成明确提示
+                                view.evaluateJavascript(
+                                    "(document.body&&document.body.innerText||'').slice(0,400)",
+                                ) { text ->
+                                    if (text != null && (text.contains("拒绝登录") || text.contains("校园网"))) {
+                                        message = "WebVPN 拒绝了校园网 IP：这是学校的正常策略，不是 App 故障。请点「学校门户」，从门户进入教务系统。"
+                                    }
+                                }
                             }
                             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
                                 if (request.isForMainFrame) message = "学校页面加载失败：${error.description}。可尝试上方门户入口。"
@@ -161,10 +187,18 @@ fun TermImportScreen(
                             }
                             CookieManager.getInstance().flush()
                         }
-                        loadUrl(savedSession?.pageUrl?.takeIf(::schoolUrl) ?: VPN_LOGIN)
+                        loadUrl(savedSession?.pageUrl?.takeIf(::schoolUrl) ?: PORTAL_ENTRY)
                     }
                 },
             )
+            // 加载超过 20 秒仍未完成就给明确提示，不让用户盯着空白页猜
+            LaunchedEffect(page) {
+                if (page.isBlank() || message != "正在加载学校页面…") return@LaunchedEffect
+                kotlinx.coroutines.delay(20_000)
+                if (message == "正在加载学校页面…") {
+                    message = "学校页面加载较慢或没有响应。可点「学校门户」重试；若显示「当前 IP 属于校园网」，属正常，请从门户进入教务系统。"
+                }
+            }
             Text(message, color = ds.sub, fontSize = 12.sp, modifier = Modifier.padding(vertical = 6.dp))
             Button(if (busy) "正在读取…" else "读取学期课表", enabled = !busy) {
                 val uri = runCatching { URI(web?.url.orEmpty()) }.getOrNull()
@@ -175,7 +209,11 @@ fun TermImportScreen(
                     else -> null
                 }
                 if (path == null) {
-                    message = "请先从门户进入教务系统，或通过 WebVPN 完成登录。"
+                    message = if (host == "portal.gdust.edu.cn") {
+                        "当前还在学校门户首页。请先在页面里点「教务系统 / 教学综合服务平台」，进入教务后再点读取。（门户登录态不等于教务会话）"
+                    } else {
+                        "请先从学校门户进入教务系统，或通过 WebVPN 完成登录并进入教务。"
+                    }
                 } else {
                     busy = true
                     message = "正在读取教务返回的实际周次…"
