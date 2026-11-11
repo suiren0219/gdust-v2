@@ -82,6 +82,10 @@ fun ScheduleScreen(
     var showTeacher by remember { mutableStateOf(repo.store.showTeacherOnCard) }
     var showClassroom by remember { mutableStateOf(repo.store.showClassroomOnCard) }
     var showDisplaySettings by remember { mutableStateOf(false) }
+    var rowHeightDp by remember { mutableStateOf(repo.store.courseRowHeight) }
+    var cornerDp by remember { mutableStateOf(repo.store.courseCorner) }
+    var alignCenter by remember { mutableStateOf(repo.store.cardAlignCenter) }
+    var textMono by remember { mutableStateOf(repo.store.cardTextMono) }
     var showTermSwitch by remember { mutableStateOf(false) }
 
     // 横向滑动翻周：跟手 + 松手惯性判定 + 平滑回弹（不再硬跳）
@@ -112,9 +116,17 @@ fun ScheduleScreen(
             textScale = textScale,
             showTeacher = showTeacher,
             showClassroom = showClassroom,
+            rowHeight = rowHeightDp,
+            corner = cornerDp,
+            alignCenter = alignCenter,
+            textMono = textMono,
             onScale = { textScale = it; repo.store.courseTextScale = it },
             onTeacher = { showTeacher = it; repo.store.showTeacherOnCard = it },
             onClassroom = { showClassroom = it; repo.store.showClassroomOnCard = it },
+            onRowHeight = { rowHeightDp = it; repo.store.courseRowHeight = it },
+            onCorner = { cornerDp = it; repo.store.courseCorner = it },
+            onAlignCenter = { alignCenter = it; repo.store.cardAlignCenter = it },
+            onTextMono = { textMono = it; repo.store.cardTextMono = it },
             onDismiss = { showDisplaySettings = false },
         )
     }
@@ -190,6 +202,10 @@ fun ScheduleScreen(
             textScale = textScale,
             showTeacher = showTeacher,
             showClassroom = showClassroom,
+            rowHeight = rowHeightDp.dp,
+            cornerRadius = cornerDp.dp,
+            alignCenter = alignCenter,
+            textMono = textMono,
             onLessonClick = { selected = it },
             modifier = Modifier
                 .offset {
@@ -244,6 +260,10 @@ private fun WeekGrid(
     textScale: Float,
     showTeacher: Boolean,
     showClassroom: Boolean,
+    rowHeight: androidx.compose.ui.unit.Dp,
+    cornerRadius: androidx.compose.ui.unit.Dp,
+    alignCenter: Boolean,
+    textMono: Boolean,
     onLessonClick: (CourseBlock) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -260,6 +280,7 @@ private fun WeekGrid(
         calendar?.startDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
     }
 
+    val ROW_H = rowHeight
     fun sectionY(section: Int) =
         ROW_H * (section - 1) +
             (if (section >= 5) BREAK_H else 0.dp) +
@@ -349,6 +370,9 @@ private fun WeekGrid(
                                     textScale = textScale,
                                     showTeacher = showTeacher,
                                     showClassroom = showClassroom,
+                                    cornerRadius = cornerRadius,
+                                    alignCenter = alignCenter,
+                                    textMono = textMono,
                                     onClick = { onLessonClick(b) },
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -388,6 +412,9 @@ private fun LessonCard(
     textScale: Float,
     showTeacher: Boolean,
     showClassroom: Boolean,
+    cornerRadius: androidx.compose.ui.unit.Dp,
+    alignCenter: Boolean,
+    textMono: Boolean,
     onClick: () -> Unit,
     modifier: Modifier,
 ) {
@@ -395,7 +422,8 @@ private fun LessonCard(
     // Nexio 视觉：tint 低透明度底 + tint 原色文字（CourseCard.kt 规则）
     val tint = CourseColors.tint(block.name)
     val bg = CourseColors.bg(block.name, ds.isDark)
-    val fg = tint
+    // 单色模式：文字跟随主题，不吃课程色
+    val fg = if (textMono) ds.text else tint
 
     // 上课中：右下角状态点
     val now = LocalTime.now()
@@ -410,18 +438,21 @@ private fun LessonCard(
     } else bg
     Box(
         modifier
-            .background(cardBg, RoundedCornerShape(10.dp))
+            .background(cardBg, RoundedCornerShape(cornerRadius))
             .then(
                 if (onWallpaper) Modifier.border(
                     1.dp,
                     Color.White.copy(alpha = if (ds.isDark) 0.10f else 0.7f),
-                    RoundedCornerShape(10.dp),
+                    RoundedCornerShape(cornerRadius),
                 ) else Modifier
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 5.dp, vertical = 5.dp),
     ) {
-        Column {
+        Column(
+            horizontalAlignment = if (alignCenter) Alignment.CenterHorizontally else Alignment.Start,
+            modifier = if (alignCenter) Modifier.fillMaxWidth() else Modifier,
+        ) {
             val scale = textScale.coerceIn(0.7f, 1.4f)
             Text(
                 block.name,
@@ -431,6 +462,7 @@ private fun LessonCard(
                 color = fg,
                 maxLines = if (scale > 1.2f) 3 else 4,
                 overflow = TextOverflow.Ellipsis,
+                textAlign = if (alignCenter) TextAlign.Center else TextAlign.Start,
             )
             if (showClassroom && block.room.isNotEmpty()) {
                 Text(
@@ -526,9 +558,17 @@ private fun LessonDisplayDialog(
     textScale: Float,
     showTeacher: Boolean,
     showClassroom: Boolean,
+    rowHeight: Int,
+    corner: Int,
+    alignCenter: Boolean,
+    textMono: Boolean,
     onScale: (Float) -> Unit,
     onTeacher: (Boolean) -> Unit,
     onClassroom: (Boolean) -> Unit,
+    onRowHeight: (Int) -> Unit,
+    onCorner: (Int) -> Unit,
+    onAlignCenter: (Boolean) -> Unit,
+    onTextMono: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val ds = LocalDs.current
@@ -537,7 +577,8 @@ private fun LessonDisplayDialog(
             Modifier
                 .fillMaxWidth()
                 .background(ds.card, RoundedCornerShape(20.dp))
-                .padding(20.dp),
+                .padding(20.dp)
+                .verticalScroll(rememberScrollState()),
         ) {
             Text("课表显示", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = ds.text)
             Spacer(Modifier.height(14.dp))
@@ -552,6 +593,38 @@ private fun LessonDisplayDialog(
                 ),
                 selected = listOf(0.85f, 1.0f, 1.15f, 1.3f).minBy { kotlin.math.abs(it - textScale) },
                 onSelect = onScale,
+            )
+            Spacer(Modifier.height(14.dp))
+            Text("卡片高度", fontSize = 13.sp, color = ds.sub)
+            Spacer(Modifier.height(8.dp))
+            com.menglimi.gdust.v2.ui.screens.SegmentedChoice(
+                options = listOf(48 to "紧凑", 56 to "标准", 64 to "宽松"),
+                selected = listOf(48, 56, 64).minBy { kotlin.math.abs(it - rowHeight) },
+                onSelect = onRowHeight,
+            )
+            Spacer(Modifier.height(14.dp))
+            Text("卡片圆角", fontSize = 13.sp, color = ds.sub)
+            Spacer(Modifier.height(8.dp))
+            com.menglimi.gdust.v2.ui.screens.SegmentedChoice(
+                options = listOf(6 to "小", 10 to "中", 14 to "大"),
+                selected = listOf(6, 10, 14).minBy { kotlin.math.abs(it - corner) },
+                onSelect = onCorner,
+            )
+            Spacer(Modifier.height(14.dp))
+            Text("内容对齐", fontSize = 13.sp, color = ds.sub)
+            Spacer(Modifier.height(8.dp))
+            com.menglimi.gdust.v2.ui.screens.SegmentedChoice(
+                options = listOf(false to "左对齐", true to "居中"),
+                selected = alignCenter,
+                onSelect = onAlignCenter,
+            )
+            Spacer(Modifier.height(14.dp))
+            Text("文字颜色", fontSize = 13.sp, color = ds.sub)
+            Spacer(Modifier.height(8.dp))
+            com.menglimi.gdust.v2.ui.screens.SegmentedChoice(
+                options = listOf(false to "彩色", true to "单色"),
+                selected = textMono,
+                onSelect = onTextMono,
             )
             Spacer(Modifier.height(16.dp))
             DisplayToggleRow("显示地点", showClassroom, onClassroom)

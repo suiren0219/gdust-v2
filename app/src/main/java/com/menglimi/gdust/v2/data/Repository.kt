@@ -176,6 +176,26 @@ class Store(context: Context) {
         get() = plain.getFloat("course_text_scale", 1.0f).coerceIn(0.7f, 1.4f)
         set(v) = plain.edit().putFloat("course_text_scale", v.coerceIn(0.7f, 1.4f)).apply()
 
+    /** 课表格子高度 dp（48 紧凑 / 56 标准 / 64 宽松）。 */
+    var courseRowHeight: Int
+        get() = plain.getInt("course_row_h", 56).coerceIn(44, 72)
+        set(v) = plain.edit().putInt("course_row_h", v.coerceIn(44, 72)).apply()
+
+    /** 课表格子圆角 dp。 */
+    var courseCorner: Int
+        get() = plain.getInt("course_corner", 10).coerceIn(4, 20)
+        set(v) = plain.edit().putInt("course_corner", v.coerceIn(4, 20)).apply()
+
+    /** 格子内容是否居中（false=左对齐）。 */
+    var cardAlignCenter: Boolean
+        get() = plain.getBoolean("card_align_center", false)
+        set(v) = plain.edit().putBoolean("card_align_center", v).apply()
+
+    /** 格子文字单色（false=课程彩色）。 */
+    var cardTextMono: Boolean
+        get() = plain.getBoolean("card_text_mono", false)
+        set(v) = plain.edit().putBoolean("card_text_mono", v).apply()
+
     /** 课表格子上是否显示教师。 */
     var showTeacherOnCard: Boolean
         get() = plain.getBoolean("card_teacher", true)

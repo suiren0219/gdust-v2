@@ -163,35 +163,37 @@ fun PowerScreen(repo: Repository) {
                 GlassCard {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("近 7 日用电", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
+                            Text("近 7 日用电（度）", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
                             Spacer(Modifier.weight(1f))
                             Text("峰值 %.1f 度".format(maxUse), fontSize = 11.sp, color = ds.sub)
                         }
+                        // 7 根等宽柱：高度按比例，宽度固定，避免高柱变竖条/矮柱变横条
                         Row(
-                            Modifier.fillMaxWidth().height(96.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            Modifier.fillMaxWidth().height(104.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.Bottom,
                         ) {
                             week.forEach { (day, use) ->
+                                val ratio = (use / maxUse).toFloat().coerceIn(0f, 1f)
                                 Column(
-                                    Modifier.weight(1f),
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Bottom,
+                                    modifier = Modifier.width(34.dp),
                                 ) {
                                     Text(
                                         "%.0f".format(use),
                                         fontSize = 9.sp,
-                                        color = ds.sub,
+                                        color = if (use >= maxUse) ds.accent else ds.sub,
                                         maxLines = 1,
                                     )
                                     Box(
                                         Modifier
-                                            .fillMaxWidth()
                                             .padding(top = 3.dp)
-                                            .height((64f * (use / maxUse).toFloat()).coerceAtLeast(4f).dp)
+                                            .width(26.dp)
+                                            .height((68f * ratio).coerceAtLeast(8f).dp)
                                             .background(
-                                                if (use >= maxUse) ds.accent else ds.accent.copy(alpha = 0.45f),
-                                                androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                                                if (use >= maxUse) ds.accent else ds.accent.copy(alpha = 0.42f),
+                                                androidx.compose.foundation.shape.RoundedCornerShape(7.dp),
                                             ),
                                     )
                                     Text(

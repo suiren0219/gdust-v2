@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -378,47 +379,47 @@ private fun BoxScope.UnifiedBottomBar(
         Modifier
             .align(Alignment.BottomCenter)
             .navigationBarsPadding()
-            .padding(bottom = 14.dp),
+            .padding(bottom = 14.dp)
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        // tab 胶囊：等宽 + 统一 46dp 高（原来按文字宽度加 padding，显得矮胖）
         Row(
-            Modifier.pill().padding(horizontal = 8.dp, vertical = 8.dp),
+            Modifier.weight(1f).pill().padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             TABS.forEachIndexed { i, label ->
                 val selected = tab == i
                 Box(
                     Modifier
+                        .weight(1f)
+                        .height(46.dp)
                         .background(
                             if (selected) ds.accentSoft else Color.Transparent,
                             RoundedCornerShape(20.dp),
                         )
-                        .clickable { onTab(i) }
-                        .padding(horizontal = 17.dp, vertical = 10.dp),
+                        .clickable { onTab(i) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (liquid) {
-                        val symbol = when (i) {
-                            0 -> io.github.neoruaa.glasmio.icons.SfSymbol.House
-                            1 -> io.github.neoruaa.glasmio.icons.SfSymbol.Clock
-                            2 -> io.github.neoruaa.glasmio.icons.SfSymbol.Sparkles
-                            else -> io.github.neoruaa.glasmio.icons.SfSymbol.Star
-                        }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            io.github.neoruaa.glasmio.icons.SfIcon(
-                                symbol = symbol,
-                                contentDescription = null,
-                                size = 20.dp,
-                                tint = if (selected) ds.accent else ds.sub,
-                            )
-                            Text(label, fontSize = 11.sp, color = if (selected) ds.accent else ds.sub)
-                        }
-                    } else {
+                    // 两套风格都带图标，避免只靠文字看不出指代
+                    val symbol = when (i) {
+                        0 -> io.github.neoruaa.glasmio.icons.SfSymbol.House
+                        1 -> io.github.neoruaa.glasmio.icons.SfSymbol.Clock
+                        2 -> io.github.neoruaa.glasmio.icons.SfSymbol.Sparkles
+                        else -> io.github.neoruaa.glasmio.icons.SfSymbol.Star
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        io.github.neoruaa.glasmio.icons.SfIcon(
+                            symbol = symbol,
+                            contentDescription = label,
+                            size = if (liquid) 19.dp else 18.dp,
+                            tint = if (selected) ds.accent else ds.sub,
+                        )
                         Text(
                             label,
-                            fontSize = 13.sp,
+                            fontSize = if (liquid) 10.sp else 10.sp,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                             color = if (selected) ds.accent else ds.sub,
                         )
@@ -430,21 +431,17 @@ private fun BoxScope.UnifiedBottomBar(
         Box(
             Modifier
                 .pill()
-                .size(56.dp)
-                .border(1.5.dp, ds.accent.copy(alpha = 0.35f), CircleShape)
+                .size(46.dp)
+                .border(1.dp, ds.accent.copy(alpha = 0.35f), CircleShape)
                 .clickable { onSettings() },
             contentAlignment = Alignment.Center,
         ) {
-            if (liquid) {
-                io.github.neoruaa.glasmio.icons.SfIcon(
-                    symbol = io.github.neoruaa.glasmio.icons.SfSymbol.Gearshape,
-                    contentDescription = "设置",
-                    size = 24.dp,
-                    tint = ds.accent,
-                )
-            } else {
-                Text("设", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = ds.accent)
-            }
+            io.github.neoruaa.glasmio.icons.SfIcon(
+                symbol = io.github.neoruaa.glasmio.icons.SfSymbol.Gearshape,
+                contentDescription = "设置",
+                size = 21.dp,
+                tint = ds.accent,
+            )
         }
     }
 }
