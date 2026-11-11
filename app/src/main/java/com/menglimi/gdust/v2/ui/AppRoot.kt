@@ -98,9 +98,7 @@ fun AppRoot(
 
     fun sync() {
         if (syncing) return
-        val hasDirectTicket = repo.store.casTicket.isNotBlank()
-        val hasTeachingSession = repo.hasTeachingSession()
-        if (!hasDirectTicket && !hasTeachingSession && !repo.store.hasSession) {
+        if (!repo.store.casTicket.isNotBlank() && !repo.hasTeachingSession() && !repo.store.hasSession) {
             needLogin = true
             return
         }
@@ -108,11 +106,12 @@ fun AppRoot(
         syncError = null
         scope.launch {
             val result = when {
-                // 账号密码登录过的直连优先
-                hasDirectTicket -> runCatching { repo.syncTermWithLogin() }
-                // 只做过网页登录：复用它自己的 CookieManager 会话
-                hasTeachingSession -> runCatching { repo.syncTermWithCookies() }
-                else -> runCatching { repo.syncSchedule() }
+                // 已有教务会话（网页或直连）→ 拉整学期
+                repo.hasTeachingSession() -> runCatching { repo.syncTermWithCookies() }
+                // 只有门户会话（例如钉钉只换了门户）→ 老实同步门户本周，不假称整学期
+                repo.store.hasSession -> runCatching { repo.syncSchedule() }
+                // 只有票据 → 尝试换教务会话
+                else -> runCatching { repo.syncTermWithLogin() }
             }
             result
                 .onSuccess { (cal, list) -> calendar = cal; blocks = list; syncError = null }
@@ -304,6 +303,7 @@ private fun MainScaffold(
             when (page) {
                 0 -> TodayScreen(calendar = calendar, blocks = blocks)
                 1 -> ScheduleScreen(
+                    repo = repo,
                     calendar = calendar,
                     blocks = blocks,
                     syncError = syncError,

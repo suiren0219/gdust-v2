@@ -158,6 +158,21 @@ class Store(context: Context) {
         get() = plain.getInt("term_week", 0)
         set(v) = plain.edit().putInt("term_week", v).apply()
 
+    /** 课表格子字号倍率（0.85 小 / 1.0 标准 / 1.15 大 / 1.3 特大）。 */
+    var courseTextScale: Float
+        get() = plain.getFloat("course_text_scale", 1.0f).coerceIn(0.7f, 1.4f)
+        set(v) = plain.edit().putFloat("course_text_scale", v.coerceIn(0.7f, 1.4f)).apply()
+
+    /** 课表格子上是否显示教师。 */
+    var showTeacherOnCard: Boolean
+        get() = plain.getBoolean("card_teacher", true)
+        set(v) = plain.edit().putBoolean("card_teacher", v).apply()
+
+    /** 课表格子上是否显示地点。 */
+    var showClassroomOnCard: Boolean
+        get() = plain.getBoolean("card_classroom", true)
+        set(v) = plain.edit().putBoolean("card_classroom", v).apply()
+
     /** 上次成功同步整学期的时间戳（用于 App 打开时判断要不要顺手续租刷新）。 */
     var lastSyncAt: Long
         get() = plain.getLong("last_sync_at", 0L)
@@ -396,13 +411,25 @@ class Repository(context: Context) {
     /** 扫码拿 ticket 后的收尾。 */
     suspend fun finishSso(ticket: String) {
         store.casTicket = ticket
-        applySessions("", ticket)
+        // 钉钉票是移动端 SSO 体系：先换门户（必须成功），教务拿不到不算登录失败
+        applySessions("", ticket, portalFirst = true)
     }
 
-    /** 票据一次性：教务优先，门户其次；两者都失败才算登录失败。 */
-    private suspend fun applySessions(fallbackJob: String, ticket: String) {
-        val teachingOk = runCatching { teachingSso.openSession(ticket, teachingCookies) }.getOrNull() != null
-        val token = runCatching { api.exchangeToken(ticket) }.getOrElse { "" }
+    /**
+     * 票据一次性，不同来源票的适用范围不同：
+     * - 账号密码（CAS 网页登录）：先给教务，再换门户；
+     * - 钉钉扫码：先换门户（钉钉票本就为门户签发），再试教务，失败只提示不阻断登录。
+     */
+    private suspend fun applySessions(fallbackJob: String, ticket: String, portalFirst: Boolean = false) {
+        var teachingOk = false
+        var token = ""
+        if (portalFirst) {
+            token = runCatching { api.exchangeToken(ticket) }.getOrElse { "" }
+            teachingOk = runCatching { teachingSso.openSession(ticket, teachingCookies) }.getOrNull() != null
+        } else {
+            teachingOk = runCatching { teachingSso.openSession(ticket, teachingCookies) }.getOrNull() != null
+            token = runCatching { api.exchangeToken(ticket) }.getOrElse { "" }
+        }
         if (token.isNotBlank()) {
             val (job, name) = runCatching { api.userInfo(token) }.getOrDefault(fallbackJob to "")
             store.portalToken = token

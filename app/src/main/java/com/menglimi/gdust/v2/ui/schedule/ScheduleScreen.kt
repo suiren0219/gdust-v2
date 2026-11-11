@@ -1,6 +1,8 @@
 package com.menglimi.gdust.v2.ui.schedule
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -9,6 +11,9 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import com.menglimi.gdust.v2.data.Repository
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +61,7 @@ private val SCALE_W = 40.dp
 
 @Composable
 fun ScheduleScreen(
+    repo: Repository,
     calendar: CalendarInfo?,
     blocks: List<CourseBlock>,
     syncError: String?,
@@ -66,14 +73,38 @@ fun ScheduleScreen(
     val currentWeek = calendar?.week ?: 1
     var offset by remember { mutableIntStateOf(0) }
     val displayWeek = (currentWeek + offset).coerceAtLeast(1)
-    // 横向滑动翻周：拖拽期间内容跟手平移，松手过阈值切一周并带方向动画
+
+    // 卡片显示设置（Nexio 式：字号 / 教师 / 地点）
+    var textScale by remember { mutableStateOf(repo.store.courseTextScale) }
+    var showTeacher by remember { mutableStateOf(repo.store.showTeacherOnCard) }
+    var showClassroom by remember { mutableStateOf(repo.store.showClassroomOnCard) }
+    var showDisplaySettings by remember { mutableStateOf(false) }
+
+    // 横向滑动翻周：跟手 + 松手惯性判定 + 平滑回弹（不再硬跳）
     var dragPx by remember { mutableStateOf(0f) }
+    val rebound = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val dragThreshold = with(density) { 90.dp.toPx() }
+    val dragThreshold = with(density) { 56.dp.toPx() }
+    val flingVelocity = with(density) { 320.dp.toPx() }
+    val enterOffset = with(density) { 110.dp.toPx() }
+    val tracker = remember { VelocityTracker() }
+
     // 点课表格子弹详情
     var selected by remember { mutableStateOf<CourseBlock?>(null) }
     selected?.let { block ->
         LessonDetailDialog(block = block, week = displayWeek, calendar = calendar, onDismiss = { selected = null })
+    }
+    if (showDisplaySettings) {
+        LessonDisplayDialog(
+            textScale = textScale,
+            showTeacher = showTeacher,
+            showClassroom = showClassroom,
+            onScale = { textScale = it; repo.store.courseTextScale = it },
+            onTeacher = { showTeacher = it; repo.store.showTeacherOnCard = it },
+            onClassroom = { showClassroom = it; repo.store.showClassroomOnCard = it },
+            onDismiss = { showDisplaySettings = false },
+        )
     }
 
     Column(
@@ -121,7 +152,17 @@ fun ScheduleScreen(
                     .clickable { offset += 1 }
                     .padding(horizontal = 12.dp),
             )
-            Spacer(Modifier.width(28.dp))
+            // 显示设置（字号 / 教师 / 地点），Nexio 式右上角入口
+            Box(
+                Modifier
+                    .padding(start = 2.dp, end = 10.dp)
+                    .size(34.dp)
+                    .background(ds.card.copy(alpha = 0.75f), CircleShape)
+                    .clickable { showDisplaySettings = true },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("Aa", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = ds.accent)
+            }
         }
 
         if (syncError != null) {
@@ -154,23 +195,48 @@ fun ScheduleScreen(
             week = displayWeek,
             calendar = calendar,
             blocks = weekBlocks,
+            textScale = textScale,
+            showTeacher = showTeacher,
+            showClassroom = showClassroom,
             onLessonClick = { selected = it },
             modifier = Modifier
-                .offset { androidx.compose.ui.unit.IntOffset(dragPx.toInt(), 0) }
+                .offset {
+                    androidx.compose.ui.unit.IntOffset((dragPx + rebound.value).toInt(), 0)
+                }
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
-                        onDragStart = { dragPx = 0f },
-                        onDragEnd = {
-                            if (dragPx <= -dragThreshold) offset += 1
-                            else if (dragPx >= dragThreshold) offset -= 1
+                        onDragStart = {
+                            tracker.resetTracking()
                             dragPx = 0f
                         },
-                        onDragCancel = { dragPx = 0f },
+                        onDragEnd = {
+                            val vx = runCatching { tracker.calculateVelocity().x }.getOrDefault(0f)
+                            val goNext = dragPx <= -dragThreshold || vx <= -flingVelocity
+                            val goPrev = dragPx >= dragThreshold || vx >= flingVelocity
+                            val canPrev = currentWeek + offset > 1
+                            val moved = (goNext || (goPrev && canPrev))
+                            if (goNext) offset += 1 else if (goPrev && canPrev) offset -= 1
+                            dragPx = 0f
+                            // 切周后新内容从滑动方向轻推入位再缓动归零；没切成就原地平滑回弹
+                            val start = when {
+                                goNext -> enterOffset
+                                goPrev && canPrev -> -enterOffset
+                                else -> 0f
+                            }
+                            scope.launch {
+                                rebound.snapTo(start)
+                                rebound.animateTo(0f, tween(if (moved) 210 else 150, easing = FastOutSlowInEasing))
+                            }
+                        },
+                        onDragCancel = {
+                            dragPx = 0f
+                            scope.launch { rebound.animateTo(0f, tween(120)) }
+                        },
                     ) { change, dragAmount ->
+                        tracker.addPosition(change.uptimeMillis, change.position)
                         // 右滑=上一周（offset-1），左滑=下一周（offset+1）；不越出学期边界
-                        val atStart = currentWeek + offset <= 1 && dragPx >= 0f
-                        val consuming = !(atStart && dragAmount > 0)
-                        if (consuming) dragPx += dragAmount
+                        val atStart = currentWeek + offset <= 1 && dragAmount > 0
+                        if (!atStart) dragPx += dragAmount
                         change.consume()
                     }
                 },
@@ -183,6 +249,9 @@ private fun WeekGrid(
     week: Int,
     calendar: CalendarInfo?,
     blocks: List<CourseBlock>,
+    textScale: Float,
+    showTeacher: Boolean,
+    showClassroom: Boolean,
     onLessonClick: (CourseBlock) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -285,6 +354,9 @@ private fun WeekGrid(
                             blocks.filter { it.day == day }.forEach { b ->
                                 LessonCard(
                                     block = b,
+                                    textScale = textScale,
+                                    showTeacher = showTeacher,
+                                    showClassroom = showClassroom,
                                     onClick = { onLessonClick(b) },
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -319,7 +391,14 @@ private fun BreakBand(text: String, modifier: Modifier) {
 }
 
 @Composable
-private fun LessonCard(block: CourseBlock, onClick: () -> Unit, modifier: Modifier) {
+private fun LessonCard(
+    block: CourseBlock,
+    textScale: Float,
+    showTeacher: Boolean,
+    showClassroom: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier,
+) {
     val ds = LocalDs.current
     // Nexio 视觉：tint 低透明度底 + tint 原色文字（CourseCard.kt 规则）
     val tint = CourseColors.tint(block.name)
@@ -340,30 +419,31 @@ private fun LessonCard(block: CourseBlock, onClick: () -> Unit, modifier: Modifi
             .padding(horizontal = 5.dp, vertical = 5.dp),
     ) {
         Column {
+            val scale = textScale.coerceIn(0.7f, 1.4f)
             Text(
                 block.name,
-                fontSize = 12.7.sp,
-                lineHeight = 14.2.sp,
+                fontSize = (12.7f * scale).sp,
+                lineHeight = (14.2f * scale).sp,
                 fontWeight = FontWeight.Bold,
                 color = fg,
-                maxLines = 4,
+                maxLines = if (scale > 1.2f) 3 else 4,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (block.room.isNotEmpty()) {
+            if (showClassroom && block.room.isNotEmpty()) {
                 Text(
                     "@${block.room}",
-                    fontSize = 11.sp,
-                    lineHeight = 12.sp,
+                    fontSize = (11f * scale).sp,
+                    lineHeight = (12f * scale).sp,
                     color = fg,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (block.teacher.isNotEmpty()) {
+            if (showTeacher && block.teacher.isNotEmpty()) {
                 Text(
                     block.teacher,
-                    fontSize = 11.sp,
-                    lineHeight = 12.sp,
+                    fontSize = (11f * scale).sp,
+                    lineHeight = (12f * scale).sp,
                     color = fg,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -434,5 +514,73 @@ private fun LessonDetailDialog(block: CourseBlock, week: Int, calendar: Calendar
                 Text("知道了", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
             }
         }
+    }
+}
+
+/** 课表显示设置：字号档位 + 地点/教师开关（Nexio 式，立即生效并持久化）。 */
+@Composable
+private fun LessonDisplayDialog(
+    textScale: Float,
+    showTeacher: Boolean,
+    showClassroom: Boolean,
+    onScale: (Float) -> Unit,
+    onTeacher: (Boolean) -> Unit,
+    onClassroom: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val ds = LocalDs.current
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(ds.card, RoundedCornerShape(20.dp))
+                .padding(20.dp),
+        ) {
+            Text("课表显示", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = ds.text)
+            Spacer(Modifier.height(14.dp))
+            Text("卡片字号", fontSize = 13.sp, color = ds.sub)
+            Spacer(Modifier.height(8.dp))
+            com.menglimi.gdust.v2.ui.screens.SegmentedChoice(
+                options = listOf(
+                    0.85f to "小",
+                    1.0f to "标准",
+                    1.15f to "大",
+                    1.3f to "特大",
+                ),
+                selected = listOf(0.85f, 1.0f, 1.15f, 1.3f).minBy { kotlin.math.abs(it - textScale) },
+                onSelect = onScale,
+            )
+            Spacer(Modifier.height(16.dp))
+            DisplayToggleRow("显示地点", showClassroom, onClassroom)
+            Spacer(Modifier.height(10.dp))
+            DisplayToggleRow("显示教师", showTeacher, onTeacher)
+            Spacer(Modifier.height(18.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .background(ds.accent, RoundedCornerShape(12.dp))
+                    .clickable(onClick = onDismiss)
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("完成", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DisplayToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    val ds = LocalDs.current
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, fontSize = 14.sp, color = ds.text, modifier = Modifier.weight(1f))
+        androidx.compose.material3.Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = ds.accent),
+        )
     }
 }
