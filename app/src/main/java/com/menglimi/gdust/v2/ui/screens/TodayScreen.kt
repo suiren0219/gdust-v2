@@ -1,6 +1,8 @@
 package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,7 +36,12 @@ import java.time.LocalDate
 import java.time.LocalTime
 
 @Composable
-fun TodayScreen(calendar: CalendarInfo?, blocks: List<CourseBlock>) {
+fun TodayScreen(
+    calendar: CalendarInfo?,
+    blocks: List<CourseBlock>,
+    onOpenNotices: () -> Unit = {},
+    unreadCount: Int = 0,
+) {
     val ds = LocalDs.current
     val today = LocalDate.now()
     val now = LocalTime.now()
@@ -52,10 +61,40 @@ fun TodayScreen(calendar: CalendarInfo?, blocks: List<CourseBlock>) {
             .padding(horizontal = 16.dp),
     ) {
         Spacer(Modifier.height(24.dp))
-        PageTitle(
-            title = "今天是周${ScheduleTimes.dayNames[day - 1].removePrefix("周")}",
-            subtitle = "${today.year}年${today.monthValue}月${today.dayOfMonth}日 · 第 $week 周",
-        )
+        Box(Modifier.fillMaxWidth()) {
+            PageTitle(
+                title = "今天是周${ScheduleTimes.dayNames[day - 1].removePrefix("周")}",
+                subtitle = "${today.year}年${today.monthValue}月${today.dayOfMonth}日 · 第 $week 周",
+            )
+            // 学校通知入口：右上角，未读红点
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .size(40.dp)
+                    .background(
+                        if (unreadCount > 0) ds.accent.copy(alpha = 0.14f) else ds.card.copy(alpha = 0.75f),
+                        CircleShape,
+                    )
+                    .clickable(onClick = onOpenNotices),
+                contentAlignment = Alignment.Center,
+            ) {
+                io.github.neoruaa.glasmio.icons.SfIcon(
+                    symbol = io.github.neoruaa.glasmio.icons.SfSymbol.InfoCircle,
+                    contentDescription = "学校通知",
+                    size = 20.dp,
+                    tint = if (unreadCount > 0) ds.accent else ds.sub,
+                )
+                if (unreadCount > 0) {
+                    Box(
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 2.dp, end = 2.dp)
+                            .size(8.dp)
+                            .background(ds.danger, CircleShape),
+                    )
+                }
+            }
+        }
 
         if (todayBlocks.isEmpty()) {
             GlassCard {

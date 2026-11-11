@@ -4,6 +4,7 @@ import android.net.Uri
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -112,19 +113,19 @@ fun SettingsScreen(
         openSection.value = if (openSection.value == section) null else section
     }
 
-    // 左滑返回：从屏幕左缘向右拖 1/4 屏即返回（避免和列表纵向滚动冲突）
+    // 系统返回（含左缘手势）只关设置页，不再直接退出 App
+    androidx.activity.compose.BackHandler { onBack() }
+    // 页内左滑返回：挂在外层容器上，避免和纵向滚动手势竞争
     val density = androidx.compose.ui.platform.LocalDensity.current
     val backThreshold = with(density) { 96.dp.toPx() }
     var backPx by remember { mutableStateOf(0f) }
 
-    Column(
+    Box(
         Modifier
             .fillMaxSize()
-            .background(ds.bg)
-            .statusBarsPadding()
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
-                    onDragStart = { start -> backPx = if (start.x < 80f) 0f else Float.NaN },
+                    onDragStart = { start -> backPx = if (start.x < 120f) 0f else Float.NaN },
                     onDragEnd = {
                         if (!backPx.isNaN() && backPx >= backThreshold) onBack()
                         backPx = 0f
@@ -134,7 +135,13 @@ fun SettingsScreen(
                     if (!backPx.isNaN()) backPx += dragAmount
                     change.consume()
                 }
-            }
+            },
+    ) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(ds.bg)
+            .statusBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),
     ) {
@@ -457,5 +464,6 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(110.dp))
+    }
     }
 }

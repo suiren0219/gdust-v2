@@ -50,6 +50,8 @@ import com.menglimi.gdust.v2.ui.screens.TodayScreen
 import com.menglimi.gdust.v2.ui.screens.TodoScreen
 import com.menglimi.gdust.v2.ui.screens.ProfileScreen
 import com.menglimi.gdust.v2.ui.screens.AboutScreen
+import com.menglimi.gdust.v2.ui.screens.NoticeScreen
+import com.menglimi.gdust.v2.data.Notice
 import kotlinx.coroutines.launch
 
 private val TABS = listOf("今日", "课表", "电费", "待办")
@@ -77,6 +79,9 @@ fun AppRoot(
     var directFallbackMessage by remember { mutableStateOf<String?>(null) }
     var wallpaperTick by remember { mutableStateOf(0) }
     var showProfile by remember { mutableStateOf(false) }
+    var showNotices by remember { mutableStateOf(false) }
+    var notices by remember { mutableStateOf<List<Notice>>(emptyList()) }
+    var noticesLoading by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     // 备份导出：SAF 建文档，写入后提示
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -134,6 +139,16 @@ fun AppRoot(
         }
     }
 
+    fun loadNotices() {
+        if (!repo.store.hasSession) return
+        noticesLoading = true
+        scope.launch {
+            runCatching { repo.notices() }
+                .onSuccess { notices = it }
+            noticesLoading = false
+        }
+    }
+
     LaunchedEffect(Unit) {
         // App 打开即刷新桌面小组件（课程/电量可能变了）
         runCatching {
@@ -147,6 +162,7 @@ fun AppRoot(
             val alive = repo.isSessionAlive()
             if (!alive && !offlineSchedule) loggedIn.value = false
             if (alive && blocks.isEmpty()) sync()
+            loadNotices()
         }
         // 打开 App 顺手续租：有教务会话且距上次同步超过 6 小时，就静默刷新一次
         val teachingReady = repo.store.casTicket.isNotBlank() || repo.hasTeachingSession()
@@ -158,6 +174,7 @@ fun AppRoot(
         targetState = when {
             !checked.value -> "loading"
             showWebImport -> "web_import"
+            showNotices -> "notices"
             showProfile -> "profile"
             showAbout -> "about"
             showSettings.value -> "settings"
@@ -182,6 +199,16 @@ fun AppRoot(
                         tab.intValue = 1
                         webImportReport = "网页导入成功：${list.size} 条真实排课，覆盖 ${list.map { it.week }.distinct().size} 周。"
                     },
+                )
+            }
+            "notices" -> {
+                androidx.activity.compose.BackHandler { showNotices = false }
+                NoticeScreen(
+                    repo = repo,
+                    notices = notices,
+                    loading = noticesLoading,
+                    onBack = { showNotices = false },
+                    onRefresh = { loadNotices() },
                 )
             }
             "profile" -> {
@@ -308,6 +335,8 @@ private fun MainScaffold(
     tab: Int,
     onTab: (Int) -> Unit,
     onSettings: () -> Unit,
+    onOpenNotices: () -> Unit = {},
+    notices: List<Notice> = emptyList(),
     calendar: CalendarInfo?,
     blocks: List<CourseBlock>,
     syncError: String?,
@@ -331,7 +360,12 @@ private fun MainScaffold(
             }
             Crossfade(targetState = tab, animationSpec = tween(220), label = "tabs") { page ->
                 when (page) {
-                    0 -> TodayScreen(calendar = calendar, blocks = blocks)
+                    0 -> TodayScreen(
+                        calendar = calendar,
+                        blocks = blocks,
+                        onOpenNotices = onOpenNotices,
+                        unreadCount = notices.count { it.time > repo.store.lastNoticeReadAt },
+                    )
                     1 -> ScheduleScreen(
                         repo = repo,
                         calendar = calendar,

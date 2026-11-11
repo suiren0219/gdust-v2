@@ -3,6 +3,7 @@ package com.menglimi.gdust.v2.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,25 +42,31 @@ private fun SettingSubPage(title: String, subtitle: String, onBack: () -> Unit, 
     val ds = LocalDs.current
     val density = androidx.compose.ui.platform.LocalDensity.current
     val threshold = with(density) { 96.dp.toPx() }
-    var backPx by remember { mutableStateOf(Float.NaN) }
-    Column(
+    var backPx by remember { mutableStateOf(0f) }
+    androidx.activity.compose.BackHandler { onBack() }
+
+    Box(
         Modifier
             .fillMaxSize()
-            .background(ds.bg)
-            .statusBarsPadding()
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
-                    onDragStart = { start -> backPx = if (start.x < 80f) 0f else Float.NaN },
+                    onDragStart = { start -> backPx = if (start.x < 120f) 0f else Float.NaN },
                     onDragEnd = {
                         if (!backPx.isNaN() && backPx >= threshold) onBack()
                         backPx = 0f
                     },
                     onDragCancel = { backPx = 0f },
-                ) { change, amount ->
-                    if (!backPx.isNaN()) backPx += amount
+                ) { change, dragAmount ->
+                    if (!backPx.isNaN()) backPx += dragAmount
                     change.consume()
                 }
-            }
+            },
+    ) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(ds.bg)
+            .statusBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),
     ) {
@@ -67,6 +74,7 @@ private fun SettingSubPage(title: String, subtitle: String, onBack: () -> Unit, 
         PageTitle(title = title, subtitle = subtitle, onBack = onBack)
         content()
         Spacer(Modifier.height(110.dp))
+    }
     }
 }
 

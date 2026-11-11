@@ -82,6 +82,8 @@ fun PowerScreen(repo: Repository) {
 
     LaunchedEffect(Unit) { refresh() }
     val samples = remember(detail, busy) { store.loadSamples() }
+    // 走势图展示跨度（天）：1/3/7/30，实际点数=天数×每天采样数
+    var chartDays by remember { mutableStateOf(1) }
     val pullState = androidx.compose.material3.pulltorefresh.PullToRefreshState()
 
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
@@ -149,9 +151,17 @@ fun PowerScreen(repo: Repository) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("最近电量走势", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
                     if (samples.size < 2) {
-                        Text("采样点还不够，等下一个间隔自动记点（或点下方刷新）", fontSize = 12.sp, color = ds.sub)
+                        Text("采样点还不够，等下一个间隔自动记点（或点下方刷新）；采样最长保留 30 天", fontSize = 12.sp, color = ds.sub)
                     } else {
-                        UsageChart(samples.takeLast(24), store.warnThreshold)
+                        val perDay = (24 * 60 / store.sampleIntervalMinutes).coerceAtLeast(1)
+                        com.menglimi.gdust.v2.ui.screens.SegmentedChoice(
+                            options = listOf(1 to "近 1 天", 3 to "近 3 天", 7 to "近 7 天", 30 to "近 30 天"),
+                            selected = chartDays,
+                            onSelect = { chartDays = it },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        UsageChart(samples.takeLast((chartDays * perDay).coerceAtLeast(2)), store.warnThreshold)
                         Text("共 ${samples.size} 个采样点 · 每 ${store.sampleIntervalMinutes} 分钟一次 · 虚线为预警线（${store.warnThreshold.toInt()} 度）", fontSize = 11.sp, color = ds.sub)
                     }
                 }
@@ -162,8 +172,29 @@ fun PowerScreen(repo: Repository) {
             val week = detail?.weekUse.orEmpty()
             if (week.isNotEmpty()) {
                 val maxUse = week.maxOf { it.second }.coerceAtLeast(0.1)
-                val todayChar = when (java.time.LocalDate.now().dayOfWeek.value) {
-                    1 -> "一"; 2 -> "二"; 3 -> "三"; 4 -> "四"; 5 -> "五"; 6 -> "六"; else -> "日"
+                val today = java.time.LocalDate.now()
+                val dowNames = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+                // weekday 字段有两种历史格式：中文「星期四」/「四」，或日期「11/10」「11-10」「2026-11-10」
+                fun parseDay(day: String): Triple<String, String, Boolean> {
+                    val d = day.trim()
+                    val cnMap = mapOf("一" to 1, "二" to 2, "三" to 3, "四" to 4, "五" to 5, "六" to 6, "日" to 7, "天" to 7)
+                    if (cnMap.containsKey(d) || d.startsWith("星期") || d.startsWith("周")) {
+                        val core = d.removePrefix("星期").removePrefix("周")
+                        val dow = cnMap[core] ?: return Triple(d, "", false)
+                        val name = dowNames[dow - 1]
+                        return Triple(name, "", dow == today.dayOfWeek.value)
+                    }
+                    val date = runCatching {
+                        when {
+                            d.matches(Regex("\\d{4}-\\d{1,2}-\\d{1,2}")) -> java.time.LocalDate.parse(d)
+                            d.matches(Regex("\\d{1,2}/\\d{1,2}")) -> java.time.LocalDate.parse(
+                                "${today.year}/${d}", java.time.format.DateTimeFormatter.ofPattern("yyyy/M/d"))
+                            d.matches(Regex("\\d{1,2}-\\d{1,2}")) -> java.time.LocalDate.parse(
+                                "${today.year}-${d}", java.time.format.DateTimeFormatter.ofPattern("yyyy-M-d"))
+                            else -> null
+                        }
+                    }.getOrNull() ?: return Triple(d, "", false)
+                    return Triple(dowNames[date.dayOfWeek.value - 1], "${date.monthValue}/${date.dayOfMonth}", date == today)
                 }
                 GlassCard {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -183,7 +214,7 @@ fun PowerScreen(repo: Repository) {
                             verticalAlignment = Alignment.Bottom,
                         ) {
                             week.forEach { (day, use) ->
-                                val isToday = day.trim() == todayChar
+                                val (dayName, dayDate, isToday) = parseDay(day)
                                 val ratio = (use / maxUse).toFloat().coerceIn(0f, 1f)
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -229,13 +260,16 @@ fun PowerScreen(repo: Repository) {
                                             ),
                                     )
                                     Text(
-                                        if (isToday) "今天" else "周${day.trim()}",
-                                        fontSize = if (isToday) 10.sp else 10.sp,
+                                        if (isToday) "今天" else dayName,
+                                        fontSize = 10.sp,
                                         fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
                                         color = if (isToday) ds.accent else ds.sub,
                                         maxLines = 1,
                                         modifier = Modifier.padding(top = 4.dp),
                                     )
+                                    if (dayDate.isNotBlank()) {
+                                        Text(dayDate, fontSize = 8.sp, color = ds.sub, maxLines = 1)
+                                    }
                                 }
                             }
                         }

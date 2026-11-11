@@ -123,7 +123,7 @@ class Store(context: Context) {
         val hour = now / 3600000L
         val list = loadSamples().filterNot { it.time / 3600000L == hour }.toMutableList()
         list.add(Sample(now, odd))
-        val cutoff = now - 7L * 24 * 3600 * 1000
+        val cutoff = now - 30L * 24 * 3600 * 1000
         val kept = list.filter { it.time >= cutoff }
         plain.edit().putString("samples", gson.toJson(kept)).apply()
     }
@@ -205,6 +205,11 @@ class Store(context: Context) {
     var showClassroomOnCard: Boolean
         get() = plain.getBoolean("card_classroom", true)
         set(v) = plain.edit().putBoolean("card_classroom", v).apply()
+
+    /** 通知已读水位线：晚于该时间的公告算未读。 */
+    var lastNoticeReadAt: Long
+        get() = plain.getLong("notice_read_at", 0L)
+        set(v) = plain.edit().putLong("notice_read_at", v).apply()
 
     /** 上次成功同步整学期的时间戳（用于 App 打开时判断要不要顺手续租刷新）。 */
     var lastSyncAt: Long
