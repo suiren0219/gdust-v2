@@ -21,36 +21,30 @@ class ScheduleSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
 
     override suspend fun doWork(): Result {
         val repo = (applicationContext as App).repo
-        // 没登录过 / 没有任何票据就别打扰
-        if (!repo.store.hasSession && repo.store.casTicket.isBlank()) return Result.success()
-
-        val hasCookies = repo.teachingCookies.hasSessionFor("172.16.254.1") ||
-            repo.teachingCookies.hasSessionFor("gkjx.gdust.edu.cn") ||
-            repo.teachingCookies.hasSessionFor("webvpn.gdust.edu.cn")
+        // 没有任何登录/会话就别打扰
+        val hasDirect = repo.store.casTicket.isNotBlank()
+        if (!hasDirect && !repo.hasTeachingSession()) return Result.success()
 
         return runCatching {
-            if (hasCookies) {
-                runCatching { repo.syncTermWithCookies() }
-                    .recoverCatching {
-                        // 会话过期：再用票据重换一次
-                        repo.syncTermWithLogin()
-                    }
-                    .getOrThrow()
-            } else {
+            if (hasDirect) {
+                // 直连：先复用 Cookie，必要时用加密票据续租
                 repo.syncTermWithLogin()
+            } else {
+                // 只有网页登录会话：走 WebView CookieManager 的会话
+                repo.syncTermWithCookies()
             }
             com.menglimi.gdust.v2.widget.TodayWidget().refreshAll(applicationContext)
             Result.success()
         }.getOrElse { e ->
             if (e is kotlinx.coroutines.CancellationException) throw e
-            // 认证类失败才提醒用户；网络波动静默，下次再试
+            // 只有认证类失败才提醒；网络波动静默，下个周期再试
+            val msg = e.message.orEmpty()
             if (e is com.menglimi.gdust.v2.data.AuthFailed ||
-                e.message?.contains("重新登录") == true ||
-                e.message?.contains("会话已失效") == true
+                msg.contains("重新登录") || msg.contains("会话已失效")
             ) {
-                notify("课表自动同步暂停", "教务会话已过期，打开 App 重新登录一次即可恢复自动同步。")
+                notify("课表自动同步暂停", "教务会话已过期（${msg.take(60)}）。打开 App，用账号密码重登或网页登录一次即可恢复自动同步。")
             }
-            Result.success()  // 不重试，等下一个周期
+            Result.success()
         }
     }
 

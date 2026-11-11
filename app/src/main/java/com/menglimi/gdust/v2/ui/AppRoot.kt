@@ -44,6 +44,7 @@ import com.menglimi.gdust.v2.ui.screens.InfoDialog
 import com.menglimi.gdust.v2.ui.screens.NetworkDownDialog
 import com.menglimi.gdust.v2.ui.screens.PowerScreen
 import com.menglimi.gdust.v2.ui.screens.SettingsScreen
+import com.menglimi.gdust.v2.ui.screens.TermImportScreen
 import com.menglimi.gdust.v2.ui.screens.TodayScreen
 import com.menglimi.gdust.v2.ui.screens.TodoScreen
 import com.menglimi.gdust.v2.ui.screens.ProfileScreen
@@ -70,6 +71,9 @@ fun AppRoot(
     var netDown by remember { mutableStateOf(false) }
     var syncing by remember { mutableStateOf(false) }
     var needLogin by remember { mutableStateOf(false) }
+    var showWebImport by remember { mutableStateOf(false) }
+    var webImportReport by remember { mutableStateOf<String?>(null) }
+    var directFallbackMessage by remember { mutableStateOf<String?>(null) }
     var showProfile by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     // 备份导出：SAF 建文档，写入后提示
@@ -94,22 +98,21 @@ fun AppRoot(
 
     fun sync() {
         if (syncing) return
-        if (!repo.store.hasSession && repo.store.casTicket.isBlank()) {
+        val hasDirectTicket = repo.store.casTicket.isNotBlank()
+        val hasTeachingSession = repo.hasTeachingSession()
+        if (!hasDirectTicket && !hasTeachingSession && !repo.store.hasSession) {
             needLogin = true
             return
         }
         syncing = true
         syncError = null
         scope.launch {
-            val result = if (repo.store.casTicket.isNotBlank()) {
-                runCatching { repo.syncTermWithLogin() }
-            } else if (repo.store.hasSession) {
-                // 旧版本登录只存了门户 TOKEN，没有 CAS 票据；不能静默退回单周
-                runCatching {
-                    error("本机保存的是旧登录信息，没有教务票据。请在设置里退出登录后重新登录一次，之后即可直接同步整学期。")
-                }
-            } else {
-                runCatching { repo.syncSchedule() }
+            val result = when {
+                // 账号密码登录过的直连优先
+                hasDirectTicket -> runCatching { repo.syncTermWithLogin() }
+                // 只做过网页登录：复用它自己的 CookieManager 会话
+                hasTeachingSession -> runCatching { repo.syncTermWithCookies() }
+                else -> runCatching { repo.syncSchedule() }
             }
             result
                 .onSuccess { (cal, list) -> calendar = cal; blocks = list; syncError = null }
@@ -117,8 +120,14 @@ fun AppRoot(
                     if (it is kotlinx.coroutines.CancellationException) throw it
                     netDown = it.isNetworkDown()
                     syncError = it.message ?: "网络失败"
-                    // 只有明确的「票据失效」才提示重登；SSO 被学校拒绝时只给可读文案，不自动弹网页
-                    if (it is com.menglimi.gdust.v2.data.AuthFailed) needLogin = true
+                    // 只有明确的「票据失效」才提示重登；SSO 被学校拒绝时给可读文案并可切网页登录
+                    if (it is com.menglimi.gdust.v2.data.AuthFailed) {
+                        needLogin = true
+                    } else if (it.message?.contains("学校未用登录票据放行教务会话") == true ||
+                        it.message?.contains("旧版本门户登录态") == true
+                    ) {
+                        directFallbackMessage = it.message
+                    }
                 }
             syncing = false
         }
@@ -143,6 +152,7 @@ fun AppRoot(
     Crossfade(
         targetState = when {
             !checked.value -> "loading"
+            showWebImport -> "web_import"
             showProfile -> "profile"
             showAbout -> "about"
             showSettings.value -> "settings"
@@ -153,6 +163,22 @@ fun AppRoot(
         label = "root",
     ) { state ->
         when (state) {
+            "web_import" -> {
+                androidx.activity.compose.BackHandler { showWebImport = false }
+                TermImportScreen(
+                    repo = repo,
+                    onBack = { showWebImport = false },
+                    onImported = { cal, list ->
+                        calendar = cal
+                        blocks = list
+                        showWebImport = false
+                        showSettings.value = false
+                        loggedIn.value = true
+                        tab.intValue = 1
+                        webImportReport = "网页导入成功：${list.size} 条真实排课，覆盖 ${list.map { it.week }.distinct().size} 周。"
+                    },
+                )
+            }
             "profile" -> {
                 androidx.activity.compose.BackHandler { showProfile = false }
                 ProfileScreen(repo = repo, onBack = { showProfile = false })
@@ -176,6 +202,7 @@ fun AppRoot(
                 repo = repo,
                 syncError = syncError,
                 onSync = { sync() },
+                onWebImport = { showWebImport = true },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },
                 onExportBackup = exportLauncher,
@@ -218,6 +245,24 @@ fun AppRoot(
         }
     }
 
+    if (webImportReport != null) InfoDialog("网页登录导入完成", webImportReport!!, onDismiss = { webImportReport = null })
+    if (directFallbackMessage != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { directFallbackMessage = null },
+            title = { androidx.compose.material3.Text("自动登录未获教务授权") },
+            text = { androidx.compose.material3.Text("${directFallbackMessage}\n\n可以改用拾光兼容网页登录导入；登录一次后，网页登录 Cookie 会单独保存在本机。") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { directFallbackMessage = null; showWebImport = true }) {
+                    androidx.compose.material3.Text("打开网页登录")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { directFallbackMessage = null }) {
+                    androidx.compose.material3.Text("稍后再说")
+                }
+            },
+        )
+    }
     if (importReport != null) {
         InfoDialog("教务课表已导入", importReport!!, onDismiss = { importReport = null })
     }

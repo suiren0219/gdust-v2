@@ -191,6 +191,16 @@ class Store(context: Context) {
     val hasPowerBinding: Boolean get() = powerAccount.isNotEmpty() && powerRoomVerify.isNotEmpty()
     val hasLlm: Boolean get() = llmBase.isNotEmpty() && llmKey.isNotEmpty() && llmModel.isNotEmpty()
 
+    /** 手动网页备用导入后复用 WebView 自己的持久 CookieManager 会话。 */
+    fun saveWebImport(pageUrl: String) {
+        require(pageUrl.startsWith("https://") && pageUrl.contains("gdust.edu.cn"))
+        plain.edit().putString("web_import_page", pageUrl).apply()
+    }
+
+    fun loadWebImportPage(): String = plain.getString("web_import_page", "").orEmpty()
+
+    fun clearWebImportPage() { plain.edit().remove("web_import_page").apply() }
+
     fun clearPortalSession() {
         secure.edit().remove("token").apply()
     }
@@ -198,7 +208,7 @@ class Store(context: Context) {
     fun logout() {
         clearPortalSession()
         secure.edit().remove("ticket").remove("job").remove("name").apply()
-        plain.edit().remove("blocks").remove("calendar").remove("schedule_source").apply()
+        plain.edit().remove("blocks").remove("calendar").remove("schedule_source").remove("web_import_page").apply()
         android.webkit.CookieManager.getInstance().removeAllCookies {
             android.webkit.CookieManager.getInstance().flush()
         }
@@ -279,24 +289,59 @@ class Repository(context: Context) {
     /** 登录后教务会话 Cookie 持久化在这里；后续同步、续租、定时任务共用。 */
     val teachingCookies = PersistentCookieJar(context)
 
-    /** 用登录时保存的 CAS ticket 直接换教务会话并拉整学期，不开 WebView。 */
+    /** 账号密码快捷同步：优先复用现存正方 Cookie，明确认证失效时才用加密保存的 CAS ticket 续换。 */
     suspend fun syncTermWithLogin(): Pair<CalendarInfo, List<CourseBlock>> {
         val cal = store.loadCalendar() ?: api.calendar(store.portalToken, store.jobNumber)
-        val ticket = store.casTicket
-        require(ticket.isNotBlank()) { "登录票据已失效，请在登录页重新登录一次" }
-        val blocks = teachingSso.loginAndFetch(ticket, cal, teachingCookies)
+        val hasTeachingCookie = listOf("172.16.254.1", "gkjx.gdust.edu.cn", "webvpn.gdust.edu.cn")
+            .any(teachingCookies::hasSessionFor)
+        val blocks = if (hasTeachingCookie) {
+            try {
+                teachingSso.fetchWithCookies(cal, teachingCookies)
+            } catch (e: AuthFailed) {
+                val ticket = store.casTicket
+                if (ticket.isBlank()) throw e
+                teachingCookies.clear()
+                teachingSso.loginAndFetch(ticket, cal, teachingCookies)
+            }
+        } else {
+            val ticket = store.casTicket
+            require(ticket.isNotBlank()) { "本机登录凭证不含 CAS 票据，请重新登录一次后再同步" }
+            teachingSso.loginAndFetch(ticket, cal, teachingCookies)
+        }
         store.saveCalendar(cal)
         store.saveBlocks(blocks, "zf_term")
         return cal to blocks
     }
 
-    /** 已有持久化 Cookie 时直接拉学期课表（后台定时任务走这条）。 */
+    /** 已有持久化 Cookie 时直接拉学期课表；OkHttp 没有则回退到网页登录留下的会话（后台定时任务走这条）。 */
     suspend fun syncTermWithCookies(): Pair<CalendarInfo, List<CourseBlock>> {
         val cal = store.loadCalendar() ?: api.calendar(store.portalToken, store.jobNumber)
-        val blocks = teachingSso.fetchWithCookies(cal, teachingCookies)
+        val hasDirectCookie = listOf("172.16.254.1", "gkjx.gdust.edu.cn", "webvpn.gdust.edu.cn")
+            .any(teachingCookies::hasSessionFor)
+        val blocks = if (hasDirectCookie) {
+            teachingSso.fetchWithCookies(cal, teachingCookies)
+        } else {
+            // 网页登录会话在 WebView 的 CookieManager 里；同进程可读，按当初登录页域名取
+            val page = store.loadWebImportPage()
+            val webCookie = page.takeIf { it.isNotBlank() }
+                ?.let { android.webkit.CookieManager.getInstance().getCookie(it).orEmpty() }
+            if (webCookie.isNullOrBlank()) {
+                throw IllegalStateException("教务会话已失效（本机无可用会话），请重新登录一次。")
+            }
+            teachingSso.fetchWithCookieHeader(cal, page, webCookie)
+        }
         store.saveCalendar(cal)
         store.saveBlocks(blocks, "zf_term")
         return cal to blocks
+    }
+
+    /** 是否已有任一教务会话（直连 Cookie 或网页登录会话）。 */
+    fun hasTeachingSession(): Boolean {
+        if (listOf("172.16.254.1", "gkjx.gdust.edu.cn", "webvpn.gdust.edu.cn")
+                .any(teachingCookies::hasSessionFor)) return true
+        val page = store.loadWebImportPage()
+        return page.isNotBlank() && !android.webkit.CookieManager.getInstance()
+            .getCookie(page).isNullOrBlank()
     }
 
     /** 教务会话是否还活着（轻量探测，供续租与定时任务决定是否要重登）。 */

@@ -66,7 +66,8 @@ class PersistentCookieJar(context: Context) : CookieJar {
 
     @Synchronized
     fun hasSessionFor(host: String): Boolean =
-        store[host]?.any { it.expiresAt > System.currentTimeMillis() } == true
+        store.entries.filter { (domain, _) -> host == domain || host.endsWith(".$domain") }
+            .any { (_, cookies) -> cookies.any { it.expiresAt > System.currentTimeMillis() } }
 
     @Synchronized
     fun cookiesFor(host: String): List<Cookie> =

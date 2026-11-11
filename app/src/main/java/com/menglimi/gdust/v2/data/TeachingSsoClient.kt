@@ -80,6 +80,57 @@ class TeachingSsoClient {
             )
         }
 
+    /** 用网页登录（WebView）留下的 Cookie 拉课表；Cookie 只发给当初登录的那个域名。 */
+    suspend fun fetchWithCookieHeader(
+        calendar: CalendarInfo,
+        pageUrl: String,
+        cookieHeader: String,
+    ): List<CourseBlock> = withContext(Dispatchers.IO) {
+        require(cookieHeader.isNotBlank()) { "网页登录会话为空" }
+        val pageHost = hostOf(pageUrl) ?: error("网页登录地址无效")
+        // 只选与登录页同域的入口，避免把 Cookie 发给其他主机
+        val base = bases.firstOrNull { hostOf(it) == pageHost }
+            ?: if (pageHost == "webvpn.gdust.edu.cn") bases.last() else null
+            ?: error("不认识的教务域名：$pageHost")
+        runCatching { postKbList(base, calendar, cookieHeader) }
+            .getOrElse { e ->
+                throw IllegalStateException(
+                    "网页登录会话已失效（${e.message?.take(80) ?: "无响应"}），请重新网页登录一次。",
+                    e,
+                )
+            }
+    }
+
+    private fun postKbList(base: String, calendar: CalendarInfo, cookieHeader: String): List<CourseBlock> {
+        val endpoint = "$base/kbcx/xskbcx_cxXsgrkb.html?gnmkdm=N2151"
+        val form = FormBody.Builder()
+            .add("xnm", calendar.year).add("xqm", calendar.semester)
+            .add("kzlx", "ck").add("xsdm", "").add("kclbdm", "")
+            .build()
+        val req = Request.Builder().url(endpoint)
+            .header("User-Agent", ua)
+            .header("Cookie", cookieHeader)
+            .header("X-Requested-With", "XMLHttpRequest")
+            .post(form).build()
+        OkHttpClient.Builder()
+            .followRedirects(false).followSslRedirects(false)
+            .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
+            .build().newCall(req).execute().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (resp.code in 300..399 || resp.code == 401 || resp.code == 901) {
+                error("网页登录会话失效 HTTP ${resp.code} @ ${resp.request.url.host}")
+            }
+            if (!resp.isSuccessful) error("教务 HTTP ${resp.code} @ ${resp.request.url.host}")
+            val root = runCatching { JsonParser.parseString(body) }.getOrElse {
+                error("教务未返回课表 JSON @ ${resp.request.url.host}")
+            }
+            if (!root.isJsonObject || !root.asJsonObject.has("kbList")) {
+                error("教务响应缺少 kbList @ ${resp.request.url.host}")
+            }
+            return ZfScheduleParser.parse(root.toString(), calendar)
+        }
+    }
+
     /** 轻量探活：判断会话是否仍有效，供续租与定时任务决定是否要重登。 */
     suspend fun probe(jar: CookieJar): Boolean = withContext(Dispatchers.IO) {
         for (base in bases) {
