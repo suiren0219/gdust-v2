@@ -198,7 +198,9 @@ class Store(context: Context) {
 
     /** 手动网页备用导入后复用 WebView 自己的持久 CookieManager 会话。 */
     fun saveWebImport(pageUrl: String) {
-        require(pageUrl.startsWith("https://") && pageUrl.contains("gdust.edu.cn"))
+        val httpsSchool = pageUrl.startsWith("https://") && pageUrl.contains("gdust.edu.cn")
+        val internal = pageUrl.startsWith("http://172.16.254.1")
+        require(httpsSchool || internal) { "只保存学校域名的网页入口" }
         plain.edit().putString("web_import_page", pageUrl).apply()
     }
 

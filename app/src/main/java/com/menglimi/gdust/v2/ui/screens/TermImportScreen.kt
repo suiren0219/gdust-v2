@@ -152,11 +152,18 @@ fun TermImportScreen(
                         settings.loadWithOverviewMode = true
                         settings.useWideViewPort = true
                         settings.domStorageEnabled = true
+                        settings.databaseEnabled = true
+                        settings.javaScriptCanOpenWindowsAutomatically = true
+                        settings.setSupportMultipleWindows(false)
+                        settings.mediaPlaybackRequiresUserGesture = false
                         settings.allowFileAccess = false
                         settings.allowContentAccess = false
                         webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-                                !schoolUrl(request.url.toString())
+                            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                                // 允许所有 http/https 在 WebView 内继续（学校门户二级页、钉钉授权页、SSO 跳转都要能走）
+                                val scheme = request.url.scheme.orEmpty().lowercase()
+                                return scheme != "http" && scheme != "https"
+                            }
                             override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                                 page = url
                                 message = "正在加载学校页面…"
@@ -167,7 +174,7 @@ fun TermImportScreen(
                                 val host = uri?.host.orEmpty().lowercase()
                                 if (host.contains("kbcx") || url.contains("/kbcx/")) {
                                     // 页面真正进入正方教务后，记住入口；Cookie 由 Android CookieManager 自己持久化
-                                    repo.store.saveWebImport(url)
+                                    runCatching { repo.store.saveWebImport(url) }
                                 }
                                 if (message == "正在加载学校页面…") {
                                     message = "页面已载入。请在门户中进入教务系统，再点下方「读取学期课表」。"
@@ -181,11 +188,36 @@ fun TermImportScreen(
                                     }
                                 }
                             }
+                            override fun onReceivedSslError(
+                                view: WebView,
+                                handler: android.webkit.SslErrorHandler,
+                                error: android.net.http.SslError,
+                            ) {
+                                // 学校站点证书链偶尔不全：仅对校方域名放行，其他域一律取消
+                                val host = runCatching { URI(error.url).host.orEmpty() }.getOrDefault("")
+                                if (host == "gdust.edu.cn" || host.endsWith(".gdust.edu.cn") || host == "172.16.254.1") {
+                                    handler.proceed()
+                                } else {
+                                    handler.cancel()
+                                    message = "证书校验失败：$host（已阻止）"
+                                }
+                            }
                             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
                                 if (request.isForMainFrame) message = "学校页面加载失败：${error.description}。可尝试上方门户入口。"
                             }
                             override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: android.webkit.WebResourceResponse) {
                                 if (request.isForMainFrame) message = "学校页面返回 HTTP ${errorResponse.statusCode}，请稍后重试或尝试门户入口。"
+                            }
+                        }
+                        webChromeClient = object : android.webkit.WebChromeClient() {
+                            override fun onProgressChanged(view: WebView, newProgress: Int) {
+                                if (newProgress in 1..99 && message.startsWith("正在加载")) {
+                                    message = "正在加载学校页面… $newProgress%"
+                                }
+                            }
+                            override fun onPermissionRequest(request: android.webkit.PermissionRequest) {
+                                // 网页内扫码偶尔会申请摄像头权限
+                                request.grant(request.resources)
                             }
                         }
                         web = this

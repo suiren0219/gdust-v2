@@ -267,32 +267,45 @@ private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (
 
     LaunchedEffect(active) {
         if (!active) return@LaunchedEffect
-        status = "正在连接认证服务…"
-        // SSE 连接失败会沿 flow 抛 IOException，不接住会崩协程
-        runCatching {
-            repo.subscribeSse().collect { ev ->
-                when (ev) {
-                    is com.menglimi.gdust.v2.data.SseEvent.Hello -> {
-                        clientId = ev.clientId
-                        status = "二维码已就绪，用钉钉扫一扫"
+        var attempt = 0
+        while (active && attempt < 3) {
+            attempt++
+            status = if (attempt == 1) "正在连接认证服务…" else "连接中断，正在重试（$attempt/3）…"
+            // SSE 断连（Software caused connection abort 等）会沿 flow 抛异常：重连几次再报错
+            val result = runCatching {
+                repo.subscribeSse().collect { ev ->
+                    when (ev) {
+                        is com.menglimi.gdust.v2.data.SseEvent.Hello -> {
+                            clientId = ev.clientId
+                            status = "二维码已就绪，用钉钉扫一扫"
+                        }
+                        is com.menglimi.gdust.v2.data.SseEvent.Ticket -> {
+                            status = "授权成功，正在进入…"
+                            active = false
+                            runCatching { repo.finishSso(ev.ticket) }
+                                .onSuccess { onLoggedIn() }
+                                .onFailure {
+                                    if (it.isNetworkDown()) netDown = true
+                                    onError("票据换取失败：${it.message}")
+                                }
+                        }
+                        is com.menglimi.gdust.v2.data.SseEvent.NeedBind ->
+                            onError("钉钉未绑定校园账号，请在钉钉打开的页面里完成绑定后重试")
+                        is com.menglimi.gdust.v2.data.SseEvent.Error -> onError(ev.message)
                     }
-                    is com.menglimi.gdust.v2.data.SseEvent.Ticket -> {
-                        status = "授权成功，正在进入…"
-                        runCatching { repo.finishSso(ev.ticket) }
-                            .onSuccess { onLoggedIn() }
-                            .onFailure {
-                                if (it.isNetworkDown()) netDown = true
-                                onError("票据换取失败：${it.message}")
-                            }
-                    }
-                    is com.menglimi.gdust.v2.data.SseEvent.NeedBind ->
-                        onError("钉钉未绑定校园账号，请在钉钉打开的页面里完成绑定后重试")
-                    is com.menglimi.gdust.v2.data.SseEvent.Error -> onError(ev.message)
                 }
             }
-        }.onFailure {
-            active = false
-            if (it.isNetworkDown()) netDown = true else onError(it.message ?: "连接失败")
+            if (result.isSuccess || !active) return@LaunchedEffect
+            val err = result.exceptionOrNull()
+            // 最后一次失败才提示；中间失败静默重连
+            if (attempt >= 3) {
+                active = false
+                clientId = null
+                if (err?.isNetworkDown() == true) netDown = true
+                else onError("认证服务连接不稳定，请重试")
+                return@LaunchedEffect
+            }
+            kotlinx.coroutines.delay(1200L * attempt)
         }
     }
 
@@ -321,40 +334,52 @@ private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (
     NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
 }
 
-/** ZXing 生成矩阵 → Compose Canvas 画黑白块（不引扫码 SDK）。 */
+/**
+ * 钉钉登录二维码：ZXing 生成最小矩阵 → 预渲染成 ImageBitmap → 一次 drawImage。
+ * 不逐格绘制（512×512 会 26 万次 drawRect 直接掉帧）；前景固定纯黑，绝不吃主题色（否则扫不出来）。
+ */
 @Composable
 private fun QrCodeImage(content: String, size: androidx.compose.ui.unit.Dp) {
-    val matrix = remember(content) {
-        runCatching {
-            com.google.zxing.qrcode.QRCodeWriter().encode(
-                content,
-                com.google.zxing.BarcodeFormat.QR_CODE,
-                512,
-                512,
-                mapOf(com.google.zxing.EncodeHintType.MARGIN to 1),
-            )
-        }.getOrNull()
+    val bitmap = remember(content) { renderQrBitmap(content) }
+    if (bitmap == null) {
+        Text("二维码生成失败，请重试", fontSize = 12.sp, color = LocalDs.current.danger)
+        return
     }
-    val dark = LocalDs.current.text
-    androidx.compose.foundation.Canvas(
-        Modifier
+    androidx.compose.foundation.Image(
+        bitmap = bitmap,
+        contentDescription = "钉钉登录二维码",
+        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+        filterQuality = androidx.compose.ui.graphics.FilterQuality.None,
+        modifier = Modifier
             .size(size)
             .background(androidx.compose.ui.graphics.Color.White, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-            .padding(10.dp),
-    ) {
-        if (matrix == null) return@Canvas
-        val n = matrix.width
-        val cell = size.toPx() / n
-        for (y in 0 until n) {
-            for (x in 0 until n) {
-                if (matrix[x, y]) {
-                    drawRect(
-                        color = dark,
-                        topLeft = androidx.compose.ui.geometry.Offset(x * cell, y * cell),
-                        size = androidx.compose.ui.geometry.Size(cell, cell),
-                    )
-                }
-            }
+            .padding(8.dp),
+    )
+}
+
+/** 生成 N×N 黑白位图（宽高传 0 让 ZXing 用最小尺寸，一个模块一个像素）。 */
+private fun renderQrBitmap(content: String): androidx.compose.ui.graphics.ImageBitmap? = runCatching {
+    val hints = mapOf(
+        com.google.zxing.EncodeHintType.MARGIN to 4,
+        com.google.zxing.EncodeHintType.CHARACTER_SET to "UTF-8",
+        com.google.zxing.EncodeHintType.ERROR_CORRECTION to com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.M,
+    )
+    val matrix = com.google.zxing.qrcode.QRCodeWriter().encode(
+        content,
+        com.google.zxing.BarcodeFormat.QR_CODE,
+        0,
+        0,
+        hints,
+    )
+    val w = matrix.width
+    val h = matrix.height
+    val pixels = IntArray(w * h)
+    for (y in 0 until h) {
+        for (x in 0 until w) {
+            pixels[y * w + x] = if (matrix[x, y]) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
         }
     }
-}
+    val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+    bmp.setPixels(pixels, 0, w, 0, 0, w, h)
+    bmp.asImageBitmap()
+}.getOrNull()
