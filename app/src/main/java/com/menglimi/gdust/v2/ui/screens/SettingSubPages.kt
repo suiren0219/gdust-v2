@@ -31,6 +31,9 @@ import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.LocalDs
 
+/** 作者署名（改这里一处即可）。 */
+internal const val APP_AUTHOR = "穗稔"
+
 /** 设置二级页通用骨架：同款左缘右滑返回手势。 */
 @Composable
 private fun SettingSubPage(title: String, subtitle: String, onBack: () -> Unit, content: @Composable () -> Unit) {
@@ -113,7 +116,7 @@ fun ProfileScreen(repo: Repository, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            "版本 $version",
+            "版本 $version · 作者 $APP_AUTHOR",
             fontSize = 11.sp, color = ds.sub,
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp).wrapContentSize(Alignment.Center),
         )
@@ -135,6 +138,8 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
     SettingSubPage("关于与更新", "版本 · 更新说明 · 数据链路", onBack) {
         SectionHeader("版本")
         SettingGroup {
+            SettingOption(title = "作者", detail = APP_AUTHOR)
+            SettingDivider()
             SettingOption(title = "当前版本", detail = versionName)
             SettingDivider()
             SettingOption(title = "内部版本号", detail = versionCode.toString())
@@ -162,7 +167,7 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            "广科课程表 · 闭源自用版",
+            "广科课程表 · 由 $APP_AUTHOR 制作 · 闭源自用版",
             fontSize = 11.sp, color = ds.sub,
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp).wrapContentSize(Alignment.Center),
         )
