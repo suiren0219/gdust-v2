@@ -96,25 +96,31 @@ fun AppRoot(
 
     fun sync() {
         if (syncing) return
-        val teaching = repo.store.scheduleSource == "zf_term"
-        if (teaching && repo.store.loadTeachingSession() == null) {
-            showImport = true
-            return
-        }
-        if (!teaching && !repo.store.hasSession) {
+        if (!repo.store.hasSession && repo.store.casTicket.isBlank()) {
             needLogin = true
             return
         }
         syncing = true
         syncError = null
         scope.launch {
-            runCatching { if (teaching) repo.syncTeachingSchedule() else repo.syncSchedule() }
+            val result = if (repo.store.casTicket.isNotBlank()) {
+                runCatching { repo.syncTermWithLogin() }
+            } else if (repo.store.hasSession) {
+                // 旧版本登录只存了门户 TOKEN，没有 CAS 票据；不能静默退回单周
+                runCatching {
+                    error("本机保存的是旧登录信息，没有教务票据。请在设置里退出登录后重新登录一次，之后即可直接同步整学期。")
+                }
+            } else {
+                runCatching { repo.syncSchedule() }
+            }
+            result
                 .onSuccess { (cal, list) -> calendar = cal; blocks = list; syncError = null }
                 .onFailure {
                     if (it is kotlinx.coroutines.CancellationException) throw it
                     netDown = it.isNetworkDown()
                     syncError = it.message ?: "网络失败"
-                    if (it is com.menglimi.gdust.v2.data.AuthFailed && teaching) showImport = true
+                    // 只有明确的「票据失效」才提示重登；SSO 被学校拒绝时只给可读文案，不自动弹网页
+                    if (it is com.menglimi.gdust.v2.data.AuthFailed) needLogin = true
                 }
             syncing = false
         }

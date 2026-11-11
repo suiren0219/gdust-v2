@@ -186,14 +186,8 @@ fun SettingsScreen(
             )
             SettingDivider()
             SettingOption(
-                title = "教务学期导入",
-                subtitle = "登录正方教务，读取每门课程的实际周次",
-                onClick = onImport,
-            )
-            SettingDivider()
-            SettingOption(
-                title = if (store.scheduleSource == "zf_term") "更新教务学期课表" else "同步门户本周课表",
-                subtitle = if (store.scheduleSource == "zf_term") "重新读取教务响应，核对最新调课" else "只保存门户实际返回的周次，不补造其他周",
+                title = "同步整学期课表",
+                subtitle = "用已登录的账号直接读取教务系统，按实际周次保存，不用再打开网页",
                 detail = when {
                     syncing -> "同步中…"
                     syncError != null -> "失败"
@@ -205,6 +199,12 @@ fun SettingsScreen(
             if (syncError != null) {
                 SettingEditor { Text("失败：$syncError", fontSize = 11.sp, color = ds.danger) }
             }
+            SettingDivider()
+            SettingOption(
+                title = "教务网页登录（备用）",
+                subtitle = "仅在自动同步被学校拒绝时使用；需从学校门户进入教务系统",
+                onClick = onImport,
+            )
             SettingDivider()
             SettingOption(title = "本地缓存课程", detail = "${store.loadBlocks().size} 张卡")
             SettingDivider()

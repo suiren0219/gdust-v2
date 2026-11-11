@@ -32,6 +32,10 @@ class Store(context: Context) {
     var portalToken: String
         get() = "token".s
         set(v) { "token".s = v }
+    /** CAS 登录票据：只用于换教务会话；票据过期由学校决定，不因超时删除。 */
+    var casTicket: String
+        get() = "ticket".s
+        set(v) { "ticket".s = v }
     var jobNumber: String
         get() = "job".s
         set(v) { "job".s = v }
@@ -210,7 +214,7 @@ class Store(context: Context) {
     fun logout() {
         clearPortalSession()
         clearTeachingSession()
-        secure.edit().remove("job").remove("name").apply()
+        secure.edit().remove("ticket").remove("job").remove("name").apply()
         plain.edit().remove("blocks").remove("calendar").remove("schedule_source").apply()
         android.webkit.CookieManager.getInstance().removeAllCookies {
             android.webkit.CookieManager.getInstance().flush()
@@ -288,6 +292,18 @@ class Repository(context: Context) {
 
     val store = Store(context)
     private val api = GdustApi()
+    private val teachingSso = TeachingSsoClient()
+
+    /** 用登录时保存的 CAS ticket 直接换教务会话并拉整学期，不开 WebView。 */
+    suspend fun syncTermWithLogin(): Pair<CalendarInfo, List<CourseBlock>> {
+        val cal = store.loadCalendar() ?: api.calendar(store.portalToken, store.jobNumber)
+        val ticket = store.casTicket
+        require(ticket.isNotBlank()) { "登录票据已失效，请在登录页重新登录一次" }
+        val blocks = teachingSso.loginAndFetch(ticket, cal)
+        store.saveCalendar(cal)
+        store.saveBlocks(blocks, "zf_term")
+        return cal to blocks
+    }
 
     suspend fun isSessionAlive(): Boolean {
         if (!store.hasSession) return false
@@ -327,6 +343,7 @@ class Repository(context: Context) {
         val token = api.exchangeToken(ticket)
         val (job, name) = runCatching { api.userInfo(token) }.getOrDefault(account to "")
         store.portalToken = token
+        store.casTicket = ticket
         store.jobNumber = job.ifBlank { account }
         store.realName = name
     }
@@ -336,6 +353,7 @@ class Repository(context: Context) {
         val token = api.exchangeToken(ticket)
         val (job, name) = runCatching { api.userInfo(token) }.getOrDefault("" to "")
         store.portalToken = token
+        store.casTicket = ticket
         store.jobNumber = job
         store.realName = name
     }
