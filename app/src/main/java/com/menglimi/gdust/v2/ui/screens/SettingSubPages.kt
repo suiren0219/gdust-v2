@@ -31,8 +31,9 @@ import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.LocalDs
 
-/** 作者署名（改这里一处即可）。 */
+/** 作者署名与主页（改这里一处即可）。 */
 internal const val APP_AUTHOR = "穗稔"
+internal const val APP_GITHUB = "https://github.com/suiren0219"
 
 /** 设置二级页通用骨架：同款左缘右滑返回手势。 */
 @Composable
@@ -136,9 +137,29 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
         if (android.os.Build.VERSION.SDK_INT >= 28) it.longVersionCode else @Suppress("DEPRECATION") it.versionCode
     } ?: 1L
     SettingSubPage("关于与更新", "版本 · 更新说明 · 数据链路", onBack) {
+        val hostContext = androidx.compose.ui.platform.LocalContext.current
         SectionHeader("版本")
         SettingGroup {
             SettingOption(title = "作者", detail = APP_AUTHOR)
+            SettingDivider()
+            SettingOption(
+                title = "GitHub",
+                detail = "github.com/suiren0219",
+                onClick = {
+                    runCatching {
+                        hostContext.startActivity(
+                            android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse(APP_GITHUB),
+                            )
+                        )
+                    }.onFailure {
+                        // 没有浏览器时兜底：复制链接
+                        val cm = hostContext.getSystemService(android.content.ClipboardManager::class.java)
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("url", APP_GITHUB))
+                    }
+                },
+            )
             SettingDivider()
             SettingOption(title = "当前版本", detail = versionName)
             SettingDivider()
