@@ -2,6 +2,7 @@ package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -28,6 +29,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -186,19 +188,37 @@ fun PowerScreen(repo: Repository) {
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Bottom,
-                                    modifier = Modifier.width(36.dp),
+                                    modifier = Modifier
+                                        .width(36.dp)
+                                        .fillMaxHeight()
+                                        .then(
+                                            // 今天整列加淡色带，一眼定位
+                                            if (isToday) Modifier.background(
+                                                ds.accent.copy(alpha = 0.12f),
+                                                androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+                                            ) else Modifier
+                                        )
+                                        .padding(vertical = 3.dp),
                                 ) {
                                     Text(
                                         "%.1f".format(use),
                                         fontSize = 9.sp,
+                                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
                                         color = if (isToday || use >= maxUse) ds.accent else ds.sub,
                                         maxLines = 1,
                                     )
                                     Box(
                                         Modifier
                                             .padding(top = 3.dp)
-                                            .width(26.dp)
+                                            .width(if (isToday) 30.dp else 26.dp)
                                             .height((66f * ratio).coerceAtLeast(8f).dp)
+                                            .then(
+                                                if (isToday) Modifier.border(
+                                                    1.5.dp,
+                                                    Color.White.copy(alpha = 0.75f),
+                                                    androidx.compose.foundation.shape.RoundedCornerShape(7.dp),
+                                                ) else Modifier
+                                            )
                                             .background(
                                                 when {
                                                     isToday -> ds.accent
