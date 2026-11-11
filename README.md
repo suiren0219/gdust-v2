@@ -47,6 +47,6 @@ Kotlin · Jetpack Compose · Material 3 · [softglass](https://github.com/HaoZai
 | 水电 | 完美校园智能水电接口 |
 | AI 总结 | 用户自填的 OpenAI 兼容端点 |
 
-## License
+## 协议
 
-[MIT](LICENSE) © 2026 suiren0219
+闭源自用。仅供学习交流，请勿二次分发或商用。
