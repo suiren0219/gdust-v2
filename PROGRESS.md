@@ -1,6 +1,30 @@
 # gdust-v2 — 进度卡
 
-> 最后更新：2026-11-12（深夜）。下次开工先读这张卡。
+> 最后更新：2026-11-12（深夜二）。下次开工先读这张卡。
+
+## 现在做到哪：UI 换成 Nexio 1.7 版式（进行中）
+
+用户要求「解开 Nexio 1.7.0-1113 包、重写新 UI、直接抄它的实现」，已确认**直接抄代码，项目转 AGPL-3.0**。
+
+已提交 `7b8f3a4`：
+- `LICENSE`（AGPL-3.0 全文）+ `NOTICE.md`（移植来源与署名）
+- vendor `:miuix`（122 个 kt）与 `:backdrop`（43 个 kt）到 `app/src/main/java/{top/yukonga,com/kyant}`，expect/actual 已按 Android 展平
+- 依赖：miuix-icons/blur/squircle（排除 miuix-ui）+ kyant capsule/shapes；`configurations.configureEach` 全局摘掉官方 miuix-ui（否则和 vendor 的类重复，R8 报 defined multiple times）
+- 新底栏 `ui/nexio/NexioBottomBar.kt`（液态玻璃胶囊，四 tab + 设置），内容层 `layerBackdrop` 采样
+- `ui/nexio/NexioTheme.kt` 包 MiuixTheme，在 MainActivity 里套在旧玻璃主题内层
+
+**还没做（下一步）**：四个页面仍是旧版式，需要逐页换成 Nexio 版式
+1. 课表页：`MainScheduleScreen` + `ScheduleTopBar` + `CourseCard`/`DayColumn`/`SectionColumn`
+2. 今日页：`TodayScreen` + `TodayAssistantCard`
+3. 电费/待办：Nexio 无对应页面，按它的卡片/排版规范改写
+4. 设置页：`PreferenceSettingsScreen`（Miuix preference 组件）
+
+## 解包/研究资产（下次直接用）
+
+- 参考包：`D:/projects/reverse/nexio-170-1113-session/input/nexio.apk`（1.7.0-1113，只含 arm64 原生库，x86 模拟器装不上）
+- 类名清单：同目录 `classes.txt`（1749 个类，未混淆）
+- jadx 输出：`output2/`（不带 deobf 的快跑；带 `--deobf` 会慢到 30 分钟以上，没必要——类名没混淆）
+- 本地源码参考：`D:/projects/refs/NexioSchedule`（HEAD `c540e9a`，比包旧，结构 95% 相同）
 
 ## 远程备份（已解决）
 
