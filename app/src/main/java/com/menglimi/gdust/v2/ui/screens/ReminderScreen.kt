@@ -32,6 +32,9 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
     val ctx = LocalContext.current
     // 普通 prefs 不是 Composition 状态：用 revision 触发整页重读，否则点了界面不刷新
     val revision = androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    // 测试提醒的点击反馈：发出后显示时间戳，权限缺失时引导去系统设置
+    var testMsg by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("点一下") }
+
     fun save(block: () -> Unit) {
         block()
         revision.intValue++
@@ -171,8 +174,35 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
             SettingOption(
                 title = "测试提醒",
                 subtitle = "发一条示例通知，看看能不能上岛",
-                detail = "点一下",
-                onClick = { LessonReminderWorker.sendTest(ctx, store.islandEnabled) },
+                detail = testMsg,
+                onClick = {
+                    // Android 13+ 通知是运行时权限：没授权时 notify() 是静默无效的，必须先引导授权
+                    val granted = android.os.Build.VERSION.SDK_INT < 33 ||
+                        androidx.core.content.ContextCompat.checkSelfPermission(
+                            ctx, android.Manifest.permission.POST_NOTIFICATIONS,
+                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    if (!granted) {
+                        save {
+                            testMsg = "通知权限未授权：已打开系统设置，允许后回来再点一次"
+                            runCatching {
+                                ctx.startActivity(
+                                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                        putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName)
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    },
+                                )
+                            }
+                        }
+                    } else {
+                        LessonReminderWorker.sendTest(ctx, store.islandEnabled)
+                        save {
+                            testMsg = "已发出（" +
+                                java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.CHINA)
+                                    .format(java.util.Date()) +
+                                "）· 没收到就查勿扰模式或系统通知设置"
+                        }
+                    }
+                },
             )
         }
         Spacer(Modifier.height(10.dp))

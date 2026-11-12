@@ -15,7 +15,7 @@
 
 ### 板块二：学习通 × 教务互通（研究线）—— 本卡所在线
 - 分支 `feat/academic-chaoxing`，**验收设备：emulator-5554（debug 包将迁至 `com.menglimi.gdust.v2.research`，见协调规则）**
-- B0 **【立即执行】debug 包 applicationIdSuffix `.debug` → `.research`**：工作区 build.gradle.kts 已在改动中，顺手带上并单独提交；装新包前先 `adb uninstall com.menglimi.gdust.v2.debug`（现存 v8 是本线早期构建，让位给 UI 线）；换包后需重新授权「通知使用权」并重新扫码登录（Cookie 不随包迁移）；**落地前不要再往模拟器装 `.debug` 包**
+- B0 **✅ 已落地（2026-11-13）**：applicationIdSuffix `.debug` → `.research`；已 `adb uninstall com.menglimi.gdust.v2.debug`、装上 `com.menglimi.gdust.v2.research`，POST_NOTIFICATIONS 与通知使用权（enabled_notification_listeners）均已重新授权；**重新扫码登录待学校网络恢复后做**（Cookie 不随包迁移）。**落地后不要再往模拟器装 `.debug` 包**
 - B1 登录互通已收口（真实账号验证通过，见下文「研究线」一节）；遗留：教务入口校园网/WebVPN 复测、学校服务恢复后核对学习通首页「我学的课」
 - B2 等用户抓包 `D:\ai\chaoxing-work.har` + `D:\ai\chaoxing-exam.har` → `ChxApi` Jsoup 解析（EXTENDING.md 3.2① 路线）
 - B3 待办模型扩 `due` 字段（兼容旧数据），作业/考试写入待办（去重、可更新）
@@ -102,7 +102,10 @@
 
 ## 下一步
 
-0. 研究线（feat/academic-chaoxing）：
+0. **B0【立即执行】debug 包改造**：applicationIdSuffix `.debug` → `.research`（与正式包/历史 .debug 数据彻底隔离）；
+   装新包前 uninstall 旧 `com.menglimi.gdust.v2.debug`；换包后重新授权通知使用权（NotificationListener）+ POST_NOTIFICATIONS + 重新扫码登录。
+   **落地前不再往模拟器装任何 .debug 包。**
+   研究线（feat/academic-chaoxing）：
    > **进度更新 2026-11-13**：下列前 3 条已在 `38463d4` 落地（退出联动彻底化 / probe 三态化 / 探活=false 复查一次再清）；剩第 4 条教务入口复测，待校园网/WebVPN 环境。
    - 「退出联动」目前只清本机 Cookie，**不清 WebView 的 Cookie/CAS TGC**（要做彻底退出）
    - `TeachingSsoClient.probe()` 仍是 Boolean，网络故障与失效不可区分（要改三态）

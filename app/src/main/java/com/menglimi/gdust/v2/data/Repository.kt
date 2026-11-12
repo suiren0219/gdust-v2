@@ -127,7 +127,10 @@ class Store(context: Context) {
 
     // ── 待办 ──
     // due = 截止时间毫秒（0 = 无）；tag = 来源课程名（学习通作业用，手动待办为空）。
-    // 旧数据没有这两个字段，Gson 反序列化默认 0/""，向后兼容。
+    // due/tag 为后加字段。注意：Gson 反序列化不执行 Kotlin 默认值——旧 JSON 缺字段时
+    // 反射会把非空的 tag/text 设成 null（release 已实测 NPE 闪退），所以：
+    // ① @Keep 固定字段名（R8 不改名）②loadTodos 手工解析并兜底默认值，不走 Gson 反射。
+    @androidx.annotation.Keep
     data class Todo(val id: Long, val text: String, val done: Boolean, val due: Long = 0, val tag: String = "")
 
     companion object {
@@ -135,9 +138,20 @@ class Store(context: Context) {
     }
 
     fun loadTodos(): List<Todo> {
-        val t = object : TypeToken<List<Todo>>() {}.type
-        return runCatching { gson.fromJson<List<Todo>>(plain.getString("todos", "[]"), t) }
-            .getOrNull().orEmpty()
+        // 手工解析 + 兜底：旧 JSON 缺 due/tag、甚至字段为 null 都不会把非空属性污染成 null
+        val raw = plain.getString("todos", "[]").orEmpty()
+        return runCatching {
+            com.google.gson.JsonParser.parseString(raw).asJsonArray.map { e ->
+                val o = e.asJsonObject
+                Todo(
+                    id = o.get("id")?.asLong ?: 0L,
+                    text = o.get("text")?.takeIf { !it.isJsonNull }?.asString.orEmpty(),
+                    done = o.get("done")?.takeIf { !it.isJsonNull }?.asBoolean ?: false,
+                    due = o.get("due")?.takeIf { !it.isJsonNull }?.asLong ?: 0L,
+                    tag = o.get("tag")?.takeIf { !it.isJsonNull }?.asString.orEmpty(),
+                )
+            }
+        }.getOrNull().orEmpty()
     }
 
     fun updateTodos(transform: (List<Todo>) -> List<Todo>): List<Todo> = synchronized(todoLock) {

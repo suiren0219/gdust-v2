@@ -15,12 +15,16 @@ android {
     namespace = "com.menglimi.gdust.v2"
     compileSdk = 37
 
+    // 版本标识单一来源：versionName 直接带构建号，装的是不是最新一眼可见
+    val vCode = 10
+    val vName = "2.0.0-alpha.$vCode"
+
     defaultConfig {
         applicationId = "com.menglimi.gdust.v2"
         minSdk = 33  // 双风格共存：Glasmio 要求 33+，softglass 本身支持 26+
         targetSdk = 35
-        versionCode = 9
-        versionName = "2.0.0-alpha"
+        versionCode = vCode
+        versionName = vName
     }
 
     signingConfigs {
@@ -36,7 +40,7 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".debug"
+            applicationIdSuffix = ".research"
             versionNameSuffix = "-debug"
         }
         release {
