@@ -50,6 +50,13 @@
     `chxSessionAlive` 探活=false 复查一次再清，防文案启发式误删
   - ⚠️ 遗留：学校服务器自测试网络间歇性不可达（cas/gkjx 443 均超时）；
     恢复后补两件事——①打开「学习通首页」核对「我学的课」与头像姓名 ②校园网/WebVPN 下复测教务网页
+- **阶段 2 作业接入：代码完成（2026-11-13），端点/结构全部来自 HAR 实测，单测 6 例全绿**
+  - 链路：`courselistdata`(POST,固定表单) → `stucoursemiddle` 跟随 302 到课程页 →
+    隐藏域取 `enc/workEnc/examEnc/t/moocDomainName` → `mooc2/work/list?…&stuenc&enc` → 解析 `<li data="work/task?…">`
+  - `Repository.chxSyncWorkTodos()`：待办 id=workId（与手动待办不冲突）；重复同步只更新；
+    手动勾选保持；chaoxing 已完成→置 done；`Todo` 新增 `due`（列表页只有相对剩余时间，
+    绝对截止在 work/task 详情页——待补一份点击详情的抓包后精确化）
+  - 入口：学习通联动页「同步学习通作业到待办」；**端到端待登录态复测**（学校服务器恢复后）
 - **两个必须记住的坑**
   1. **WebView 不能放 Compose `AndroidView`**：页面的 `100vh/100dvh` 会恒为 0，CAS（Tailwind `min-h-screen`）
      整页白屏；裸 Activity 正常。登录页已迁到 `ChxWebActivity` / `TeachingWebActivity`；
