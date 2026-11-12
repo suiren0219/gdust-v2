@@ -36,6 +36,25 @@ private const val PORTAL_ENTRY = "https://portal.gdust.edu.cn"
 private const val VPN_SCHEDULE = "/http/77726476706e69737468656265737421a1a013d2766626022b5cc7fd/kbcx/xskbcx_cxXsgrkb.html?vpn-12-o1-172.16.254.1&gnmkdm=N2151"
 private const val DIRECT_SCHEDULE = "/kbcx/xskbcx_cxXsgrkb.html?gnmkdm=N2151"
 
+/** 显示版本号，方便确认装的是哪一次构建。 */
+private fun appVersionLabel(ctx: android.content.Context): String = runCatching {
+    val info = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+    val code = if (android.os.Build.VERSION.SDK_INT >= 28) info.longVersionCode else @Suppress("DEPRECATION") info.versionCode.toLong()
+    "v${info.versionName}($code)"
+}.getOrDefault("")
+
+/** 把底层英文报错翻译成可操作中文（即使某个分支漏改 JS，也不会甩英文给用户）。 */
+private fun localizeImportError(raw: String): String = when {
+    raw.contains("Unexpected token", true) || raw.contains("is not valid JSON", true) ||
+        raw.contains("Unexpected end", true) ->
+        "教务返回的是网页而不是课表（当前入口没放行接口）。请在页面里进入「教务系统」后再读取；校外建议连校园网用直连同步。"
+    raw.contains("Failed to fetch", true) || raw.contains("NetworkError", true) ->
+        "网络请求失败（可能是断网或跨域拦截），换网络或入口后重试。"
+    raw.contains("HTTP 5", true) || raw.contains("HTTP 4", true) ->
+        "学校服务器返回错误（$raw），稍后重试。"
+    else -> raw
+}
+
 /** 使用浏览器登录态读取正方学期响应；不向网页注入具有本机权限的桥接对象。 */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -97,7 +116,11 @@ fun TermImportScreen(
         Column(Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().navigationBarsPadding().imePadding().padding(horizontal = 16.dp)) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 Spacer(Modifier.height(16.dp))
-                PageTitle("教务学期导入", "按拾光 GDUST 适配的正方接口读取", onBack)
+                PageTitle(
+                    "教务学期导入",
+                    "按拾光 GDUST 适配的正方接口读取 · ${appVersionLabel(hostContext)}",
+                    onBack,
+                )
                 Text(
                     "这是兼容备用路线：在网页里登录教务后读取原始周次。\n" +
                         "扫码登录不用走这里——回登录页点「生成登录二维码」，直接、免验证码。",
@@ -364,7 +387,7 @@ fun TermImportScreen(
                         requestedSession?.pageUrl?.let(repo.store::saveWebImport)
                         CookieManager.getInstance().flush()
                         onImported(target, blocks)
-                    }.onFailure { message = it.message ?: "课表解析失败，旧课表已保留" }
+                    }.onFailure { message = localizeImportError(it.message ?: "课表解析失败，旧课表已保留") }
                 }
             }
             if (!busy) return@LaunchedEffect
