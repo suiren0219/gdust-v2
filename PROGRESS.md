@@ -1,30 +1,26 @@
 # gdust-v2 — 进度卡
 
-> 最后更新：2026-11-12（深夜二）。下次开工先读这张卡。
+> 最后更新：2026-11-13（凌晨）。下次开工先读这张卡。
 
-## 现在做到哪：UI 换成 Nexio 1.7 版式（进行中）
+## 现在做到哪：Nexio 1.7 全量页面移植已完成（分支待合并）
 
-用户要求「解开 Nexio 1.7.0-1113 包、重写新 UI、直接抄它的实现」，已确认**直接抄代码，项目转 AGPL-3.0**。
+分支 `feat/nexio-ui-170`，提交 `4b62167`（基于 `857e1fd`）。四页（今日/课表/电费/待办）+ 设置 + 登录已全部换成 Nexio `28a99a3` 版式；底栏重写为独立玻璃胶囊 + 56dp 设置圆钮；主题统一 Miuix（SOFT=磨砂/LIQUID=折射两种材质保留）。42/42 单测通过，debug+release 构建通过。
 
-已提交 `7b8f3a4`：
-- `LICENSE`（AGPL-3.0 全文）+ `NOTICE.md`（移植来源与署名）
-- vendor `:miuix`（122 个 kt）与 `:backdrop`（43 个 kt）到 `app/src/main/java/{top/yukonga,com/kyant}`，expect/actual 已按 Android 展平
-- 依赖：miuix-icons/blur/squircle（排除 miuix-ui）+ kyant capsule/shapes；`configurations.configureEach` 全局摘掉官方 miuix-ui（否则和 vendor 的类重复，R8 报 defined multiple times）
-- 新底栏 `ui/nexio/NexioBottomBar.kt`（液态玻璃胶囊，四 tab + 设置），内容层 `layerBackdrop` 采样
-- `ui/nexio/NexioTheme.kt` 包 MiuixTheme，在 MainActivity 里套在旧玻璃主题内层
+**合并前建议**：在空场模拟器或真机把四个 tab 逐个点一遍（见下方坑——模拟器被研究线会话共用，批量点验被打断，今日 tab 已实测、其余三页只做了单页渲染核对）。合并命令：`git checkout main && git merge feat/nexio-ui-170`。
 
-**还没做（下一步）**：四个页面仍是旧版式，需要逐页换成 Nexio 版式
-1. 课表页：`MainScheduleScreen` + `ScheduleTopBar` + `CourseCard`/`DayColumn`/`SectionColumn`
-2. 今日页：`TodayScreen` + `TodayAssistantCard`
-3. 电费/待办：Nexio 无对应页面，按它的卡片/排版规范改写
-4. 设置页：`PreferenceSettingsScreen`（Miuix preference 组件）
+## 模拟器共享冲突（重要坑，本次实测踩中）
 
-## 解包/研究资产（下次直接用）
+- **同一台 medium_phone 模拟器（emulator-5554）被本仓另一条「教务×学习通研究线」worktree 的会话共用**：它装的 debug 包（applicationId `com.menglimi.gdust.v2.debug`）来自含 `ChxWebActivity` 的分支（`e781091`/`7a5aa01`/`c0047e4`，这些提交不在 main 线上）
+- 实测它会在你测试中途把它的 Activity 拉到前台（ATM 日志可见 uid 10149 反复 START ChxWebActivity），还会让 System UI 弹 ANR、adb 掉 offline
+- 规约：**自动化 UI 验收前先 `dumpsys activity activities | grep topResumedActivity` 确认前台是自己刚 start 的那个包**；每次 `input tap` 前后都查；发现串台就停，别把别的会话的画面当成自己的验收结果
+- 之前进度卡里写的「模拟器会自己弹钱迹/haooz」大概率也是同类共享冲突
 
-- 参考包：`D:/projects/reverse/nexio-170-1113-session/input/nexio.apk`（1.7.0-1113，只含 arm64 原生库，x86 模拟器装不上）
-- 类名清单：同目录 `classes.txt`（1749 个类，未混淆）
-- jadx 输出：`output2/`（不带 deobf 的快跑；带 `--deobf` 会慢到 30 分钟以上，没必要——类名没混淆）
-- 本地源码参考：`D:/projects/refs/NexioSchedule`（HEAD `c540e9a`，比包旧，结构 95% 相同）
+## 解包/研究资产
+
+- 精确版源码：`D:/projects/refs/NexioSchedule-28a99a3-source-nbhbV4`（=APK revision 28a99a3，**以此为准**）
+- 旧参考检出：`D:/projects/refs/NexioSchedule`（c540e9a，仅组件底座对照）
+- 反编译：`D:/projects/reverse/nexio-170-1113-session/`（input/nexio.apk、classes.txt、output2/）
+- 移植映射：今日/课表/待办/设置/底栏各自的来源文件写在对应 .kt 文件头注释里
 
 ## 远程备份（已解决）
 
