@@ -95,7 +95,7 @@ class TeachingSsoClient {
                 lastError = r.exceptionOrNull()
             }
             throw IllegalStateException(
-                "教务会话已失效（${lastError?.message?.take(80) ?: "本机无可用会话"}），请重新登录一次。",
+                "教务课表读取失败：${lastError?.message?.take(80) ?: "本机无可用会话"}",
                 lastError,
             )
         }
@@ -210,17 +210,17 @@ class TeachingSsoClient {
                 error("教务会话失效 HTTP ${resp.code} @ ${resp.request.url.host}")
             }
             if (!resp.isSuccessful) error("教务 HTTP ${resp.code} @ ${resp.request.url.host}")
+            val trimmed = body.trimStart()
+            fun htmlHint(): String? = when {
+                body.contains("拒绝登录") || body.contains("校园网") -> "该入口拒绝校园网 IP"
+                trimmed.startsWith("<") -> "该入口返回的是网页而不是课表（未放行教务接口）"
+                else -> null
+            }
             val root = runCatching { JsonParser.parseString(body) }.getOrElse {
-                if (body.contains("拒绝登录") || body.contains("校园网")) {
-                    error("该入口拒绝校园网 IP @ ${resp.request.url.host}")
-                }
-                error("教务未返回课表 JSON @ ${resp.request.url.host}")
+                error("${htmlHint() ?: "教务未返回课表 JSON"} @ ${resp.request.url.host}")
             }
             if (!root.isJsonObject || !root.asJsonObject.has("kbList")) {
-                if (body.contains("拒绝登录") || body.contains("校园网")) {
-                    error("该入口拒绝校园网 IP @ ${resp.request.url.host}")
-                }
-                error("教务响应缺少 kbList @ ${resp.request.url.host}")
+                error("${htmlHint() ?: "教务响应缺少 kbList"} @ ${resp.request.url.host}")
             }
             return ZfScheduleParser.parse(root.toString(), calendar)
         }

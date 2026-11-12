@@ -129,9 +129,13 @@ fun AppRoot(
                     // 只有明确的「票据失效」才提示重登；SSO 被学校拒绝时给可读文案并可切网页登录
                     if (it is com.menglimi.gdust.v2.data.AuthFailed) {
                         needLogin = true
-                    } else if (it.message?.contains("学校未用登录票据放行教务会话") == true ||
-                        it.message?.contains("旧版本门户登录态") == true
+                    } else if (it.message?.let { m ->
+                            m.contains("学校未用登录票据放行教务会话") || m.contains("旧版本门户登录态") ||
+                                m.contains("未放行") || m.contains("返回的是网页") ||
+                                m.contains("缺少 kbList") || m.contains("教务课表读取失败")
+                        } == true
                     ) {
+                        // 网络/通道层面拿不到教务数据：重登没用，直接引导网页登录
                         directFallbackMessage = it.message
                     }
                 }

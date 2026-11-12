@@ -114,9 +114,12 @@ fun TermImportScreen(
                 Spacer(Modifier.height(16.dp))
                 Button("登录教务并导入") {
                     runCatching {
-                        require(year.matches(Regex("[0-9]{4}"))) { "请输入四位起始学年" }
-                        val date = LocalDate.parse(start.trim())
-                        require(date.dayOfWeek.value == 1) { "开学日期须为第一周周一" }
+                        require(year.matches(Regex("[0-9]{4}"))) { "请输入四位起始学年（如 2026）" }
+                        require(start.isNotBlank()) { "请填写第一周周一日期（如 2026-08-31）" }
+                        val date = runCatching { LocalDate.parse(start.trim()) }.getOrElse {
+                            error("开学日期格式不对，应为 2026-08-31 这种")
+                        }
+                        require(date.dayOfWeek.value == 1) { "开学日期须为周一" }
                         val total = weeks.toIntOrNull() ?: error("请输入总周数")
                         require(total in 1..60) { "总周数须为 1–60" }
                         val current = (ChronoUnit.DAYS.between(date, LocalDate.now()) / 7 + 1).toInt().coerceIn(1, total)
