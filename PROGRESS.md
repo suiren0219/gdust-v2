@@ -14,7 +14,8 @@
 - 纪律：只动 `ui/` 与外观资源，不碰 `data/` 业务逻辑
 
 ### 板块二：学习通 × 教务互通（研究线）—— 本卡所在线
-- 分支 `feat/academic-chaoxing`，**验收设备：emulator-5554（debug 包）**
+- 分支 `feat/academic-chaoxing`，**验收设备：emulator-5554（debug 包将迁至 `com.menglimi.gdust.v2.research`，见协调规则）**
+- B0 **【立即执行】debug 包 applicationIdSuffix `.debug` → `.research`**：工作区 build.gradle.kts 已在改动中，顺手带上并单独提交；装新包前先 `adb uninstall com.menglimi.gdust.v2.debug`（现存 v8 是本线早期构建，让位给 UI 线）；换包后需重新授权「通知使用权」并重新扫码登录（Cookie 不随包迁移）；**落地前不要再往模拟器装 `.debug` 包**
 - B1 登录互通已收口（真实账号验证通过，见下文「研究线」一节）；遗留：教务入口校园网/WebVPN 复测、学校服务恢复后核对学习通首页「我学的课」
 - B2 等用户抓包 `D:\ai\chaoxing-work.har` + `D:\ai\chaoxing-exam.har` → `ChxApi` Jsoup 解析（EXTENDING.md 3.2① 路线）
 - B3 待办模型扩 `due` 字段（兼容旧数据），作业/考试写入待办（去重、可更新）
@@ -22,9 +23,10 @@
 - 纪律：只动 `data/Chx*`、`TeachingSsoClient`、`service/` 与本线新页面，不改共享 UI 版式
 
 ### 协调规则
-- **设备物理分工**：UI 线=真机，研究线=模拟器；不再共用 emulator-5554，避免 debug 包抢前台
-- **合并顺序**：板块一先合 main，板块二随后对齐
-- 用户侧唯一依赖：两个 HAR 抓包（清单见 `docs/EXTENDING.md` §3.4）
+- **包名分工（2026-11-13 补，修模拟器互覆盖）**：UI 线独占 `com.menglimi.gdust.v2.debug`，研究线用 `com.menglimi.gdust.v2.research`（B0 落地）；两个包共存后互不覆盖、WorkManager 各自独立
+- **设备分工**：UI 线验收优先真机 192.168.1.104:36125；研究线用 emulator-5554；自动化验收前仍要确认 `topResumedActivity` 是自己的包
+- **合并顺序**：板块一先合 main，板块二随后对齐；合并动作同一时刻只由一个会话执行；B4 合并时 suffix 是否回 `.debug` 由合并会话一行改动定夺
+- 用户侧唯一依赖：作业 HAR 已到位（阶段 2 代码完成）；还差**点击作业详情页的抓包**（绝对截止时间）与考试清单 HAR（清单见 `docs/EXTENDING.md` §3.4）
 
 ## 远程备份（已解决）
 
