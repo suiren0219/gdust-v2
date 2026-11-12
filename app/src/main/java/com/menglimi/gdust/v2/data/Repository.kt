@@ -98,7 +98,8 @@ class Store(context: Context) {
     }
 
     // ── 待办 ──
-    data class Todo(val id: Long, val text: String, val done: Boolean)
+    // due = 截止时间毫秒（0 = 无）；学习通作业同步用，旧数据没有该字段，Gson 反序列化默认 0，向后兼容
+    data class Todo(val id: Long, val text: String, val done: Boolean, val due: Long = 0)
 
     companion object {
         private val todoLock = Any()
@@ -630,6 +631,71 @@ class Repository(context: Context) {
     }
 
     suspend fun notices() = api.notices(store.portalToken, store.jobNumber)
+
+    /**
+     * 同步学习通作业到待办（阶段2）。
+     *
+     * 链路（端点全部来自真实抓包，见 docs/EXTENDING.md §3.4）：
+     * 课程列表 → 每门课的课程页（隐藏域 workEnc）→ `mooc2/work/list` → 解析条目。
+     *
+     * 待办 id = 学习通 workId（与手动待办的时间戳 id 天然不冲突，互不覆盖）；
+     * 重复同步只更新文本/截止/完成态，不重复添加；手动勾选的保持勾选；
+     * 截止时间来自列表页的相对剩余时间（绝对截止在详情页，待补抓包后再精确化）。
+     *
+     * @return 结果文案（中文，直接展示）
+     */
+    suspend fun chxSyncWorkTodos(): String {
+        val cookie = store.chxCookie
+        require(cookie.isNotBlank()) { "还没有学习通会话：请先在学习通联动里登录一次" }
+        val listHtml = chxApi.courseListHtml(cookie)
+            ?: error("课程列表读取失败：网络不通，或学习通会话已失效（可在联动里检查会话）")
+        val courses = ChxWorkParser.parseCourses(listHtml)
+        if (courses.isEmpty()) error("课程列表为空：请先在学习通里确认已加入课程")
+        var added = 0
+        var updated = 0
+        var pending = 0
+        val updates = mutableMapOf<Long, Store.Todo>()
+        for (course in courses) {
+            val tabsHtml = chxApi.courseTabsHtml(cookie, course.courseId, course.classId, course.cpi)
+                ?: continue
+            val tabs = ChxWorkParser.parseCourseTabs(tabsHtml) ?: continue
+            val workHtml = chxApi.workListHtml(
+                cookie, tabs.moocDomain, course.courseId, course.classId, course.cpi,
+                tabs.enc, tabs.workEnc, tabs.t,
+            ) ?: continue
+            for (item in ChxWorkParser.parseWorkList(workHtml)) {
+                if (item.workId <= 0) continue
+                val isPending = item.status == "未交"
+                if (isPending) pending++
+                val due = if (isPending) {
+                    System.currentTimeMillis() + ChxWorkParser.remainingMillis(item.remainingText)
+                } else 0L
+                updates[item.workId] = Store.Todo(item.workId, item.title, done = !isPending, due = due)
+            }
+        }
+        if (updates.isEmpty()) return "同步完成：学习通里没有作业"
+        store.updateTodos { current ->
+            val byId = current.associateBy { it.id }.toMutableMap()
+            for ((id, todo) in updates) {
+                val existing = byId[id]
+                if (existing == null) {
+                    added++
+                    // 未交的作业排前面：截止时间近的优先
+                    byId[id] = todo
+                } else {
+                    updated++
+                    // 完成态只置 true 不回退（手动勾选的保持勾选）
+                    byId[id] = existing.copy(
+                        text = todo.text,
+                        done = existing.done || todo.done,
+                        due = todo.due,
+                    )
+                }
+            }
+            byId.values.toList()
+        }
+        return "同步完成：新增 $added 条、更新 $updated 条，未交 $pending 条"
+    }
 
     /**
      * 学习通会话探活：true 有效 / false 失效 / null 网络原因未知（不清 Cookie）。

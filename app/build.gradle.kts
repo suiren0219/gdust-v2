@@ -83,6 +83,8 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    // 学习通作业页是服务端渲染 HTML：用 Jsoup 解析（纯 Java，单测也能跑）
+    implementation("org.jsoup:jsoup:1.17.2")
     // 只取二维码矩阵生成（Canvas 自绘，不引完整扫码 SDK）
     implementation("com.google.zxing:core:3.5.3")
 

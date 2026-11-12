@@ -2,6 +2,7 @@ package com.menglimi.gdust.v2.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
@@ -52,5 +53,72 @@ class ChxApi {
                 }
             }
         }.getOrNull()
+    }
+
+    // ── 作业同步（端点与结构全部来自真实抓包，见 docs/EXTENDING.md §3.4） ──
+
+    private fun getHtml(cookie: String, url: String, referer: String? = null): String? =
+        runCatching {
+            val b = Request.Builder().url(url).header("User-Agent", ua).header("Cookie", cookie)
+            if (referer != null) b.header("Referer", referer)
+            client().newCall(b.get().build()).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            }
+        }.getOrNull()
+
+    /**
+     * 学校课程列表（POST，表单字段为固定值，来自抓包；Referer 为学习通首页）。
+     * 返回的 HTML 里每门课一个 `visit/stucoursemiddle?courseid&clazzid&cpi` 链接。
+     */
+    suspend fun courseListHtml(cookie: String): String? = withContext(Dispatchers.IO) {
+        val form = FormBody.Builder()
+            .add("courseType", "1").add("courseFolderId", "0").add("query", "")
+            .add("pageHeader", "-1").add("single", "0").add("superstarClass", "0")
+            .add("isFirefly", "0").add("courseLevelLabelId", "0").add("fid", "").add("from", "")
+            .build()
+        val req = Request.Builder()
+            .url("https://mooc2-ans.chaoxing.com/mooc2-ans/visit/courselistdata")
+            .header("User-Agent", ua)
+            .header("Cookie", cookie)
+            .header("Referer", "https://mooc2-ans.chaoxing.com/mooc2-ans/visit/interaction")
+            .post(form)
+            .build()
+        runCatching {
+            client().newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            }
+        }.getOrNull()
+    }
+
+    /**
+     * 课程页：跟随 stucoursemiddle 的 302 落到 mycourse/stu，
+     * 隐藏域里带 enc / workEnc / examEnc / t / userId / moocDomainName。
+     */
+    suspend fun courseTabsHtml(cookie: String, courseId: Long, classId: Long, cpi: Long): String? =
+        withContext(Dispatchers.IO) {
+            getHtml(
+                cookie,
+                "https://mooc1.chaoxing.com/visit/stucoursemiddle" +
+                    "?courseid=$courseId&clazzid=$classId&cpi=$cpi&ismooc2=1&v=2",
+            )
+        }
+
+    /** 作业列表页：参数全部来自课程页隐藏域（ut=s、t 为页面时间戳）。 */
+    suspend fun workListHtml(
+        cookie: String,
+        moocDomain: String,
+        courseId: Long,
+        classId: Long,
+        cpi: Long,
+        enc: String,
+        workEnc: String,
+        t: String,
+    ): String? = withContext(Dispatchers.IO) {
+        getHtml(
+            cookie,
+            "$moocDomain/mooc2/work/list" +
+                "?courseId=$courseId&classId=$classId&cpi=$cpi&ut=s&t=$t&stuenc=$enc&enc=$workEnc",
+            "https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu",
+        )
     }
 }

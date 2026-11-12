@@ -55,6 +55,7 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit) {
     var linked by remember { mutableStateOf(repo.store.hasChxSession) }
     var checking by remember { mutableStateOf(false) }
     var checkResult by remember { mutableStateOf<Boolean?>(null) }
+    var syncing by remember { mutableStateOf(false) }
 
     androidx.activity.compose.BackHandler { onBack() }
 
@@ -181,6 +182,18 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit) {
                                 .putExtra(ChxWebActivity.EXTRA_URL, ChxSso.LOGOUT_URL),
                         )
                     }
+                }
+            }
+        }
+
+        if (linked) {
+            Button(if (syncing) "正在同步作业…" else "同步学习通作业到待办", enabled = !syncing) {
+                syncing = true
+                isError = false
+                scope.launch {
+                    message = runCatching { repo.chxSyncWorkTodos() }
+                        .getOrElse { "同步失败：${it.message}" }
+                    syncing = false
                 }
             }
         }
