@@ -5,6 +5,8 @@
 // Uses the vendored Miuix window components; week selection and GDUST detail/preferences are local adaptations.
 package com.menglimi.gdust.v2.ui.schedule
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +26,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -35,6 +38,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TileMode
+import com.haooz.softglass.backdrop.drawBackdrop
+import com.haooz.softglass.backdrop.effects.blur
+import com.kyant.backdrop.edgelight.edgeLight
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
@@ -49,6 +57,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.ui.LocalWallpaperActive
+import com.menglimi.gdust.v2.ui.nexio.LocalPageLayerBackdrop
+import com.kyant.backdrop.edgelight.rememberCardEdgeLight
 import java.time.LocalDate
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -56,8 +66,6 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.ListPopupColumn
-import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
@@ -74,7 +82,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.window.WindowBottomSheet
 import top.yukonga.miuix.kmp.window.WindowDialog
-import top.yukonga.miuix.kmp.window.WindowListPopup
 
 @Composable
 internal fun ScheduleHeader(
@@ -90,13 +97,12 @@ internal fun ScheduleHeader(
 ) {
     val ds = LocalDs.current
     var showMenu by remember { mutableStateOf(false) }
-    val buttonColor = ds.card.copy(alpha = if (LocalWallpaperActive.current) 0.72f else 0.85f)
     Column(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 6.dp)) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 66.dp).padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onSwitchTerm, modifier = Modifier.size(48.dp), backgroundColor = buttonColor) {
+            HeaderGlassButton(onClick = onSwitchTerm) {
                 Icon(MiuixIcons.Normal.ConvertFile, contentDescription = "切换学期", modifier = Modifier.size(25.dp), tint = ds.text)
             }
             Column(
@@ -122,20 +128,17 @@ internal fun ScheduleHeader(
                 )
             }
             Box {
-                IconButton(onClick = { showMenu = true }, modifier = Modifier.size(48.dp), backgroundColor = buttonColor) {
+                HeaderGlassButton(onClick = { showMenu = true }) {
                     Icon(MiuixIcons.More, contentDescription = "课表菜单", modifier = Modifier.size(24.dp), tint = ds.text)
                 }
-                WindowListPopup(
-                    show = showMenu,
-                    alignment = PopupPositionProvider.Align.TopEnd,
-                    onDismissRequest = { showMenu = false },
-                ) {
-                    ListPopupColumn {
-                        ScheduleMenuItem("选择周次", MiuixIcons.Basic.FastForward) { showMenu = false; onChooseWeek() }
-                        ScheduleMenuItem("课表外观", MiuixIcons.Background) { showMenu = false; onDisplaySettings() }
-                        ScheduleMenuItem("切换学期", MiuixIcons.Normal.ConvertFile) { showMenu = false; onSwitchTerm() }
-                        ScheduleMenuItem("导入课表", MiuixIcons.Backup) { showMenu = false; onImport() }
-                    }
+                if (showMenu) {
+                    ScheduleGlassMenu(
+                        onChooseWeek = { showMenu = false; onChooseWeek() },
+                        onDisplaySettings = { showMenu = false; onDisplaySettings() },
+                        onSwitchTerm = { showMenu = false; onSwitchTerm() },
+                        onImport = { showMenu = false; onImport() },
+                        onDismiss = { showMenu = false },
+                    )
                 }
             }
         }
@@ -162,6 +165,79 @@ internal fun ScheduleHeader(
                     )
                 }
             }
+        }
+    }
+}
+
+/** 顶栏玻璃圆钮：壁纸上采样页面层 + 描边光；无壁纸回退到实色圆。 */
+@Composable
+private fun HeaderGlassButton(onClick: () -> Unit, content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
+    val ds = LocalDs.current
+    val pageGlass = LocalPageLayerBackdrop.current
+    val onWallpaper = LocalWallpaperActive.current && pageGlass != null
+    val surface = if (ds.isDark) Color.Black.copy(alpha = 0.42f) else Color.White.copy(alpha = 0.52f)
+    Box(
+        Modifier
+            .size(48.dp)
+            .then(
+                if (onWallpaper) Modifier
+                    .drawBackdrop(
+                        backdrop = pageGlass!!,
+                        shape = { CircleShape },
+                        effects = { blur(16.dp.toPx(), TileMode.Mirror) },
+                        onDrawSurface = { drawRect(surface) },
+                    )
+                    .edgeLight(shape = CircleShape, edgeLight = rememberCardEdgeLight(surface))
+                else Modifier.background(ds.card.copy(alpha = 0.92f), CircleShape)
+            )
+            .clickable(role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+        content = content,
+    )
+}
+
+/** 右上角菜单：原地玻璃下拉（替代 WindowListPopup，修复弹层锚点错位）。 */
+@Composable
+private fun ScheduleGlassMenu(
+    onChooseWeek: () -> Unit,
+    onDisplaySettings: () -> Unit,
+    onSwitchTerm: () -> Unit,
+    onImport: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val ds = LocalDs.current
+    val pageGlass = LocalPageLayerBackdrop.current
+    val onWallpaper = LocalWallpaperActive.current && pageGlass != null
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val shape = RoundedCornerShape(18.dp)
+    val menuSurface = if (ds.isDark) Color.Black.copy(alpha = 0.62f) else Color.White.copy(alpha = 0.88f)
+    androidx.compose.ui.window.Popup(
+        alignment = Alignment.TopEnd,
+        offset = androidx.compose.ui.unit.IntOffset(0, with(density) { 54.dp.roundToPx() }),
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.PopupProperties(focusable = true),
+    ) {
+        Column(
+            Modifier
+                .width(196.dp)
+                .then(
+                    if (onWallpaper) Modifier
+                        .drawBackdrop(
+                            backdrop = pageGlass!!,
+                            shape = { shape },
+                            effects = { blur(18.dp.toPx(), TileMode.Mirror) },
+                            onDrawSurface = { drawRect(menuSurface) },
+                        )
+                        .edgeLight(shape = shape, edgeLight = rememberCardEdgeLight(menuSurface))
+                    else Modifier.background(ds.card, shape)
+                )
+                .clip(shape)
+                .padding(vertical = 6.dp),
+        ) {
+            ScheduleMenuItem("选择周次", MiuixIcons.Basic.FastForward, onChooseWeek)
+            ScheduleMenuItem("课表外观", MiuixIcons.Background, onDisplaySettings)
+            ScheduleMenuItem("切换学期", MiuixIcons.Normal.ConvertFile, onSwitchTerm)
+            ScheduleMenuItem("导入课表", MiuixIcons.Backup, onImport)
         }
     }
 }

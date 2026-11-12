@@ -46,6 +46,13 @@
 - 反编译：`D:/projects/reverse/nexio-170-1113-session/`（input/nexio.apk、classes.txt、output2/）
 - 移植映射：今日/课表/待办/设置/底栏各自的来源文件写在对应 .kt 文件头注释里
 
+## 课表玻璃材质（2026-11-13 补）
+
+- 用户反馈「过于扁平、右上角不明显」：课程卡改走 Nexio 玻璃材质路径（着色 12% + 底色 34% + blur Mirror 透壁纸），顶栏两个圆钮改玻璃+描边光，右上菜单从 WindowListPopup（弹层锚点错位）换成原地玻璃 Popup
+- **大坑（实测两次 SIGSEGV）**：drawBackdrop 的采样节点**不能在被录制的层内部**——卡片在页面层里采样页面层 = GPU 自采样反馈回路，RenderThread 段错误（swiftshader/真机都有风险）。正确结构：**采样层只录壁纸 Box**，页面内容不录制；底栏在层外采样才安全
+- 判据：崩溃特征 = RenderThread SIGSEGV SEGV_ACCERR、同一 fault addr 段基址、launch 即崩
+- 模拟器共享冲突升级：对方会话在测试钱迹记账（com.xiaojinzi.tally），截图/点击随时被抢，交互验收只能抽空档做
+
 ## 许可状态（2026-11-13 更新）
 
 - 应作者与上游（Nexio 作者）的沟通结论，**项目先闭源自用**：LICENSE 换成闭源声明、README/关于页改回「闭源自用」

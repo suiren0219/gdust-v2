@@ -383,17 +383,24 @@ private fun MainScaffold(
     androidx.compose.runtime.CompositionLocalProvider(LocalWallpaperActive provides wallpaperOn) {
         // 新底栏是液态玻璃：内容层要先录进 layer backdrop，玻璃才有东西可采样
         val glassBackdrop = com.haooz.softglass.backdrop.backdrops.rememberLayerBackdrop()
+        // 课程卡/顶栏的玻璃都采样这一层（单层，避免双录制把 RenderThread 干崩）
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.menglimi.gdust.v2.ui.nexio.LocalPageLayerBackdrop provides glassBackdrop,
+        ) {
         Box(Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxSize().layerBackdrop(glassBackdrop)) {
+            // 采样层只录壁纸（卡片/顶栏在页面里采样它；录页面会形成 GPU 自采样反馈回路 → RenderThread SIGSEGV）
             if (wallpaperOn) {
-                WallpaperBackdrop(
-                    path = wallpaperPath,
-                    blurDp = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperBlur },
-                    dim = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperDim },
-                )
+                Box(Modifier.fillMaxSize().layerBackdrop(glassBackdrop)) {
+                    WallpaperBackdrop(
+                        path = wallpaperPath,
+                        blurDp = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperBlur },
+                        dim = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperDim },
+                    )
+                }
             } else {
                 Box(Modifier.fillMaxSize().background(ds.bg))
             }
+            Box(Modifier.fillMaxSize()) {
             Crossfade(
                 targetState = tab,
                 animationSpec = tween(220),
@@ -435,6 +442,7 @@ private fun MainScaffold(
                 backdrop = glassBackdrop,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+        }
         }
     }
 }

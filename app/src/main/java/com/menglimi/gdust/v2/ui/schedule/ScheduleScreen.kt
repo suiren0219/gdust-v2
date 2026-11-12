@@ -57,6 +57,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.capsule.ContinuousRoundedRectangle
+import androidx.compose.ui.graphics.TileMode
+import com.haooz.softglass.backdrop.drawBackdrop
+import com.haooz.softglass.backdrop.effects.blur
+import com.menglimi.gdust.v2.ui.LocalWallpaperActive
+import com.menglimi.gdust.v2.ui.nexio.LocalPageLayerBackdrop
+import com.menglimi.gdust.v2.ui.nexio.glassSurfaceColor
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
@@ -500,13 +506,20 @@ private fun LessonCard(
     val ds = LocalDs.current
     val tint = CourseColors.tint(block.name)
     val inactive = Color(0xFF9E9E9E)
-    // 28a99a3: 12% tint + 92% page backing. This adapter uses its no-material path,
-    // including over wallpaper, rather than sampling an incompatible backdrop host.
-    val baseColor = (if (isPast) inactive else tint).copy(alpha = if (isPast) 0.12f * 0.7f else 0.12f)
-    val cardColor = baseColor.compositeOver(ds.bg.copy(alpha = 0.92f))
+    val pageGlass = LocalPageLayerBackdrop.current
+    val onWallpaper = LocalWallpaperActive.current && pageGlass != null
+    // 28a99a3 卡片材质：壁纸开启走玻璃路径（着色 12% + 底色 34% + 模糊透出壁纸），
+    // 无壁纸沿用其无材质路径（0.12 着色 + 0.92 页底垫色）
+    val tintAlpha = 0.12f * (if (isPast) 0.7f else 1f)
+    val baseTint = if (isPast) inactive else tint
+    val glassColor = glassSurfaceColor(baseTint, ds.isDark, tintAlpha = tintAlpha)
+    val cardColor = baseTint.copy(alpha = tintAlpha).compositeOver(ds.bg.copy(alpha = 0.92f))
     val preferredText = if (isPast) ds.sub.copy(alpha = 0.7f)
-        else CourseColors.text(block.name, ds.isDark, onWallpaper = false, monochrome = textMono)
-    val foreground = CourseColors.readableText(preferredText, cardColor.compositeOver(ds.bg))
+        else CourseColors.text(block.name, ds.isDark, onWallpaper = onWallpaper, monochrome = textMono)
+    val foreground = CourseColors.readableText(
+        preferredText,
+        if (onWallpaper) glassColor else cardColor.compositeOver(ds.bg),
+    )
     val scale = textScale.coerceIn(0.7f, 1.4f)
     val nameSize = (12.7f * scale).sp
     val nameLine = (14.2f * scale).sp
@@ -534,10 +547,21 @@ private fun LessonCard(
     val maxLines = with(density) { ((cardHeight - 16.dp).value / nameLine.toDp().value).toInt().coerceAtLeast(1) }
     Card(
         modifier = modifier.fillMaxWidth().height(cardHeight).padding(ScheduleLayout.CardGap)
+            .then(
+                if (onWallpaper) Modifier.drawBackdrop(
+                    backdrop = pageGlass!!,
+                    shape = { ContinuousRoundedRectangle(cornerRadius) },
+                    effects = { blur(8.dp.toPx(), TileMode.Mirror) },
+                    onDrawSurface = { drawRect(glassColor) },
+                ) else Modifier
+            )
             .then(if (isOngoing) Modifier.border(1.5.dp, ds.accent, ContinuousRoundedRectangle(cornerRadius)) else Modifier),
         cornerRadius = cornerRadius,
         insideMargin = PaddingValues(0.dp),
-        colors = CardDefaults.defaultColors(color = cardColor, contentColor = foreground),
+        colors = CardDefaults.defaultColors(
+            color = if (onWallpaper) Color.Transparent else cardColor,
+            contentColor = foreground,
+        ),
         pressFeedbackType = PressFeedbackType.Sink,
         showIndication = true,
         onClick = onClick,
