@@ -41,16 +41,18 @@ fun importWallpaper(context: Context, uri: Uri): String = runCatching {
     target.pathOrBlank()
 }.getOrDefault("")
 
-/** 解码壁纸（限制尺寸，避免大图 OOM）。 */
+/** 解码壁纸：模糊大时先降采样成小图再由 GPU 放大（模糊成本大降，视觉差异可忽略）。 */
 @Composable
-fun rememberWallpaperBitmap(path: String): ImageBitmap? {
+fun rememberWallpaperBitmap(path: String, blurDp: Float): ImageBitmap? {
     if (path.isBlank()) return null
-    return remember(path) {
+    return remember(path, blurDp) {
         runCatching {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(path, bounds)
+            // 目标：屏幕宽的 1/2（模糊后看不出差别），模糊越大采样越激进
+            val targetW = 540 + (40 - blurDp.toInt()) * 10   // blur0→940, blur40→540
             var sample = 1
-            while (bounds.outWidth / sample > 1440 || bounds.outHeight / sample > 2880) sample *= 2
+            while (bounds.outWidth / sample > targetW) sample *= 2
             val opts = BitmapFactory.Options().apply {
                 inSampleSize = sample
                 inPreferredConfig = Bitmap.Config.RGB_565
@@ -68,7 +70,7 @@ fun WallpaperBackdrop(
     dim: Float,
     modifier: Modifier = Modifier,
 ) {
-    val image = rememberWallpaperBitmap(path)
+    val image = rememberWallpaperBitmap(path, blurDp)
     if (image == null) {
         Box(modifier.fillMaxSize().background(LocalDs.current.bg))
         return

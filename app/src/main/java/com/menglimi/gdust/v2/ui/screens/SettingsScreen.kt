@@ -198,14 +198,10 @@ fun SettingsScreen(
                     store.monetEnabled = it
                 },
             )
-        }
-
-        // ── 壁纸 ──
-        SectionHeader("壁纸")
-        SettingGroup {
+            SettingDivider()
             SettingOption(
                 title = "课表壁纸",
-                subtitle = "从相册选一张图作为页面背景；模糊与压暗可调",
+                subtitle = "从相册选图作为页面背景；模糊与压暗可调",
                 detail = if (wallpaperPath.isBlank()) "未设置" else "已设置",
                 onClick = {
                     wallpaperLauncher.launch(
@@ -249,6 +245,35 @@ fun SettingsScreen(
             }
         }
 
+        // ── 基本设置（拾光式：开学日期 / 总周数 / 当前周）──
+        SectionHeader("基本设置")
+        SettingGroup {
+            SettingOption(
+                title = "开学日期",
+                subtitle = "学期第一周周一，YYYY-MM-DD；留空则用校历",
+                detail = store.termStartDate.ifBlank { "跟随校历" },
+                onClick = { toggle("term") },
+            )
+            if (openSection.value == "term") {
+                SettingDivider()
+                SettingEditor {
+                    InputField(termStart, { termStart = it; termSaved = false }, "开学日期，如 2026-09-07")
+                    InputField(termWeeksText, { termWeeksText = it; termSaved = false }, "学期总周数，如 20", KeyboardType.Number)
+                    InputField(termWeekText, { termWeekText = it; termSaved = false }, "当前第几周，如 10", KeyboardType.Number)
+                    Button(if (termSaved) "已保存 ✓ 重新同步生效" else "保存学期设置") {
+                        store.termStartDate = termStart.trim()
+                        store.termWeeks = termWeeksText.toIntOrNull() ?: 0
+                        store.termCurrentWeek = termWeekText.toIntOrNull() ?: 0
+                        termSaved = true
+                    }
+                    Text(
+                        "这里只调整周次与日期的对应关系，不会新增课程。学期课程请使用「教务学期导入」；未取得的周次不能视为无课。",
+                        fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub,
+                    )
+                }
+            }
+        }
+
         // ── 账号与数据 ──
         SectionHeader("账号与数据")
         SettingGroup {
@@ -287,35 +312,6 @@ fun SettingsScreen(
                 title = "校历",
                 detail = store.loadCalendar()?.let { "第 ${it.week}/${it.allWeek} 周" } ?: "未同步",
             )
-        }
-
-        // ── 学期设置（拾光式：开学日期 / 总周数 / 当前周）──
-        SectionHeader("学期设置")
-        SettingGroup {
-            SettingOption(
-                title = "开学日期",
-                subtitle = "学期第一周周一，YYYY-MM-DD；留空则用校历",
-                detail = store.termStartDate.ifBlank { "跟随校历" },
-                onClick = { toggle("term") },
-            )
-            if (openSection.value == "term") {
-                SettingDivider()
-                SettingEditor {
-                    InputField(termStart, { termStart = it; termSaved = false }, "开学日期，如 2026-09-07")
-                    InputField(termWeeksText, { termWeeksText = it; termSaved = false }, "学期总周数，如 20", KeyboardType.Number)
-                    InputField(termWeekText, { termWeekText = it; termSaved = false }, "当前第几周，如 10", KeyboardType.Number)
-                    Button(if (termSaved) "已保存 ✓ 重新同步生效" else "保存学期设置") {
-                        store.termStartDate = termStart.trim()
-                        store.termWeeks = termWeeksText.toIntOrNull() ?: 0
-                        store.termCurrentWeek = termWeekText.toIntOrNull() ?: 0
-                        termSaved = true
-                    }
-                    Text(
-                        "这里只调整周次与日期的对应关系，不会新增课程。学期课程请使用「教务学期导入」；未取得的周次不能视为无课。",
-                        fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub,
-                    )
-                }
-            }
         }
 
         // ── 通知 AI 总结 ──

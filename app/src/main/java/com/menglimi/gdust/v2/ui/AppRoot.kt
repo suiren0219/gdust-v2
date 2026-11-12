@@ -270,6 +270,7 @@ fun AppRoot(
                 tab = tab.intValue,
                 onTab = { tab.intValue = it },
                 onSettings = { showSettings.value = true },
+                onOpenNotices = { showNotices = true; loadNotices() },
                 calendar = calendar,
                 blocks = blocks,
                 syncError = syncError,
@@ -397,10 +398,16 @@ private fun BoxScope.UnifiedBottomBar(
     val pillShape = com.haooz.softglass.shape.ContinuousCapsule()
     val wallpaper = LocalWallpaperActive.current
     fun Modifier.pill(): Modifier = when {
-        // 壁纸下：半透明磨砂胶囊（玻璃采样层透明后不能再用 drawBackdrop）
+        // 壁纸下也分风格：SOFT=白色磨砂胶囊；LIQUID=通透胶囊 + accent 细描边
+        wallpaper && liquid -> this
+            .background(
+                if (ds.isDark) Color.Black.copy(alpha = 0.30f) else Color.White.copy(alpha = 0.30f),
+                RoundedCornerShape(28.dp),
+            )
+            .border(1.dp, ds.accent.copy(alpha = 0.30f), RoundedCornerShape(28.dp))
         wallpaper -> this
             .background(
-                if (ds.isDark) Color.Black.copy(alpha = 0.42f) else Color.White.copy(alpha = 0.72f),
+                if (ds.isDark) Color(0xFF1C1C21).copy(alpha = 0.62f) else Color.White.copy(alpha = 0.72f),
                 RoundedCornerShape(28.dp),
             )
             .border(1.dp, Color.White.copy(alpha = if (ds.isDark) 0.12f else 0.7f), RoundedCornerShape(28.dp))

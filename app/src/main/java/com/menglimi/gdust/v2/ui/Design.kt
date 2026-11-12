@@ -97,21 +97,25 @@ fun GlassCard(
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    // 有壁纸时：不用 backdrop（采样层已透明），改成 Nexio 那种半透明磨砂 + 细边框
+    // 有壁纸时：不用 backdrop（采样层已透明），改半透明磨砂——但两套风格材质必须可区分：
+    // SOFT = 偏实的白色磨砂（HyperOS 卡片感）；LIQUID = 更通透 + accent 细描边 + 大圆角（iOS 卡片感）
     if (LocalWallpaperActive.current) {
         val ds = LocalDs.current
-        val surface = if (ds.isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.62f)
+        val liquid = LocalUiStyle.current.value == UiStyle.LIQUID
+        val surface = when {
+            liquid && ds.isDark -> Color.Black.copy(alpha = 0.30f)
+            liquid -> Color.White.copy(alpha = 0.28f)
+            ds.isDark -> Color(0xFF1C1C21).copy(alpha = 0.72f)
+            else -> Color.White.copy(alpha = 0.62f)
+        }
+        val corner = if (liquid) 24.dp else 20.dp
+        val stroke = if (liquid) ds.accent.copy(alpha = 0.30f)
+        else if (ds.isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.75f)
         Box(
             modifier
                 .fillMaxWidth()
-                .background(surface, RoundedCornerShape(20.dp))
-                .then(
-                    Modifier.border(
-                        1.dp,
-                        if (ds.isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.75f),
-                        RoundedCornerShape(20.dp),
-                    )
-                )
+                .background(surface, RoundedCornerShape(corner))
+                .border(1.dp, stroke, RoundedCornerShape(corner))
                 .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         ) {
             Box(Modifier.padding(16.dp)) { content() }
