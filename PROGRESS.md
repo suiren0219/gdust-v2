@@ -13,11 +13,19 @@
 ## 研究线「教务 × 学习通互通」（本次新增）
 
 - 分支 `feat/academic-chaoxing`，worktree `D:\projects\gdust\gdust-v2-academic`（已推 origin）
-- **阶段 1 登录互通：实测完成**（2026-11-12 夜，medium_phone/API35 + 真实账号扫码）
-  - 学习通：CAS 扫码 → fysso(HTTP) → fanya(HTTP) → passport2(HTTP) → 课程页；App 显示「已联动」
+- **阶段 1 登录互通：✅ 收口**（2026-11-12 夜，medium_phone/API35 + 真实账号扫码；2026-11-13 用户确认学号）
+  - 学习通：CAS 扫码 → fysso(HTTP) → fanya(HTTP) → passport2(HTTP) → 学习通；App 显示「已联动」
+  - **身份已确认**：SSO 跳转带回 `uname=2025XXXXXXXXXX`，用户确认是本人学号
   - Cookies：`.chaoxing.com` 域 `UID/_uid/_d/fid/uname/p_auth_token`（7–30 天）+ 子域 `JSESSIONID`(session)
   - 教务：同一 CAS 会话为 `gkjx.gdust.edu.cn` **签发 ticket（免密双通成立）**；
-    但该入口当前从测试网络 `ERR_CONNECTION_TIMED_OUT`（宿主机 curl 也超时）——环境问题，不是 App 缺陷
+    但该入口从测试网络 `ERR_CONNECTION_TIMED_OUT`（宿主机 curl 同样超时）——环境问题，不是 App 缺陷
+  - 退出：`clearChxSession()` 清本机存储 + 按域过期超星/CAS Cookie + CAS 登出页清 localStorage；
+    实测退出后 Cookies 0 条、重开「学习通」回到 CAS 登录页（不自动登录）
+  - 会话失效 vs 网络故障：`TeachingSsoClient.probe` / `ChxApi.probe` 均三态
+    （true 有效 / false 明确被拒 / null 网络原因，不判死不清会话）；
+    `chxSessionAlive` 探活=false 复查一次再清，防文案启发式误删
+  - ⚠️ 遗留：学校服务器自测试网络间歇性不可达（cas/gkjx 443 均超时）；
+    恢复后补两件事——①打开「学习通首页」核对「我学的课」与头像姓名 ②校园网/WebVPN 下复测教务网页
 - **两个必须记住的坑**
   1. **WebView 不能放 Compose `AndroidView`**：页面的 `100vh/100dvh` 会恒为 0，CAS（Tailwind `min-h-screen`）
      整页白屏；裸 Activity 正常。登录页已迁到 `ChxWebActivity` / `TeachingWebActivity`；
