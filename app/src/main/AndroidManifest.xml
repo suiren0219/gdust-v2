@@ -23,6 +23,12 @@
             </intent-filter>
         </activity>
 
+        <!-- 学习通/教务网页登录：独立 Activity 承载 WebView（Compose AndroidView 会白屏，见类注释） -->
+        <activity
+            android:name=".ui.screens.ChxWebActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <service
             android:name=".service.ChxNotificationListener"
             android:label="学习通待办同步"

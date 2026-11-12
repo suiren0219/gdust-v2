@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 研究线诊断页只进 debug 包，release 不受影响 -->
+    <application>
+        <activity
+            android:name=".debug.WebViewProbeActivity"
+            android:exported="true"
+            android:label="WebView 探针" />
+    </application>
+</manifest>

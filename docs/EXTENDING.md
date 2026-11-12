@@ -125,12 +125,27 @@ ui/screens/*  ──(只调)──▶  data/Repository  ──(只调)──▶ 
 
 - `data/ChxSso.kt`：三个 SSO 入口常量 + 学习通首页 + 会话判定（`hasSessionCookie`，按域名边界识别超星）
 - `data/ChxApi.kt`：`probe(cookie)` 探活 —— 拉学习通首页，被踢回 passport/login 判失效；网络故障返回 `null`（保留 Cookie，不误登出）
-- `ui/screens/ChxEntryScreen.kt`：一个 WebView 装四个入口（学习通 / 课程中心 / 教务网页 / 首页），带进度条、当前域名、三态会话检查、退出联动；离开页面 `CookieManager.flush()`
+- `ui/screens/ChxEntryScreen.kt`：联动页（状态 / 四个入口 / 会话检查 / 退出联动），登录页交给下面的独立 Activity
+- `ui/screens/ChxWebActivity.kt`：**独立 Activity 承载 WebView**（登录页、进度条、当前域名、Cookie 抓取与落盘）
 - Cookie 只存超星域，写 `Store.chxCookie`（加密），退出登录一并清除；**不存密码**
 - `network_security_config.xml`：`gdkjxy.fysso.chaoxing.com` 放行明文（该域 443 无响应，实测）
 
 已验证：学习通按钮 → fysso(HTTP) → 302 → CAS 登录页（标题「广科统一身份认证」）全链路可达；未登录点首页会落到 `passport2.chaoxing.com` 并提示「已进入超星域名但没拿到会话」，不伪造会话。
 **未验证**：登录后的 fysso 回跳与 Cookie 落地（需要真实账号，无法代测）。
+
+**承载方式（2026-11-12 实测，改过一次）**：登录 WebView 必须放**独立 Activity**
+（`ui/screens/ChxWebActivity`），不要放进 Compose `AndroidView`——后者里页面视口单位
+（`100vh / 100dvh / 100svh`）恒为 0，CAS 前端（Tailwind `min-h-screen` + `overflow:hidden`）
+整页被裁成白屏，而 DOM 其实已完整渲染。裸 View / 裸 Activity 正常；与 WebView 版本
+（API35 的 124 / API36 的 133）和 WebSettings 都无关。最小复现留在 debug 源集
+`app/src/debug/java/com/menglimi/gdust/v2/debug/WebViewProbeActivity.kt`：
+
+```
+adb shell am start -n com.menglimi.gdust.v2.debug/com.menglimi.gdust.v2.debug.WebViewProbeActivity --es mode compose-box
+# mode: bare（正常）| full（正常）| compose-box / compose-column / compose-crossfade（白屏）
+```
+
+同一坑对「教务网页导入」里的 WebView 同样适用（同一承载方式），改造该页时要一起处理。
 
 ### 3.4 需要补的 HAR（给数据契约用）
 
