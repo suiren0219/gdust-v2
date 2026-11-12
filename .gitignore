@@ -10,3 +10,8 @@ signing/keystore.properties
 
 # 本地构建验证日志
 build-*.log
+
+# 抓包文件带 Cookie/uid/token，禁止入库
+*.har
+*.har.gz
+har/

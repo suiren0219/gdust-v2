@@ -134,13 +134,34 @@ ui/screens/*  ──(只调)──▶  data/Repository  ──(只调)──▶ 
 
 ### 3.4 需要补的 HAR（给数据契约用）
 
-抓法：
-1. 浏览器登录学习通 → 某门课 → **作业列表页**
-2. 点开一个作业详情（看截止时间来源）
-3. F12 → Network → 右键 → *Save all as HAR with content*
-4. 存到 `D:\ai\chaoxing-work.chaoxing.com.har`
+已有 `D:\ai\mooc2-ans.chaoxing.com.har` 的覆盖范围（已解析核对）：只有课程列表 `visit/courselistdata`（HTML，含 classId/courseId）和 `mycourse/stu-job-info`（JSON，仅每班 jobCount/jobFinishCount/jobRate），**没有任何作业或考试明细**。所以作业页只能走「服务端渲染 HTML + 解析」这条已知路线。
 
-需要确认的字段：作业名、截止时间、状态（未交/已交/已批阅）、课程名、作业 id。
+**要的包（两份，也可合成一份）**：
+
+| 文件 | 内容 |
+|---|---|
+| `D:\ai\chaoxing-work.har` | 作业清单 + 一条作业详情 |
+| `D:\ai\chaoxing-exam.har` | 考试清单（Web 版没有考试入口时用手机端抓，见下） |
+
+抓法（Chrome，推荐）：
+1. 无痕窗口登录 `i.chaoxing.com`（照常走学校 CAS）
+2. F12 → Network → 勾 **Preserve log**；过滤器保持 **All**（别只看 XHR：作业列表是服务端渲染 HTML，请求可能被当 document 过滤掉）
+3. 「我学的课」→ 打开**至少 3 门有作业的课** → 作业 tab → 等列表完全加载 → 有「加载更多」就点一次
+4. 点开**一条作业详情**（截止时间多半来自这里），再返回
+5. 换下一门课重复（课程 id 不同，便于确认参数含义）
+6. 右键请求列表 → *Save all as HAR with content*（**必须带响应体**），按上表命名、放 `D:\ai\`
+
+每份包我要能看到：
+- 列表请求的完整 URL/方法/参数（classId、courseId、页码/每页条数、`enc` 等）
+- 响应是 JSON 还是 HTML；是 HTML 就要完整响应体
+- 同一门课里 **未交、已交/已批阅、已过期** 各至少一条，用来对齐状态字段
+- 字段名：作业/考试 id、名称、截止时间、发布时间、状态
+- 分页方式（是翻页参数还是滚动加载）
+- 考试包同理：考试名、开始/结束时间、状态、id
+
+手机 App 版：Reqable / HttpCanary 抓 `com.chaoxing.mobile`，操作同 3-5 步，导出 HAR 时打开「保存响应体」。注意 `mooc1-api.chaoxing.com` 有 `_enc` 设备指纹风控（见 3.2 ③），移动端签名不复用，只拿字段定义。
+
+隐私：HAR 里带 Cookie / uid / token，**任何 `.har` 都不入库**（已加进 `.gitignore`），我只在本机解析。愿意先脱敏也行：保留 URL、响应结构、字段名，把 Cookie 头和姓名/学号值打码即可。
 
 ---
 
