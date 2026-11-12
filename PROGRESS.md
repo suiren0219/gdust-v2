@@ -1,6 +1,30 @@
 # gdust-v2 — 进度卡
 
-> 最后更新：2026-11-12（深夜）。下次开工先读这张卡。
+> 最后更新：2026-11-13（双线分工定稿）。下次开工先读这张卡。
+
+## 双线分工（2026-11-13 定稿）
+
+两条任务线各管各的，开工先对号入座；**合并动作同一时刻只由一个会话执行**。
+
+### 板块一：课表 + 电费（功能已就绪，只做 UI）—— 在主仓 worktree 执行
+- 分支 `feat/nexio-ui-170`，**验收设备：真机 192.168.1.104:36125**
+- A1 合并前验收：四个 tab 逐个点一遍（今日已实测，其余三页只做过单页渲染核对）
+- A2 快进合并 `feat/nexio-ui-170` → main，合并后 `testDebugUnitTest` 全绿
+- A3 release 包真机过时间线观感（1.5dp 红线粗细）
+- 纪律：只动 `ui/` 与外观资源，不碰 `data/` 业务逻辑
+
+### 板块二：学习通 × 教务互通（研究线）—— 本卡所在线
+- 分支 `feat/academic-chaoxing`，**验收设备：emulator-5554（debug 包）**
+- B1 登录互通已收口（真实账号验证通过，见下文「研究线」一节）；遗留：教务入口校园网/WebVPN 复测、学校服务恢复后核对学习通首页「我学的课」
+- B2 等用户抓包 `D:\ai\chaoxing-work.har` + `D:\ai\chaoxing-exam.har` → `ChxApi` Jsoup 解析（EXTENDING.md 3.2① 路线）
+- B3 待办模型扩 `due` 字段（兼容旧数据），作业/考试写入待办（去重、可更新）
+- B4 板块一合并 main 后，本线向 main 对齐（预计 AppRoot/Manifest/PROGRESS.md 冲突）
+- 纪律：只动 `data/Chx*`、`TeachingSsoClient`、`service/` 与本线新页面，不改共享 UI 版式
+
+### 协调规则
+- **设备物理分工**：UI 线=真机，研究线=模拟器；不再共用 emulator-5554，避免 debug 包抢前台
+- **合并顺序**：板块一先合 main，板块二随后对齐
+- 用户侧唯一依赖：两个 HAR 抓包（清单见 `docs/EXTENDING.md` §3.4）
 
 ## 远程备份（已解决）
 
@@ -70,6 +94,7 @@
 ## 下一步
 
 0. 研究线（feat/academic-chaoxing）：
+   > **进度更新 2026-11-13**：下列前 3 条已在 `38463d4` 落地（退出联动彻底化 / probe 三态化 / 探活=false 复查一次再清）；剩第 4 条教务入口复测，待校园网/WebVPN 环境。
    - 「退出联动」目前只清本机 Cookie，**不清 WebView 的 Cookie/CAS TGC**（要做彻底退出）
    - `TeachingSsoClient.probe()` 仍是 Boolean，网络故障与失效不可区分（要改三态）
    - `chxSessionAlive()` 探活=false 时直接清 Cookie，启发式误判会误删会话（收紧后再清）
