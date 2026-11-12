@@ -62,6 +62,18 @@ kotlin {
     }
 }
 
+// Glasmio（旧液态玻璃主题）也传递依赖官方 miuix-ui；与 vendor 进源码的 fork 重复，全局摘掉，
+// 官方 miuix-ui 的类由本项目源码顶替（同名同包同 API）。
+configurations.configureEach {
+    exclude(group = "top.yukonga.miuix.kmp", module = "miuix-ui")
+    exclude(group = "top.yukonga.miuix.kmp", module = "miuix-ui-android")
+}
+
+fun ExternalModuleDependency.excludeMiuixUi() {
+    exclude(group = "top.yukonga.miuix.kmp", module = "miuix-ui")
+    exclude(group = "top.yukonga.miuix.kmp", module = "miuix-ui-android")
+}
+
 dependencies {
     // 单模块：Compose 原生实现（不引 Miuix fork、不引 KMP、不引 SQLDelight）
     implementation(platform("androidx.compose:compose-bom:2026.05.01"))
@@ -93,6 +105,15 @@ dependencies {
     implementation("io.github.neoruaa.glasmio:glasmio-scaffold:0.1.2")
     implementation("io.github.neoruaa.glasmio:glasmio-preference:0.1.2")
     implementation("io.github.neoruaa.glasmio:glasmio-ui:0.1.2")
+
+    // Miuix（小米 HyperOS 风格，Apache-2.0）：:miuix / :backdrop 两个 fork 已 vendor 进源码（AGPL-3.0，见 NOTICE.md），
+    // 因此**不再**依赖官方 miuix-ui / kyant backdrop 构件，只保留图标等独立子库并排除会带来重复类的 miuix-ui。
+    implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.4") { excludeMiuixUi() }
+    implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.4") { excludeMiuixUi() }
+    implementation("top.yukonga.miuix.kmp:miuix-squircle-android:0.9.3") { excludeMiuixUi() }
+    // 液态玻璃用到的 capsule / shapes（Apache-2.0）
+    implementation("io.github.kyant0:capsule:2.1.3")
+    implementation("io.github.kyant0:shapes:1.2.1")
 
     // 莫奈取色：MaterialKolor 纯 Kotlin 引擎（MIT，无 Compose/native 依赖，不会抬 runtime 版本）
     testImplementation("junit:junit:4.13.2")

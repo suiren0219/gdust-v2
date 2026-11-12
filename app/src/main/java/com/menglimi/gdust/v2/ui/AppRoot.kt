@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import com.kyant.backdrop.backdrops.layerBackdrop
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -377,6 +378,8 @@ private fun MainScaffold(
     val wallpaperPath = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperPath }
     val wallpaperOn = wallpaperPath.isNotBlank()
     androidx.compose.runtime.CompositionLocalProvider(LocalWallpaperActive provides wallpaperOn) {
+        // 新底栏是液态玻璃：内容层要先录进 layer backdrop，玻璃才有东西可采样
+        val glassBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
         Box(Modifier.fillMaxSize()) {
             if (wallpaperOn) {
                 WallpaperBackdrop(
@@ -387,7 +390,12 @@ private fun MainScaffold(
             } else {
                 Box(Modifier.fillMaxSize().background(ds.bg))
             }
-            Crossfade(targetState = tab, animationSpec = tween(220), label = "tabs") { page ->
+            Crossfade(
+                targetState = tab,
+                animationSpec = tween(220),
+                label = "tabs",
+                modifier = Modifier.fillMaxSize().layerBackdrop(glassBackdrop),
+            ) { page ->
                 when (page) {
                     0 -> TodayScreen(
                         calendar = calendar,
@@ -410,8 +418,13 @@ private fun MainScaffold(
                 }
             }
 
-        // 底栏两套风格共用同一套点击热区实现（不受 Glasmio 内部动画/compaction 影响）
-            UnifiedBottomBar(tab = tab, onTab = onTab, onSettings = onSettings, ds = ds)
+        // 新 UI：Nexio 式浮动液态玻璃底栏（四个 tab + 设置）
+            com.menglimi.gdust.v2.ui.nexio.NexioBottomBar(
+                selectedTab = tab,
+                onTabSelected = onTab,
+                onSettings = onSettings,
+                backdrop = glassBackdrop,
+            )
         }
     }
 }
