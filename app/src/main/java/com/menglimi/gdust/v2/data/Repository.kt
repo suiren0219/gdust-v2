@@ -176,6 +176,11 @@ class Store(context: Context) {
         get() = plain.getFloat("course_text_scale", 1.0f).coerceIn(0.7f, 1.4f)
         set(v) = plain.edit().putFloat("course_text_scale", v.coerceIn(0.7f, 1.4f)).apply()
 
+    /** 智能显示周末：开启时隐藏无课的周六日，关闭则始终显示 7 天。 */
+    var smartHideWeekend: Boolean
+        get() = plain.getBoolean("smart_hide_weekend", true)
+        set(v) = plain.edit().putBoolean("smart_hide_weekend", v).apply()
+
     /** 课表格子高度 dp（48 紧凑 / 56 标准 / 64 宽松）。 */
     var courseRowHeight: Int
         get() = plain.getInt("course_row_h", 56).coerceIn(44, 72)

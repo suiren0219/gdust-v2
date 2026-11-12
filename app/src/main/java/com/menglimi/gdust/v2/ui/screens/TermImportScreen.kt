@@ -57,6 +57,8 @@ fun TermImportScreen(
     var browser by remember { mutableStateOf(false) }
     var importTarget by remember { mutableStateOf<CalendarInfo?>(null) }
     var requestedSession by remember { mutableStateOf<TeachingSession?>(null) }
+    var loadProgress by remember { mutableIntStateOf(0) }
+    var progressAt by remember { mutableLongStateOf(0L) }
     // 网页内扫码需要摄像头：等网页真的申请权限时再问用户，不提前骚扰
     val hostContext = androidx.compose.ui.platform.LocalContext.current
     var pendingPermission by remember { mutableStateOf<android.webkit.PermissionRequest?>(null) }
@@ -177,7 +179,15 @@ fun TermImportScreen(
                             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                                 // 允许所有 http/https 在 WebView 内继续（学校门户二级页、钉钉授权页、SSO 跳转都要能走）
                                 val scheme = request.url.scheme.orEmpty().lowercase()
-                                return scheme != "http" && scheme != "https"
+                                if (scheme == "http" || scheme == "https") return false
+                                // 非 http（dingtalk:// alipays:// 等）交系统打开，别让 WebView 卡在加载中
+                                runCatching {
+                                    view.context.startActivity(
+                                        android.content.Intent(android.content.Intent.ACTION_VIEW, request.url)
+                                    )
+                                }
+                                message = "已用系统打开 $scheme 链接；页面内容若已出来可直接点下方读取。"
+                                return true
                             }
                             override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                                 page = url
@@ -226,8 +236,10 @@ fun TermImportScreen(
                         }
                         webChromeClient = object : android.webkit.WebChromeClient() {
                             override fun onProgressChanged(view: WebView, newProgress: Int) {
-                                if (newProgress in 1..99 && message.startsWith("正在加载")) {
-                                    message = "正在加载学校页面… $newProgress%"
+                                loadProgress = newProgress
+                                progressAt = System.currentTimeMillis()
+                                if (newProgress in 1..99) {
+                                    message = "正在加载学校页面… $newProgress%（页面内容出来即可点下方读取）"
                                 }
                             }
                             override fun onPermissionRequest(request: android.webkit.PermissionRequest) {
@@ -252,6 +264,15 @@ fun TermImportScreen(
                     }
                 },
             )
+            // 卡住检测：进度停在 60~99 超过 8 秒，说明多半是统计/广告脚本挂住，页面其实已可用
+            LaunchedEffect(loadProgress) {
+                if (loadProgress !in 60..99) return@LaunchedEffect
+                val stamp = progressAt
+                kotlinx.coroutines.delay(8_000)
+                if (progressAt == stamp && message.startsWith("正在加载学校页面")) {
+                    message = "页面卡在 $loadProgress%：通常是学校页面的统计/广告脚本慢。若内容已经显示，直接点下方「读取学期课表」即可（读取不依赖加载完成）。"
+                }
+            }
             // 加载超过 20 秒仍未完成就给明确提示，不让用户盯着空白页猜
             LaunchedEffect(page) {
                 if (page.isBlank() || message != "正在加载学校页面…") return@LaunchedEffect

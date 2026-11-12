@@ -206,6 +206,7 @@ fun ScheduleScreen(
             cornerRadius = cornerDp.dp,
             alignCenter = alignCenter,
             textMono = textMono,
+            smartHideWeekend = repo.store.smartHideWeekend,
             onLessonClick = { selected = it },
             modifier = Modifier
                 .offset {
@@ -264,6 +265,7 @@ private fun WeekGrid(
     cornerRadius: androidx.compose.ui.unit.Dp,
     alignCenter: Boolean,
     textMono: Boolean,
+    smartHideWeekend: Boolean,
     onLessonClick: (CourseBlock) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -271,9 +273,10 @@ private fun WeekGrid(
     val today = LocalDate.now()
     val now = LocalTime.now()
 
-    // 智能周末：无课则隐藏周六日
-    val days = remember(blocks) {
-        (1..7).filter { it <= 5 || blocks.any { b -> b.day == it } }
+    // 智能周末：开=无课则隐藏周六日；关=始终 7 天
+    val days = remember(blocks, smartHideWeekend) {
+        if (!smartHideWeekend) (1..7).toList()
+        else (1..7).filter { it <= 5 || blocks.any { b -> b.day == it } }
     }
 
     val monday = remember(calendar) {

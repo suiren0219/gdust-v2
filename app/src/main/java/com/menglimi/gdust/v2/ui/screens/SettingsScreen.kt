@@ -272,50 +272,17 @@ fun SettingsScreen(
                     )
                 }
             }
-        }
-
-        // ── 账号与数据 ──
-        SectionHeader("账号与数据")
-        SettingGroup {
-            SettingOption(
-                title = store.realName.ifEmpty { "未登录" },
-                subtitle = if (store.jobNumber.isEmpty()) "查看本机数据快照" else "学号 ${store.jobNumber}",
-                onClick = onProfile,
-            )
             SettingDivider()
             SettingOption(
-                title = "账号密码直连同步",
-                subtitle = "推荐：用当前登录账号直接读取教务整学期课表，不打开网页",
-                detail = when {
-                    syncing -> "同步中…"
-                    syncError != null -> "失败"
-                    synced -> "已同步 ✓"
-                    else -> null
-                },
-                onClick = { onSync(); synced = true },
-            )
-            if (syncError != null) {
-                SettingEditor { Text("失败：$syncError", fontSize = 11.sp, color = ds.danger) }
-            }
-            SettingDivider()
-            SettingOption(
-                title = "网页登录导入（兼容备用）",
-                subtitle = "拾光式：网页中登录教务后读取原始周次；网页登录会话单独保留",
-                detail = if (store.loadWebImportPage().isNotBlank()) "已保存会话" else null,
-                onClick = onWebImport,
-            )
-
-            SettingDivider()
-            SettingOption(title = "本地缓存课程", detail = "${store.loadBlocks().size} 张卡")
-            SettingDivider()
-            SettingOption(
-                title = "校历",
-                detail = store.loadCalendar()?.let { "第 ${it.week}/${it.allWeek} 周" } ?: "未同步",
+                title = "智能显示周末",
+                subtitle = "开启后隐藏无课的周六日；关闭则始终显示 7 天",
+                switch = store.smartHideWeekend,
+                onSwitch = { store.smartHideWeekend = it },
             )
         }
 
-        // ── 通知 AI 总结 ──
-        SectionHeader("通知 AI 总结")
+        // ── 特色功能 ──
+        SectionHeader("特色功能")
         SettingGroup {
             SettingOption(
                 title = "中转站配置",
@@ -375,8 +342,6 @@ fun SettingsScreen(
             }
         }
 
-        // ── 水电预警 ──
-        SectionHeader("水电预警")
         SettingGroup {
             SettingOption(
                 title = "低电量阈值",
@@ -419,8 +384,46 @@ fun SettingsScreen(
             }
         }
 
-        // ── 备份与恢复 ──
-        SectionHeader("备份与恢复")
+        // ── 数据管理 ──
+        SectionHeader("数据管理")
+        SettingGroup {
+            SettingOption(
+                title = store.realName.ifEmpty { "未登录" },
+                subtitle = if (store.jobNumber.isEmpty()) "查看本机数据快照" else "学号 ${store.jobNumber}",
+                onClick = onProfile,
+            )
+            SettingDivider()
+            SettingOption(
+                title = "账号密码直连同步",
+                subtitle = "推荐：用当前登录账号直接读取教务整学期课表，不打开网页",
+                detail = when {
+                    syncing -> "同步中…"
+                    syncError != null -> "失败"
+                    synced -> "已同步 ✓"
+                    else -> null
+                },
+                onClick = { onSync(); synced = true },
+            )
+            if (syncError != null) {
+                SettingEditor { Text("失败：$syncError", fontSize = 11.sp, color = ds.danger) }
+            }
+            SettingDivider()
+            SettingOption(
+                title = "网页登录导入（兼容备用）",
+                subtitle = "拾光式：网页中登录教务后读取原始周次；网页登录会话单独保留",
+                detail = if (store.loadWebImportPage().isNotBlank()) "已保存会话" else null,
+                onClick = onWebImport,
+            )
+
+            SettingDivider()
+            SettingOption(title = "本地缓存课程", detail = "${store.loadBlocks().size} 张卡")
+            SettingDivider()
+            SettingOption(
+                title = "校历",
+                detail = store.loadCalendar()?.let { "第 ${it.week}/${it.allWeek} 周" } ?: "未同步",
+            )
+        }
+
         SettingGroup {
             SettingOption(
                 title = "导出备份",
