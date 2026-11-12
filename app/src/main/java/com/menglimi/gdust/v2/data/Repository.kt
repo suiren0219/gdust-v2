@@ -654,26 +654,39 @@ class Repository(context: Context) {
         var added = 0
         var updated = 0
         var pending = 0
+        var scanned = 0
+        var failed = 0
+        var firstFail: String? = null
         val updates = mutableMapOf<Long, Store.Todo>()
         for (course in courses) {
-            val tabsHtml = chxApi.courseTabsHtml(cookie, course.courseId, course.classId, course.cpi)
-                ?: continue
-            val tabs = ChxWorkParser.parseCourseTabs(tabsHtml) ?: continue
-            val workHtml = chxApi.workListHtml(
-                cookie, tabs.moocDomain, course.courseId, course.classId, course.cpi,
-                tabs.enc, tabs.workEnc, tabs.t,
-            ) ?: continue
-            for (item in ChxWorkParser.parseWorkList(workHtml)) {
-                if (item.workId <= 0) continue
-                val isPending = item.status == "未交"
-                if (isPending) pending++
-                val due = if (isPending) {
-                    System.currentTimeMillis() + ChxWorkParser.remainingMillis(item.remainingText)
-                } else 0L
-                updates[item.workId] = Store.Todo(item.workId, item.title, done = !isPending, due = due)
+            // 单门课失败（结构不同/网络抖动）跳过并计数，不拖垮整轮同步
+            val r = runCatching {
+                val tabsHtml = chxApi.courseTabsHtml(cookie, course.courseId, course.classId, course.cpi)
+                    ?: error("课程页读取失败")
+                val tabs = ChxWorkParser.parseCourseTabs(tabsHtml)
+                    ?: error("课程页缺少作业签名（可能没有作业 tab）")
+                val workHtml = chxApi.workListHtml(
+                    cookie, tabs.moocDomain, course.courseId, course.classId, course.cpi,
+                    tabs.enc, tabs.workEnc, tabs.t,
+                ) ?: error("作业列表读取失败")
+                for (item in ChxWorkParser.parseWorkList(workHtml)) {
+                    if (item.workId <= 0) continue
+                    val isPending = item.status == "未交"
+                    if (isPending) pending++
+                    val due = if (isPending) {
+                        System.currentTimeMillis() + ChxWorkParser.remainingMillis(item.remainingText)
+                    } else 0L
+                    updates[item.workId] = Store.Todo(item.workId, item.title, done = !isPending, due = due)
+                }
+            }
+            if (r.isSuccess) scanned++ else {
+                failed++
+                firstFail = firstFail ?: "${course.name}：${r.exceptionOrNull()?.message}"
             }
         }
-        if (updates.isEmpty()) return "同步完成：学习通里没有作业"
+        if (updates.isEmpty()) {
+            return "同步完成：扫了 $scanned 门课${failSuffix(failed, firstFail)}，学习通里没有作业"
+        }
         store.updateTodos { current ->
             val byId = current.associateBy { it.id }.toMutableMap()
             for ((id, todo) in updates) {
@@ -694,8 +707,12 @@ class Repository(context: Context) {
             }
             byId.values.toList()
         }
-        return "同步完成：新增 $added 条、更新 $updated 条，未交 $pending 条"
+        return "同步完成：扫了 $scanned 门课${failSuffix(failed, firstFail)}，" +
+            "新增 $added 条、更新 $updated 条，未交 $pending 条"
     }
+
+    private fun failSuffix(failed: Int, firstFail: String?): String =
+        if (failed == 0) "" else "（$failed 门读取失败，首个：$firstFail）"
 
     /**
      * 学习通会话探活：true 有效 / false 失效 / null 网络原因未知（不清 Cookie）。
