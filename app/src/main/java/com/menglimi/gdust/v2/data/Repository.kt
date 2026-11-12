@@ -228,6 +228,19 @@ class Store(context: Context) {
     var nextDayHour: Int
         get() = plain.getInt("nextday_hour", 23).coerceIn(0, 23)
         set(v) = plain.edit().putInt("nextday_hour", v.coerceIn(0, 23)).apply()
+    /** 课中提醒（快下课时提示）。 */
+    var inClassReminder: Boolean
+        get() = plain.getBoolean("inclass_reminder", false)
+        set(v) = plain.edit().putBoolean("inclass_reminder", v).apply()
+    /** 课中提醒提前分钟（距下课）。 */
+    var inClassLead: Int
+        get() = plain.getInt("inclass_lead", 10).coerceIn(3, 30)
+        set(v) = plain.edit().putInt("inclass_lead", v.coerceIn(3, 30)).apply()
+    /** 超级岛（HyperOS 焦点通知）开关。 */
+    var islandEnabled: Boolean
+        get() = plain.getBoolean("island_enabled", true)
+        set(v) = plain.edit().putBoolean("island_enabled", v).apply()
+
     /** 去重键：同一节课/同一个晚上只提醒一次。 */
     var lastReminderKey: String
         get() = plain.getString("last_reminder_key", "") ?: ""

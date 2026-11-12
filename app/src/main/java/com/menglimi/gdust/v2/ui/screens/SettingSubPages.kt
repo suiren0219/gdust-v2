@@ -38,7 +38,7 @@ internal const val APP_GITHUB = "https://github.com/suiren0219"
 
 /** 设置二级页通用骨架：同款左缘右滑返回手势。 */
 @Composable
-private fun SettingSubPage(title: String, subtitle: String, onBack: () -> Unit, content: @Composable () -> Unit) {
+internal fun SettingSubPage(title: String, subtitle: String, onBack: () -> Unit, content: @Composable () -> Unit) {
     val ds = LocalDs.current
     val density = androidx.compose.ui.platform.LocalDensity.current
     val threshold = with(density) { 96.dp.toPx() }

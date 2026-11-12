@@ -51,6 +51,7 @@ import com.menglimi.gdust.v2.ui.screens.TodoScreen
 import com.menglimi.gdust.v2.ui.screens.ProfileScreen
 import com.menglimi.gdust.v2.ui.screens.AboutScreen
 import com.menglimi.gdust.v2.ui.screens.NoticeScreen
+import com.menglimi.gdust.v2.ui.screens.ReminderScreen
 import com.menglimi.gdust.v2.data.Notice
 import kotlinx.coroutines.launch
 
@@ -80,6 +81,7 @@ fun AppRoot(
     var wallpaperTick by remember { mutableStateOf(0) }
     var showProfile by remember { mutableStateOf(false) }
     var showNotices by remember { mutableStateOf(false) }
+    var showReminder by remember { mutableStateOf(false) }
     var notices by remember { mutableStateOf<List<Notice>>(emptyList()) }
     var noticesLoading by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
@@ -179,6 +181,7 @@ fun AppRoot(
             !checked.value -> "loading"
             showWebImport -> "web_import"
             showNotices -> "notices"
+            showReminder -> "reminder"
             showProfile -> "profile"
             showAbout -> "about"
             showSettings.value -> "settings"
@@ -204,6 +207,10 @@ fun AppRoot(
                         webImportReport = "网页导入成功：${list.size} 条真实排课，覆盖 ${list.map { it.week }.distinct().size} 周。"
                     },
                 )
+            }
+            "reminder" -> {
+                androidx.activity.compose.BackHandler { showReminder = false }
+                ReminderScreen(repo = repo, onBack = { showReminder = false })
             }
             "notices" -> {
                 androidx.activity.compose.BackHandler { showNotices = false }
@@ -239,6 +246,7 @@ fun AppRoot(
                 syncError = syncError,
                 onSync = { sync() },
                 onWebImport = { showWebImport = true },
+                onReminder = { showReminder = true },
                 onWallpaperChanged = { wallpaperTick++ },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },

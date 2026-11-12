@@ -321,7 +321,15 @@ fun TermImportScreen(
                                     body:${com.google.gson.Gson().toJson(body)}
                                 });
                                 if (!r.ok) throw new Error('教务请求失败 HTTP ' + r.status);
-                                const data = await r.json();
+                                const text = await r.text();
+                                const t = text.trim();
+                                if (t.startsWith('<')) {
+                                    throw new Error('该入口返回的是网页而不是课表：多半是还没进「教务系统」，或 WebVPN 通道只放行网页。请在页面里进入教务系统后再读取；校外建议连校园网用直连同步。');
+                                }
+                                let data;
+                                try { data = JSON.parse(text); } catch(e) {
+                                    throw new Error('教务返回的不是课表数据（该入口未放行接口），请换入口或连校园网后重试。');
+                                }
                                 if (!Array.isArray(data.kbList)) throw new Error('未取得学期课表，请确认已进入正方教务');
                                 return JSON.stringify({ok:true,data:data});
                             } catch(e) { return JSON.stringify({ok:false,error:e.name === 'AbortError' ? '教务响应超时，请稍后重试' : e.message}); }

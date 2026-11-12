@@ -66,13 +66,40 @@ class LessonReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWo
                         if (b.teacher.isNotBlank()) append(" · ${b.teacher}")
                     },
                     ticker = "${b.name} $startStr",
+                    island = store.islandEnabled,
                 )
                 store.lastReminderKey = key
                 return Result.success()
             }
         }
 
-        // ② 次日课程提醒（每天指定小时的第一轮巡检触发）
+        // ② 课中提醒：正在上课且距下课 ≤ inClassLead 分钟
+        if (store.inClassReminder) {
+            todayBlocks.forEach { b ->
+                val startStr = ScheduleTimes.start(b.startSection)
+                val endStr = ScheduleTimes.end(b.endSection)
+                if (startStr.isEmpty() || endStr.isEmpty()) return@forEach
+                val start = runCatching { LocalTime.parse(startStr) }.getOrNull() ?: return@forEach
+                val end = runCatching { LocalTime.parse(endStr) }.getOrNull() ?: return@forEach
+                if (now.isBefore(start) || now.isAfter(end)) return@forEach
+                val left = ChronoUnit.MINUTES.between(now, end)
+                val key = "inclass-${today}-${b.startSection}-${b.name}"
+                if (left in 0..store.inClassLead.toLong() && store.lastReminderKey != key) {
+                    notify(
+                        id = 23,
+                        title = "${left} 分钟后下课 · ${b.name}",
+                        text = "第 ${b.startSection} 节 $endStr 结束" +
+                            if (b.room.isNotBlank()) " · ${b.room}" else "",
+                        ticker = "${b.name} 还有 ${left} 分钟下课",
+                        island = store.islandEnabled,
+                    )
+                    store.lastReminderKey = key
+                    return Result.success()
+                }
+            }
+        }
+
+        // ③ 次日课程提醒（每天指定小时的第一轮巡检触发）
         if (store.nextDayReminder && now.hour == store.nextDayHour && now.minute < 15) {
             val key = "nextday-$today"
             if (store.lastReminderKey != key) {
@@ -90,6 +117,7 @@ class LessonReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWo
                         title = "明天 ${tomorrowBlocks.size} 节课",
                         text = summary,
                         ticker = "明天 ${tomorrowBlocks.first().name} 等 ${tomorrowBlocks.size} 节课",
+                        island = store.islandEnabled,
                     )
                     store.lastReminderKey = key
                 }
@@ -98,37 +126,8 @@ class LessonReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWo
         return Result.success()
     }
 
-    private fun notify(id: Int, title: String, text: String, ticker: String) {
-        val ctx = applicationContext
-        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "课程提醒", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "课前提醒与次日课程汇总"
-            },
-        )
-        val pi = PendingIntent.getActivity(
-            ctx, id, IntentFactory.main(ctx),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val builder = NotificationCompat.Builder(ctx, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setContentIntent(pi)
-            .setAutoCancel(true)
-        // HyperOS 焦点通知（超级岛）：系统支持时上岛，不支持则忽略这些 extras
-        builder.addExtras(Bundle().apply {
-            putString(
-                "miui.focus.param",
-                """{"param_v2":{"ticker":"${ticker.replace("\"", "")}","isShowNotification":true},"protocol":1}""",
-            )
-            putInt("miui.focus.priority", 1)
-        })
-        nm.notify(id, builder.build())
-    }
+    private fun notify(id: Int, title: String, text: String, ticker: String, island: Boolean = true) =
+        post(applicationContext, id, title, text, ticker, island)
 
     private object IntentFactory {
         fun main(ctx: Context) = android.content.Intent(ctx, MainActivity::class.java)
@@ -136,6 +135,56 @@ class LessonReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWo
 
     companion object {
         const val CHANNEL = "gdust_lesson_reminder"
+
+        /** 发一条提醒（课前/课中/次日/测试共用）。 */
+        internal fun post(
+            ctx: Context,
+            id: Int,
+            title: String,
+            text: String,
+            ticker: String,
+            island: Boolean = true,
+        ) {
+            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL, "课程提醒", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "课前提醒与次日课程汇总"
+                },
+            )
+            val pi = PendingIntent.getActivity(
+                ctx, id, IntentFactory.main(ctx),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val builder = NotificationCompat.Builder(ctx, CHANNEL)
+                .setSmallIcon(android.R.drawable.ic_popup_reminder)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+            // HyperOS 焦点通知（超级岛）：系统支持时上岛，不支持则忽略这些 extras
+            if (island) {
+                builder.addExtras(Bundle().apply {
+                    putString(
+                        "miui.focus.param",
+                        """{"param_v2":{"ticker":"${ticker.replace("\"", "")}","isShowNotification":true},"protocol":1}""",
+                    )
+                    putInt("miui.focus.priority", 1)
+                })
+            }
+            nm.notify(id, builder.build())
+        }
+
+        /** 设置页「测试提醒」按钮。 */
+        fun sendTest(ctx: Context, island: Boolean) = post(
+            ctx, 29,
+            "测试提醒 · 高等数学",
+            "还有 20 分钟上课 · 松 5-308 · 张老师",
+            "高等数学 20 分钟后上课",
+            island,
+        )
 
         fun schedule(ctx: Context) {
             WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
