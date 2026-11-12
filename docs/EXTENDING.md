@@ -151,6 +151,15 @@ adb shell am start -n com.menglimi.gdust.v2.debug/com.menglimi.gdust.v2.debug.We
 
 已有 `D:\ai\mooc2-ans.chaoxing.com.har` 的覆盖范围（已解析核对）：只有课程列表 `visit/courselistdata`（HTML，含 classId/courseId）和 `mycourse/stu-job-info`（JSON，仅每班 jobCount/jobFinishCount/jobRate），**没有任何作业或考试明细**。所以作业页只能走「服务端渲染 HTML + 解析」这条已知路线。
 
+**2026-11-13 新收 `mooc2-ans.chaoxing.com.har`（OneDrive\Documents，单门课「复变函数与积分变换」的 mycourse/stu 页）已解析**：
+- ✅ 拿到真实可用端点：`GET https://mobilelearn.chaoxing.com/v2/apis/active/student/activelist?fid&courseId&classId&showNotStartedActive&_`
+  → JSON `data.activeList[]`：`id`、`nameOne`(标题)、`activeType/type`（2=签到、42=随堂提问、57=课堂PPT）、
+  `startTime/endTime`(ms)、`status`、`userStatus`、`attendNum`、`nameFour`(展示时间)
+- ✅ `v2/apis/class/getClassDetail?fid&courseId&classId` → 课程名/班级/人数（阶段3课程关联可用）
+- ❌ 仍缺作业/考试：课程页 HTML 里作业 tab=`mooc1.chaoxing.com/mooc2/work/list`、考试 tab=`exam-ans/mooc2/exam/exam-list`
+  都是**无参地址**，参数（含 `enc` 签名）由页面 JS 点开时拼装——必须实际点开 tab 才能抓到完整请求
+- 误抓提醒：这次抓的是课程「章节/活动」页，不是「作业」「考试」tab
+
 **要的包（两份，也可合成一份）**：
 
 | 文件 | 内容 |
@@ -161,10 +170,11 @@ adb shell am start -n com.menglimi.gdust.v2.debug/com.menglimi.gdust.v2.debug.We
 抓法（Chrome，推荐）：
 1. 无痕窗口登录 `i.chaoxing.com`（照常走学校 CAS）
 2. F12 → Network → 勾 **Preserve log**；过滤器保持 **All**（别只看 XHR：作业列表是服务端渲染 HTML，请求可能被当 document 过滤掉）
-3. 「我学的课」→ 打开**至少 3 门有作业的课** → 作业 tab → 等列表完全加载 → 有「加载更多」就点一次
+3. 「我学的课」→ 打开**至少 3 门有作业的课** → **点「作业」tab**（就是课程页里的作业入口，URL 会带 enc）→ 等列表完全加载 → 有「加载更多」就点一次
 4. 点开**一条作业详情**（截止时间多半来自这里），再返回
 5. 换下一门课重复（课程 id 不同，便于确认参数含义）
-6. 右键请求列表 → *Save all as HAR with content*（**必须带响应体**），按上表命名、放 `D:\ai\`
+6. **点「考试」tab** 同样抓一遍
+7. 右键请求列表 → *Save all as HAR with content*（**必须带响应体**），按上表命名、放 `D:\ai\`
 
 每份包我要能看到：
 - 列表请求的完整 URL/方法/参数（classId、courseId、页码/每页条数、`enc` 等）
