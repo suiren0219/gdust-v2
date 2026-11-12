@@ -36,6 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,7 +56,9 @@ import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.ui.LocalWallpaperActive
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
+import kotlinx.coroutines.delay
 
 private val ROW_H = 56.dp
 private val BREAK_H = 24.dp
@@ -292,8 +295,17 @@ private fun WeekGrid(
     modifier: Modifier = Modifier,
 ) {
     val ds = LocalDs.current
-    val today = LocalDate.now()
-    val now = LocalTime.now()
+    // 时间线/上课中标记要自己走：对齐到下一整分钟刷新一次，页面停留期间红线才会移动
+    var today by remember { mutableStateOf(LocalDate.now()) }
+    var now by remember { mutableStateOf(LocalTime.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val t = LocalDateTime.now()
+            today = t.toLocalDate()
+            now = t.toLocalTime()
+            delay(60_000L - t.second * 1_000L - t.nano / 1_000_000L + 200L)
+        }
+    }
 
     // 智能周末：开=无课则隐藏周六日；关=始终 7 天
     val days = remember(blocks, smartHideWeekend) {
@@ -312,6 +324,22 @@ private fun WeekGrid(
             (if (section >= 9) BREAK_H else 0.dp)
 
     val gridH = sectionY(ScheduleTimes.TOTAL_SECTIONS) + ROW_H
+
+    // 当前时间线位置（只在显示本周时画）
+    val nowLineY: androidx.compose.ui.unit.Dp? = remember(week, calendar, days, now) {
+        if (calendar?.week != week) return@remember null
+        if (!days.contains(today.dayOfWeek.value)) return@remember null
+        ScheduleTimes.slots.forEachIndexed { index, slot ->
+            val s = runCatching { LocalTime.parse(slot.first) }.getOrNull() ?: return@forEachIndexed
+            val e = runCatching { LocalTime.parse(slot.second) }.getOrNull() ?: return@forEachIndexed
+            if (!now.isBefore(s) && !now.isAfter(e)) {
+                val frac = (now.toSecondOfDay() - s.toSecondOfDay()).toFloat() /
+                    (e.toSecondOfDay() - s.toSecondOfDay()).coerceAtLeast(1)
+                return@remember sectionY(index + 1) + ROW_H * frac
+            }
+        }
+        null
+    }
 
     Column(modifier.fillMaxSize()) {
         // 表头
@@ -390,8 +418,24 @@ private fun WeekGrid(
                                 .padding(horizontal = 1.dp),
                         ) {
                             blocks.filter { it.day == day }.forEach { b ->
+                                val date = monday?.plusDays((week - 1) * 7L + (day - 1))
+                                val startT = ScheduleTimes.start(b.startSection)
+                                    .takeIf { it.isNotEmpty() }?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
+                                val endT = ScheduleTimes.end(b.endSection)
+                                    .takeIf { it.isNotEmpty() }?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
+                                val isToday = date == today
+                                val ongoing = isToday && startT != null && endT != null &&
+                                    !now.isBefore(startT) && !now.isAfter(endT)
+                                val past = when {
+                                    date == null -> false
+                                    date.isBefore(today) -> true
+                                    isToday && endT != null -> now.isAfter(endT)
+                                    else -> false
+                                }
                                 LessonCard(
                                     block = b,
+                                    isPast = past,
+                                    isOngoing = ongoing,
                                     textScale = textScale,
                                     showTeacher = showTeacher,
                                     showClassroom = showClassroom,
@@ -408,6 +452,23 @@ private fun WeekGrid(
                             }
                         }
                     }
+                }
+
+                // 当前时间横线（红线 + 左端圆点）
+                nowLineY?.let { y ->
+                    Box(
+                        Modifier
+                            .offset(y = y)
+                            .fillMaxWidth()
+                            .height(1.5.dp)
+                            .background(ds.danger.copy(alpha = 0.75f)),
+                    )
+                    Box(
+                        Modifier
+                            .offset(x = SCALE_W - 5.dp, y = y - 2.5.dp)
+                            .size(6.dp)
+                            .background(ds.danger, CircleShape),
+                    )
                 }
 
                 // 午休 / 晚休
@@ -434,6 +495,8 @@ private fun BreakBand(text: String, modifier: Modifier) {
 @Composable
 private fun LessonCard(
     block: CourseBlock,
+    isPast: Boolean,
+    isOngoing: Boolean,
     textScale: Float,
     showTeacher: Boolean,
     showClassroom: Boolean,
@@ -444,32 +507,46 @@ private fun LessonCard(
     modifier: Modifier,
 ) {
     val ds = LocalDs.current
-    // Nexio 视觉：tint 低透明度底 + tint 原色文字（CourseCard.kt 规则）
     val tint = CourseColors.tint(block.name)
-    val bg = CourseColors.bg(block.name, ds.isDark)
-    // 单色模式：文字跟随主题，不吃课程色
-    val fg = if (textMono) ds.text else tint
-
-    // 上课中：右下角状态点
-    val now = LocalTime.now()
-    val start = ScheduleTimes.start(block.startSection)
-    val end = ScheduleTimes.end(block.endSection)
-    val ongoing = start.isNotEmpty() && end.isNotEmpty() &&
-        !now.isBefore(LocalTime.parse(start)) && !now.isAfter(LocalTime.parse(end))
-
+    // 三态：已上过=灰、正在上=高亮描边、未开始=常色
+    val fg = when {
+        isPast -> ds.sub.copy(alpha = if (ds.isDark) 0.55f else 0.65f)
+        textMono -> ds.text
+        else -> tint
+    }
     val onWallpaper = com.menglimi.gdust.v2.ui.LocalWallpaperActive.current
-    val cardBg = if (onWallpaper) {
-        if (ds.isDark) Color.Black.copy(alpha = 0.34f) else Color.White.copy(alpha = 0.66f)
-    } else bg
+    val liquid = com.menglimi.gdust.v2.ui.LocalUiStyle.current.value == com.menglimi.gdust.v2.ui.UiStyle.LIQUID
+    val cardBg = when {
+        isPast -> if (onWallpaper) {
+            if (ds.isDark) Color.Black.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.30f)
+        } else {
+            if (ds.isDark) Color.White.copy(alpha = 0.03f) else Color.Black.copy(alpha = 0.035f)
+        }
+        isOngoing -> if (onWallpaper) {
+            if (liquid) tint.copy(alpha = 0.30f) else tint.copy(alpha = 0.34f)
+        } else {
+            tint.copy(alpha = if (ds.isDark) 0.26f else 0.30f)
+        }
+        onWallpaper -> if (liquid) {
+            if (ds.isDark) Color.Black.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.30f)
+        } else {
+            if (ds.isDark) Color(0xFF1C1C21).copy(alpha = 0.60f) else Color.White.copy(alpha = 0.66f)
+        }
+        else -> CourseColors.bg(block.name, ds.isDark)
+    }
     Box(
         modifier
             .background(cardBg, RoundedCornerShape(cornerRadius))
             .then(
-                if (onWallpaper) Modifier.border(
-                    1.dp,
-                    Color.White.copy(alpha = if (ds.isDark) 0.10f else 0.7f),
-                    RoundedCornerShape(cornerRadius),
-                ) else Modifier
+                when {
+                    // 正在上课：课程色描边（替代原来的黄点）
+                    isOngoing -> Modifier.border(1.5.dp, tint.copy(alpha = 0.9f), RoundedCornerShape(cornerRadius))
+                    isPast -> Modifier
+                    onWallpaper && liquid -> Modifier.border(1.dp, tint.copy(alpha = 0.35f), RoundedCornerShape(cornerRadius))
+                    onWallpaper -> Modifier.border(
+                        1.dp, Color.White.copy(alpha = if (ds.isDark) 0.10f else 0.7f), RoundedCornerShape(cornerRadius))
+                    else -> Modifier
+                }
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 5.dp, vertical = 5.dp),
@@ -509,15 +586,6 @@ private fun LessonCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-        }
-        if (ongoing) {
-            Box(
-                Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(4.dp)
-                    .size(6.dp)
-                    .background(Color(0xFFE8A23C), CircleShape),
-            )
         }
     }
 }
