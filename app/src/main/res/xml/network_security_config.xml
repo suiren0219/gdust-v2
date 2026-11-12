@@ -5,7 +5,12 @@
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">172.16.254.1</domain>
         <domain includeSubdomains="false">gkjx.gdust.edu.cn</domain>
-        <!-- 超星泛雅加速域只有 HTTP（443 无响应，实测），CAS 单点会跳到这里 -->
-        <domain includeSubdomains="false">gdkjxy.fysso.chaoxing.com</domain>
+        <!-- 超星泛雅加速域只有 HTTP（443 无响应，实测）：CAS 单点会依次跳到 fysso / fanya / passport2 -->
+        <domain includeSubdomains="true">fysso.chaoxing.com</domain>
+        <domain includeSubdomains="true">fanya.chaoxing.com</domain>
+        <domain includeSubdomains="true">passport2.chaoxing.com</domain>
+        <domain includeSubdomains="true">passport.chaoxing.com</domain>
+        <domain includeSubdomains="true">mooc1-api.chaoxing.com</domain>
+        <domain includeSubdomains="true">mooc1.chaoxing.com</domain>
     </domain-config>
 </network-security-config>
