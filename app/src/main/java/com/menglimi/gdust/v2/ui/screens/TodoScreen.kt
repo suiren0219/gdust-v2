@@ -1,6 +1,7 @@
 package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -115,28 +116,50 @@ fun TodoScreen(repo: Repository) {
             GlassCard { Text("还没有待办。期末周将至，先记一笔吧～", fontSize = 14.sp, color = ds.sub) }
         } else {
             Spacer(Modifier.height(14.dp))
+            // 按课程分组：有最早截止的组在前，无截止组次之，「其他」（手动待办）垫底
+            val groups = pending
+                .groupBy { it.tag.ifEmpty { "其他" } }
+                .entries
+                .sortedWith(
+                    compareBy(
+                        { it.key == "其他" },
+                        { it.value.filter { t -> t.due > 0 }.minOfOrNull { t -> t.due } ?: Long.MAX_VALUE },
+                        { it.key },
+                    ),
+                )
             Text(
                 "未完成 ${pending.size}",
                 fontSize = 12.sp, color = ds.sub,
                 modifier = Modifier.padding(start = 6.dp, bottom = 6.dp),
             )
-            GlassCard {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    if (pending.isEmpty()) {
-                        Text("都完成啦，歇口气～", fontSize = 14.sp, color = ds.sub, modifier = Modifier.padding(vertical = 10.dp))
-                    }
-                    pending.forEach { item ->
-                        TodoRow(
-                            item = item,
-                            onToggle = {
-                                items = repo.store.updateTodos { current ->
-                                    current.map { if (it.id == item.id) it.copy(done = !it.done) else it }
-                                }
-                            },
-                            onDelete = {
-                                items = repo.store.updateTodos { current -> current.filter { it.id != item.id } }
-                            },
-                        )
+            if (pending.isEmpty()) {
+                GlassCard { Text("都完成啦，歇口气～", fontSize = 14.sp, color = ds.sub) }
+            }
+            groups.forEach { group ->
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    group.key,
+                    fontSize = 13.sp, fontWeight = FontWeight.Bold, color = ds.accent,
+                    modifier = Modifier.padding(start = 6.dp, bottom = 4.dp),
+                )
+                GlassCard {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        // 组内：有截止按时间升序，无截止垫底
+                        group.value
+                            .sortedWith(compareBy({ it.due <= 0L }, { it.due }))
+                            .forEach { item ->
+                                TodoRow(
+                                    item = item,
+                                    onToggle = {
+                                        items = repo.store.updateTodos { current ->
+                                            current.map { if (it.id == item.id) it.copy(done = !it.done) else it }
+                                        }
+                                    },
+                                    onDelete = {
+                                        items = repo.store.updateTodos { current -> current.filter { it.id != item.id } }
+                                    },
+                                )
+                            }
                     }
                 }
             }
@@ -153,6 +176,7 @@ fun TodoScreen(repo: Repository) {
                         doneItems.forEach { item ->
                             TodoRow(
                                 item = item,
+                                showTag = true,
                                 onToggle = {
                                     items = repo.store.updateTodos { current ->
                                         current.map { if (it.id == item.id) it.copy(done = !it.done) else it }
@@ -181,10 +205,11 @@ fun TodoScreen(repo: Repository) {
     }
 }
 
-/** 单条待办：勾选圈 + 标题；来源课程 tag 与截止时间（学习通作业）渲染在第二行。 */
+/** 单条待办：勾选圈 + 标题；按课程分组时组名即课程名（showTag=false），已完成平铺时显示课程胶囊。 */
 @Composable
 private fun TodoRow(
     item: Store.Todo,
+    showTag: Boolean = false,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -201,7 +226,12 @@ private fun TodoRow(
         Box(
             Modifier
                 .size(22.dp)
-                .background(if (item.done) ds.accent else ds.bg, CircleShape),
+                .background(if (item.done) ds.accent else ds.bg, CircleShape)
+                // 浅色主题下未勾选的圆圈是白底白圈：加描边才看得见
+                .then(
+                    if (item.done) Modifier
+                    else Modifier.border(1.dp, ds.sub.copy(alpha = 0.45f), CircleShape)
+                ),
             contentAlignment = Alignment.Center,
         ) {
             if (item.done) Text("✓", fontSize = 12.sp, color = androidx.compose.ui.graphics.Color.White)
@@ -212,10 +242,10 @@ private fun TodoRow(
                 fontSize = 15.sp,
                 color = if (item.done) ds.sub else ds.text,
             )
-            if (item.tag.isNotEmpty() || due != null) {
+            if ((showTag && item.tag.isNotEmpty()) || due != null) {
                 Spacer(Modifier.height(3.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (item.tag.isNotEmpty()) {
+                    if (showTag && item.tag.isNotEmpty()) {
                         Text(
                             item.tag,
                             fontSize = 10.sp,
