@@ -17,5 +17,9 @@ class App : Application() {
         if (repo.store.autoSyncEnabled && (repo.store.hasSession || repo.store.casTicket.isNotBlank())) {
             com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(this)
         }
+        // 课程提醒（课前 + 次日）；开关在设置里控制
+        if (repo.store.reminderEnabled) {
+            com.menglimi.gdust.v2.work.LessonReminderWorker.schedule(this)
+        }
     }
 }

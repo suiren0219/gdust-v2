@@ -153,7 +153,12 @@ fun PowerScreen(repo: Repository) {
                     if (samples.size < 2) {
                         Text("采样点还不够，等下一个间隔自动记点（或点下方刷新）；采样最长保留 30 天", fontSize = 12.sp, color = ds.sub)
                     } else {
-                        val perDay = (24 * 60 / store.sampleIntervalMinutes).coerceAtLeast(1)
+                        // 按时间窗口过滤（不是按点数）：采样不足时也能看出实际覆盖范围
+                        val cutoff = System.currentTimeMillis() - chartDays * 24L * 3600 * 1000
+                        val ranged = samples.filter { it.time >= cutoff }
+                        val coveredHours = if (ranged.size >= 2) {
+                            ((ranged.last().time - ranged.first().time) / 3600000.0).coerceAtLeast(0.0)
+                        } else 0.0
                         com.menglimi.gdust.v2.ui.screens.SegmentedChoice(
                             options = listOf(1 to "近 1 天", 3 to "近 3 天", 7 to "近 7 天", 30 to "近 30 天"),
                             selected = chartDays,
@@ -161,8 +166,18 @@ fun PowerScreen(repo: Repository) {
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Spacer(Modifier.height(6.dp))
-                        UsageChart(samples.takeLast((chartDays * perDay).coerceAtLeast(2)), store.warnThreshold)
-                        Text("共 ${samples.size} 个采样点 · 每 ${store.sampleIntervalMinutes} 分钟一次 · 虚线为预警线（${store.warnThreshold.toInt()} 度）", fontSize = 11.sp, color = ds.sub)
+                        UsageChart(ranged.takeLast(240), store.warnThreshold)
+                        Text(
+                            "已选近 $chartDays 天 · 实际覆盖 %.1f 小时 · ${ranged.size} 个采样点（每 ${store.sampleIntervalMinutes} 分钟）· 虚线=预警线（${store.warnThreshold.toInt()} 度）"
+                                .format(coveredHours),
+                            fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub,
+                        )
+                        if (chartDays > 1 && coveredHours < chartDays * 24 * 0.6) {
+                            Text(
+                                "多天视图需要 App 在后台持续采样积累；当前只有 %.1f 小时数据，所以曲线看起来变化不大。".format(coveredHours),
+                                fontSize = 10.sp, color = ds.accent,
+                            )
+                        }
                     }
                 }
             }
@@ -220,7 +235,7 @@ fun PowerScreen(repo: Repository) {
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Bottom,
                                     modifier = Modifier
-                                        .width(36.dp)
+                                        .width(42.dp)
                                         .fillMaxHeight()
                                         .then(
                                             // 今天整列加淡色带，一眼定位
@@ -261,14 +276,20 @@ fun PowerScreen(repo: Repository) {
                                     )
                                     Text(
                                         if (isToday) "今天" else dayName,
-                                        fontSize = 10.sp,
+                                        fontSize = 9.sp,
                                         fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
                                         color = if (isToday) ds.accent else ds.sub,
                                         maxLines = 1,
+                                        softWrap = false,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Visible,
                                         modifier = Modifier.padding(top = 4.dp),
                                     )
                                     if (dayDate.isNotBlank()) {
-                                        Text(dayDate, fontSize = 8.sp, color = ds.sub, maxLines = 1)
+                                        Text(
+                                            dayDate, fontSize = 8.sp, color = ds.sub,
+                                            maxLines = 1, softWrap = false,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Visible,
+                                        )
                                     }
                                 }
                             }

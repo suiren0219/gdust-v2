@@ -211,6 +211,28 @@ class Store(context: Context) {
         get() = plain.getBoolean("card_classroom", true)
         set(v) = plain.edit().putBoolean("card_classroom", v).apply()
 
+    // ── 课程提醒 ──
+    /** 课前提醒总开关。 */
+    var reminderEnabled: Boolean
+        get() = plain.getBoolean("reminder_enabled", false)
+        set(v) = plain.edit().putBoolean("reminder_enabled", v).apply()
+    /** 提前分钟数（5/10/20/30）。 */
+    var reminderLead: Int
+        get() = plain.getInt("reminder_lead", 20).coerceIn(5, 60)
+        set(v) = plain.edit().putInt("reminder_lead", v.coerceIn(5, 60)).apply()
+    /** 次日课程提醒开关（每晚汇总明天课表）。 */
+    var nextDayReminder: Boolean
+        get() = plain.getBoolean("nextday_reminder", false)
+        set(v) = plain.edit().putBoolean("nextday_reminder", v).apply()
+    /** 次日提醒触发小时（默认 23 点）。 */
+    var nextDayHour: Int
+        get() = plain.getInt("nextday_hour", 23).coerceIn(0, 23)
+        set(v) = plain.edit().putInt("nextday_hour", v.coerceIn(0, 23)).apply()
+    /** 去重键：同一节课/同一个晚上只提醒一次。 */
+    var lastReminderKey: String
+        get() = plain.getString("last_reminder_key", "") ?: ""
+        set(v) = plain.edit().putString("last_reminder_key", v).apply()
+
     /** 通知已读水位线：晚于该时间的公告算未读。 */
     var lastNoticeReadAt: Long
         get() = plain.getLong("notice_read_at", 0L)

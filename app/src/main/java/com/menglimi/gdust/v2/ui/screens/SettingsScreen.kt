@@ -285,6 +285,55 @@ fun SettingsScreen(
         SectionHeader("特色功能")
         SettingGroup {
             SettingOption(
+                title = "课程提醒",
+                subtitle = "课前提醒 + 次日课程汇总；通知会尝试以 HyperOS 超级岛样式展示",
+                detail = if (store.reminderEnabled) "已开启" else "未开启",
+                onClick = { toggle("reminder") },
+            )
+            if (openSection.value == "reminder") {
+                SettingDivider()
+                SettingEditor {
+                    SettingOption(
+                        title = "课前提醒",
+                        subtitle = "到点前给你推一条通知",
+                        switch = store.reminderEnabled,
+                        onSwitch = { on ->
+                            store.reminderEnabled = on
+                            if (on) com.menglimi.gdust.v2.work.LessonReminderWorker.schedule(hostContext)
+                            else com.menglimi.gdust.v2.work.LessonReminderWorker.cancel(hostContext)
+                        },
+                    )
+                    if (store.reminderEnabled) {
+                        Text("提前时间", fontSize = 12.sp, color = ds.sub)
+                        SegmentedChoice(
+                            options = listOf(5 to "5 分", 10 to "10 分", 20 to "20 分", 30 to "30 分"),
+                            selected = listOf(5, 10, 20, 30).minBy { kotlin.math.abs(it - store.reminderLead) },
+                            onSelect = { store.reminderLead = it },
+                        )
+                        SettingOption(
+                            title = "次日课程提醒",
+                            subtitle = "每晚汇总明天的课",
+                            switch = store.nextDayReminder,
+                            onSwitch = { store.nextDayReminder = it },
+                        )
+                        if (store.nextDayReminder) {
+                            Text("提醒时间（每晚）", fontSize = 12.sp, color = ds.sub)
+                            SegmentedChoice(
+                                options = listOf(20 to "20:00", 21 to "21:00", 22 to "22:00", 23 to "23:00"),
+                                selected = listOf(20, 21, 22, 23).minBy { kotlin.math.abs(it - store.nextDayHour) },
+                                onSelect = { store.nextDayHour = it },
+                            )
+                        }
+                        Text(
+                            "后台每 15 分钟巡检本机课表；同一节课只提醒一次。" +
+                                "HyperOS 用户：通知会附带焦点通知字段（超级岛），是否上岛取决于系统版本与通知权限。",
+                            fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub,
+                        )
+                    }
+                }
+            }
+            SettingDivider()
+            SettingOption(
                 title = "中转站配置",
                 subtitle = "自填 OpenAI 兼容端点，密钥只存本机",
                 detail = if (store.hasLlm) "已配置" else "未配置",
