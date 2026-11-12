@@ -14,7 +14,7 @@
 - 纪律：只动 `ui/` 与外观资源，不碰 `data/` 业务逻辑
 
 ### 板块二：学习通 × 教务互通（研究线）—— 在 `../gdust-v2-academic` 执行
-- 分支 `feat/academic-chaoxing`，**验收设备：emulator-5554（debug 包）**
+- 分支 `feat/academic-chaoxing`，**验收设备：emulator-5554（debug 包将迁至 `com.menglimi.gdust.v2.research`，见协调规则）**
 - B1 登录互通已收口（真实账号验证通过，见研究线卡）；遗留：教务入口校园网/WebVPN 复测、学校服务恢复后核对学习通首页「我学的课」
 - B2 等用户抓包 `D:\ai\chaoxing-work.har` + `D:\ai\chaoxing-exam.har` → `ChxApi` Jsoup 解析（EXTENDING.md 3.2① 路线）
 - B3 待办模型扩 `due` 字段（兼容旧数据），作业/考试写入待办（去重、可更新）
@@ -22,9 +22,10 @@
 - 纪律：只动 `data/Chx*`、`TeachingSsoClient`、`service/` 与本线新页面，不改共享 UI 版式
 
 ### 协调规则
-- **设备物理分工**：UI 线=真机，研究线=模拟器；不再共用 emulator-5554，避免 debug 包抢前台
-- **合并顺序**：板块一先合 main，板块二随后对齐
-- 用户侧唯一依赖：两个 HAR 抓包（清单见 `docs/EXTENDING.md` §3.4）
+- **包名分工（2026-11-13 补，修模拟器互覆盖）**：模拟器上两个 debug 包错开 applicationId——**本线独占 `com.menglimi.gdust.v2.debug`**；研究线下一次提交起改用 `com.menglimi.gdust.v2.research`，落地前研究线不往模拟器装包。设备上现存 `.debug` v8 是研究线早期构建，本线安装若遇 downgrade 拒绝，直接 `adb uninstall com.menglimi.gdust.v2.debug` 再装（WorkManager 会自行重建）
+- **设备分工**：本线验收优先真机 192.168.1.104:36125；自动化验收前仍要确认 `topResumedActivity` 是自己的包
+- **合并顺序**：板块一先合 main，板块二随后对齐；合并动作同一时刻只由一个会话执行
+- 用户侧唯一依赖：作业详情页抓包 + 考试清单 HAR（清单见 `docs/EXTENDING.md` §3.4）
 
 ## 现在做到哪：Nexio 1.7 全量页面移植已完成（分支待合并）
 
@@ -38,6 +39,7 @@
 - 实测它会在你测试中途把它的 Activity 拉到前台（ATM 日志可见 uid 10149 反复 START ChxWebActivity），还会让 System UI 弹 ANR、adb 掉 offline
 - 规约：**自动化 UI 验收前先 `dumpsys activity activities | grep topResumedActivity` 确认前台是自己刚 start 的那个包**；每次 `input tap` 前后都查；发现串台就停，别把别的会话的画面当成自己的验收结果
 - 之前进度卡里写的「模拟器会自己弹钱迹/haooz」大概率也是同类共享冲突
+- **→ 已定解决方案（2026-11-13，见上方「协调规则」）**：研究线 debug 包迁 `.research` 后缀后两包共存互不覆盖；落地前研究线不再往模拟器装 `.debug` 包；本线遇 downgrade 拒绝就先 `adb uninstall com.menglimi.gdust.v2.debug` 再装
 
 ## 解包/研究资产
 
