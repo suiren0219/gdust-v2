@@ -514,6 +514,27 @@ class Repository(context: Context) {
         return cal to blocks
     }
 
+    /**
+     * 用网页登录留下的会话读取**指定**学期课表。
+     * 教务网页导入页：网页在独立 Activity（TeachingWebActivity）里登录，回到 Compose 后走这里读，
+     * 不再依赖页面内 JS fetch。
+     */
+    suspend fun importTermWithWebSession(cal: CalendarInfo): List<CourseBlock> {
+        val page = store.loadWebImportPage()
+        val cookie = page.takeIf { it.isNotBlank() }
+            ?.let { android.webkit.CookieManager.getInstance().getCookie(it).orEmpty() }
+            .orEmpty()
+        if (page.isBlank() || cookie.isBlank()) {
+            throw IllegalStateException("还没有教务网页会话：请先在网页里登录并进入「教务系统」")
+        }
+        val blocks = teachingSso.fetchWithCookieHeader(cal, page, cookie)
+        store.saveCalendar(cal)
+        store.saveBlocks(blocks, "zf_term")
+        store.lastSyncAt = System.currentTimeMillis()
+        android.webkit.CookieManager.getInstance().flush()
+        return blocks
+    }
+
     /** 是否已有任一教务会话（直连 Cookie 或网页登录会话）。 */
     fun hasTeachingSession(): Boolean {
         if (listOf("172.16.254.1", "gkjx.gdust.edu.cn", "webvpn.gdust.edu.cn")

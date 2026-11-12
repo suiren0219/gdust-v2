@@ -29,6 +29,12 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- 教务网页导入：同一原因，网页也放在独立 Activity 里 -->
+        <activity
+            android:name=".ui.screens.TeachingWebActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <service
             android:name=".service.ChxNotificationListener"
             android:label="学习通待办同步"
