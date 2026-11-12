@@ -5,6 +5,13 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 
 /**
  * 本机存储（v2）：凭据/会话/课表缓存/待办/设置全部只在本机。
@@ -658,30 +665,43 @@ class Repository(context: Context) {
         var failed = 0
         var firstFail: String? = null
         val updates = mutableMapOf<Long, Store.Todo>()
-        for (course in courses) {
-            // 单门课失败（结构不同/网络抖动）跳过并计数，不拖垮整轮同步
-            val r = runCatching {
-                val tabsHtml = chxApi.courseTabsHtml(cookie, course.courseId, course.classId, course.cpi)
-                    ?: error("课程页读取失败")
-                val tabs = ChxWorkParser.parseCourseTabs(tabsHtml)
-                    ?: error("课程页缺少作业签名（可能没有作业 tab）")
-                val workHtml = chxApi.workListHtml(
-                    cookie, tabs.moocDomain, course.courseId, course.classId, course.cpi,
-                    tabs.enc, tabs.workEnc, tabs.t,
-                ) ?: error("作业列表读取失败")
-                for (item in ChxWorkParser.parseWorkList(workHtml)) {
-                    if (item.workId <= 0) continue
-                    val isPending = item.status == "未交"
-                    if (isPending) pending++
-                    val due = if (isPending) {
-                        System.currentTimeMillis() + ChxWorkParser.remainingMillis(item.remainingText)
-                    } else 0L
-                    updates[item.workId] = Store.Todo(item.workId, item.title, done = !isPending, due = due)
+        // 课程多（实测一个账号 30+ 门，含历史学期）：并发拉取，失败按课程隔离
+        val semaphore = Semaphore(4)
+        val results = coroutineScope {
+            courses.map { course ->
+                async {
+                    semaphore.withPermit {
+                        course to runCatching {
+                            val tabsHtml = chxApi.courseTabsHtml(cookie, course.courseId, course.classId, course.cpi)
+                                ?: error("课程页读取失败")
+                            val tabs = ChxWorkParser.parseCourseTabs(tabsHtml)
+                                ?: error("课程页缺少作业签名（可能没有作业 tab）")
+                            val workHtml = chxApi.workListHtml(
+                                cookie, tabs.moocDomain, course.courseId, course.classId, course.cpi,
+                                tabs.enc, tabs.workEnc, tabs.t,
+                            ) ?: error("作业列表读取失败")
+                            ChxWorkParser.parseWorkList(workHtml)
+                        }
+                    }
                 }
-            }
-            if (r.isSuccess) scanned++ else {
+            }.awaitAll()
+        }
+        for ((course, r) in results) {
+            val items = r.getOrNull()
+            if (items == null) {
                 failed++
                 firstFail = firstFail ?: "${course.name}：${r.exceptionOrNull()?.message}"
+                continue
+            }
+            scanned++
+            for (item in items) {
+                if (item.workId <= 0) continue
+                val isPending = item.status == "未交"
+                if (isPending) pending++
+                val due = if (isPending) {
+                    System.currentTimeMillis() + ChxWorkParser.remainingMillis(item.remainingText)
+                } else 0L
+                updates[item.workId] = Store.Todo(item.workId, item.title, done = !isPending, due = due)
             }
         }
         if (updates.isEmpty()) {

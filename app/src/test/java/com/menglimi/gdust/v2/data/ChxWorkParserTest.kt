@@ -54,10 +54,34 @@ class ChxWorkParserTest {
     """.trimIndent()
 
     private val coursesHtml = """
-        <html><body><h3>
-        <a class="color1" href="https://mooc1.chaoxing.com/visit/stucoursemiddle?courseid=111111111&clazzid=222222222&cpi=333333333&ismooc2=1&v=2" target="_blank">
-        <span class="course-name overHidden2" title="测试课程名">测试课程名</span></a>
-        </h3></body></html>
+        <html><body>
+        <div id="stuTopCourseListDiv">
+            <!-- 置顶区：同一门课会出现两次，按 courseid+classId 去重 -->
+            <div class="course clearfix learnCourse" id="c_111111111">
+                <input type="hidden" class="clazzId" name="clazzId" value="222222222"/>
+                <input type="hidden" class="courseId" name="courseId" value="111111111"/>
+                <input type="hidden" class="curPersonId" value="333333333"/>
+                <a href="https://mooc1.chaoxing.com/visit/stucoursemiddle?courseid=111111111&clazzid=222222222&cpi=333333333&ismooc2=1&v=2"><img src="cover.png"></a>
+                <h3><a class="color1" href="https://mooc1.chaoxing.com/visit/stucoursemiddle?courseid=111111111&clazzid=222222222&cpi=333333333&ismooc2=1&v=2">
+                <span class="course-name overHidden2" title="测试课程名">测试课程名</span></a></h3>
+            </div>
+        </div>
+        <div id="stuNormalCourseListDiv">
+            <div class="course clearfix learnCourse" id="c_111111111">
+                <input type="hidden" class="clazzId" name="clazzId" value="222222222"/>
+                <input type="hidden" class="courseId" name="courseId" value="111111111"/>
+                <input type="hidden" class="curPersonId" value="333333333"/>
+                <a href="https://mooc1.chaoxing.com/visit/stucoursemiddle?courseid=111111111&clazzid=222222222&cpi=333333333&ismooc2=1&v=2"><img src="cover.png"></a>
+                <h3><a class="color1" href="https://mooc1.chaoxing.com/visit/stucoursemiddle?courseid=111111111&clazzid=222222222&cpi=333333333&ismooc2=1&v=2">
+                <span class="course-name overHidden2" title="测试课程名">测试课程名</span></a></h3>
+            </div>
+            <div class="course clearfix learnCourse" id="c_999999999">
+                <input type="hidden" class="clazzId" name="clazzId" value="888888888"/>
+                <input type="hidden" class="courseId" value="999999999"/>
+                <!-- 无课程名的异常卡：跳过 -->
+            </div>
+        </div>
+        </body></html>
     """.trimIndent()
 
     @Test fun tabsParseExtractsAllSecretsAndParams() {

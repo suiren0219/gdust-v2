@@ -38,17 +38,30 @@ data class ChxWorkItem(
 
 object ChxWorkParser {
 
-    /** 课程列表 → 每门课的 courseid/clazzid/cpi/课程名。 */
+    /**
+     * 课程列表 → 每门课的 courseid/clazzid/cpi/课程名。
+     *
+     * 页面结构（HAR 实测）：每张课程卡是一个 `div.course`，卡片内自带
+     * `input.courseId` / `input.clazzId` / `input.curPersonId` 隐藏域与 `.course-name`；
+     * 置顶区（stuTopCourseListDiv）与普通区（stuNormalCourseListDiv）可能重复同一门课，
+     * 按 courseid+classId 去重。
+     */
     fun parseCourses(html: String): List<ChxCourse> {
         val doc = Jsoup.parse(html)
         val out = mutableListOf<ChxCourse>()
-        for (a in doc.select("a[href*=stucoursemiddle]")) {
-            val params = queryParams(a.attr("href"))
-            val courseId = params["courseid"]?.toLongOrNull() ?: continue
-            val classId = params["clazzid"]?.toLongOrNull() ?: continue
-            val cpi = params["cpi"]?.toLongOrNull() ?: 0
-            val name = a.select(".course-name").text().trim()
+        val seen = mutableSetOf<Pair<Long, Long>>()
+        for (card in doc.select("div.course")) {
+            val courseId = card.select("input.courseId").attr("value").toLongOrNull() ?: continue
+            val classId = card.select("input.clazzId").attr("value").toLongOrNull() ?: continue
+            val key = courseId to classId
+            if (!seen.add(key)) continue
+            val name = card.select(".course-name").text().trim()
             if (name.isEmpty()) continue
+            // cpi 优先取卡片里 stucoursemiddle 链接上的值，退化用 curPersonId
+            val link = card.select("a[href*=stucoursemiddle]").first()
+            val cpi = link?.let { queryParams(it.attr("href"))["cpi"]?.toLongOrNull() }
+                ?: card.select("input.curPersonId").attr("value").toLongOrNull()
+                ?: 0
             out += ChxCourse(courseId, classId, cpi, name)
         }
         return out
