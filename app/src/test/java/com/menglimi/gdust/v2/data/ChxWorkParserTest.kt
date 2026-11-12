@@ -136,6 +136,25 @@ class ChxWorkParserTest {
         assertEquals("测试课程名", c.name)
     }
 
+    @Test fun jobInfoBatchResponseParsesPerClassCounts() {
+        // 改编自真实响应：jobRate 是班级聚合值（finish/count），预过滤只认 finish >= count
+        val json = """
+            {"jobArray": [
+                {"jobFinishCount": 10, "clazzId": 111111112, "jobRate": 17.0, "jobCount": 58},
+                {"jobFinishCount": 0, "clazzId": 111111113, "jobRate": 0.0, "jobCount": 62},
+                {"jobFinishCount": 160, "clazzId": 111111114, "jobRate": 98.0, "jobCount": 162}
+            ], "status": true}
+        """.trimIndent()
+        val info = ChxWorkParser.parseJobInfo(json)
+        assertEquals(3, info.size)
+        assertEquals(58 to 10, info[111111112L])
+        assertEquals(62 to 0, info[111111113L])
+        assertEquals(162 to 160, info[111111114L])
+        // 坏数据/空数据不抛异常，返回空 map（调用方退回全量检查）
+        assertTrue(ChxWorkParser.parseJobInfo("not json").isEmpty())
+        assertTrue(ChxWorkParser.parseJobInfo("").isEmpty())
+    }
+
     @Test fun oldTodoJsonWithoutDueFieldStaysCompatible() {
         // 旧版本待办没有 due 字段：反序列化后 due=0，不丢数据不崩
         val t = Gson().fromJson<Store.Todo>(

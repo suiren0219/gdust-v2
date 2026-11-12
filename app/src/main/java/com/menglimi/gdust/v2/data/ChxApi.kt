@@ -91,6 +91,18 @@ class ChxApi {
     }
 
     /**
+     * 批量作业计数：一次请求带全部 `clazzId_cpi` 对（逗号 %2C 分隔），
+     * 返回每班的 jobCount/jobFinishCount/jobRate——用来预过滤，避免全量课程逐个拉作业列表。
+     */
+    suspend fun jobInfoJson(cookie: String, clazzPersonStr: String): String? =
+        withContext(Dispatchers.IO) {
+            getHtml(
+                cookie,
+                "https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu-job-info?clazzPersonStr=$clazzPersonStr",
+            )
+        }
+
+    /**
      * 课程页：跟随 stucoursemiddle 的 302 落到 mycourse/stu，
      * 隐藏域里带 enc / workEnc / examEnc / t / userId / moocDomainName。
      */

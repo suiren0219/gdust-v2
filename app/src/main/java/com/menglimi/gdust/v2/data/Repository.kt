@@ -665,11 +665,25 @@ class Repository(context: Context) {
         var failed = 0
         var firstFail: String? = null
         val updates = mutableMapOf<Long, Store.Todo>()
+        // 批量预过滤（stu-job-info 一次带全量 clazzId_cpi 对）：全班都完成/无作业的课直接跳过，
+        // 把 work/list 的请求数从「课程数」压到「有未完成的课」。接口无有效数据时退回全量检查。
+        val clazzPersonStr = courses.joinToString("%2C") { "${it.classId}_${it.cpi}" }
+        val jobInfo = chxApi.jobInfoJson(cookie, clazzPersonStr)
+            ?.let { ChxWorkParser.parseJobInfo(it) }
+            .orEmpty()
         // 课程多（实测一个账号 30+ 门，含历史学期）：并发拉取，失败按课程隔离
         val semaphore = Semaphore(4)
         val results = coroutineScope {
             courses.map { course ->
                 async {
+                    if (jobInfo.isNotEmpty()) {
+                        val (jobCount, jobFinish) = jobInfo[course.classId]
+                            ?: return@async course to Result.success(emptyList<ChxWorkItem>())
+                        if (jobCount == 0 || jobFinish >= jobCount) {
+                            // 无作业，或全班（含本人）都完成
+                            return@async course to Result.success(emptyList<ChxWorkItem>())
+                        }
+                    }
                     semaphore.withPermit {
                         course to runCatching {
                             val tabsHtml = chxApi.courseTabsHtml(cookie, course.courseId, course.classId, course.cpi)

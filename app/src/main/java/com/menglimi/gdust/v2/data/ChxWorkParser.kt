@@ -1,5 +1,6 @@
 package com.menglimi.gdust.v2.data
 
+import com.google.gson.JsonParser
 import org.jsoup.Jsoup
 
 /**
@@ -103,6 +104,22 @@ object ChxWorkParser {
                 enc = params["enc"].orEmpty(),
                 remainingText = li.select("div.time").text().trim(),
             )
+        }
+        return out
+    }
+
+    /**
+     * stu-job-info（批量作业计数）→ clazzId → (jobCount, jobFinishCount)。
+     * jobRate = finish/count，是班级聚合值：只有 finish >= count（全班含本人都完成）才可安全跳过。
+     */
+    fun parseJobInfo(json: String): Map<Long, Pair<Int, Int>> {
+        val out = mutableMapOf<Long, Pair<Int, Int>>()
+        val root = runCatching { JsonParser.parseString(json).asJsonObject }.getOrNull() ?: return out
+        val arr = root.getAsJsonArray("jobArray") ?: return out
+        for (e in arr) {
+            val o = e.asJsonObject
+            val clazzId = o.get("clazzId")?.asLong ?: continue
+            out[clazzId] = (o.get("jobCount")?.asInt ?: 0) to (o.get("jobFinishCount")?.asInt ?: 0)
         }
         return out
     }
