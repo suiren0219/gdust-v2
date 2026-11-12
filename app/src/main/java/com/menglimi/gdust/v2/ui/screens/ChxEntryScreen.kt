@@ -185,6 +185,13 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit) {
                 }
             }
         }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(top = 8.dp),
+        ) {
+            // 备用入口：学校 CAS 不可达时用学习通账号（手机号/密码）直登，同一套 .chaoxing.com 会话
+            Box(Modifier.weight(1f)) { Button("直接登录学习通（备用）") { open(ChxSso.DIRECT_LOGIN) } }
+        }
 
         if (linked) {
             Button(if (syncing) "正在同步作业…" else "同步学习通作业到待办", enabled = !syncing) {

@@ -48,6 +48,13 @@ object ChxSso {
     /** 学习通首页（HAR 实测存在的入口，用于探活与回到主页）。 */
     const val HOME = "https://mooc2-ans.chaoxing.com/mooc2-ans/visit/interaction"
 
+    /**
+     * 超星 passport 直登页（fid=420 来自学校 SSO 链路实测）。
+     * 学校 CAS 不可达时的备用入口：用学习通账号（手机号/密码）直接登录，
+     * 拿到的是同一套 `.chaoxing.com` 会话，作业同步照常可用。
+     */
+    const val DIRECT_LOGIN = "https://passport2.chaoxing.com/login?fid=420&refer=https%3A%2F%2Fi.chaoxing.com"
+
     private val sessionMarks = listOf("JSESSIONID", "_uid", "UID=")
 
     /** 粗判 Cookie 头是否包含会话特征；空串/只有路由标记都不算登录。 */
