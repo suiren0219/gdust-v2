@@ -22,6 +22,7 @@
 | [softglass](https://github.com/HaoZai000/softglass) | Apache-2.0 |
 | [Glasmio](https://github.com/neoruaa/Glasmio) | Apache-2.0 |
 | [Miuix](https://github.com/miuix-kotlin-multiplatform/miuix) | Apache-2.0 |
+| [HyperNotification](https://github.com/xzakota/HyperNotification) | Apache-2.0 |
 | [MaterialKolor](https://github.com/jordond/MaterialKolor) | MIT |
 | AndroidX / Jetpack Compose / Material3 | Apache-2.0 |
 | OkHttp / OkHttp-SSE / Gson | Apache-2.0 |

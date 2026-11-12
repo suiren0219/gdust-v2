@@ -67,6 +67,16 @@ class LessonReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWo
                     },
                     ticker = "${b.name} $startStr",
                     island = store.islandEnabled,
+                    islandExtras = islandExtras(
+                        ticker = "${b.name} $startStr",
+                        aodTitle = "${minutes} 分钟后上课",
+                        timeoutSec = (minutes + 5).toInt() * 60,
+                        bigLeftFrontTitle = "第 ${b.startSection} 节",
+                        bigLeftTitle = "${minutes} 分钟",
+                        bigLeftContent = "后上课",
+                        bigRightTitle = b.name,
+                        bigRightContent = listOfNotNull(startStr, b.room.takeIf { it.isNotBlank() }).joinToString(" · "),
+                    ),
                 )
                 store.lastReminderKey = key
                 return Result.success()
@@ -92,6 +102,16 @@ class LessonReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWo
                             if (b.room.isNotBlank()) " · ${b.room}" else "",
                         ticker = "${b.name} 还有 ${left} 分钟下课",
                         island = store.islandEnabled,
+                        islandExtras = islandExtras(
+                            ticker = "${b.name} 还有 ${left} 分钟下课",
+                            aodTitle = "${b.name} 快下课",
+                            timeoutSec = (left + 5).toInt() * 60,
+                            bigLeftFrontTitle = "第 ${b.startSection} 节",
+                            bigLeftTitle = "${left} 分钟",
+                            bigLeftContent = "后下课",
+                            bigRightTitle = b.name,
+                            bigRightContent = b.room,
+                        ),
                     )
                     store.lastReminderKey = key
                     return Result.success()
@@ -118,6 +138,16 @@ class LessonReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWo
                         text = summary,
                         ticker = "明天 ${tomorrowBlocks.first().name} 等 ${tomorrowBlocks.size} 节课",
                         island = store.islandEnabled,
+                        islandExtras = islandExtras(
+                            ticker = "明天 ${tomorrowBlocks.size} 节课",
+                            aodTitle = "明天 ${tomorrowBlocks.size} 节课",
+                            timeoutSec = 12 * 3600,
+                            bigLeftFrontTitle = null,
+                            bigLeftTitle = "${tomorrowBlocks.size} 节",
+                            bigLeftContent = "明天的课",
+                            bigRightTitle = tomorrowBlocks.first().name,
+                            bigRightContent = "等 ${tomorrowBlocks.size} 门课",
+                        ),
                     )
                     store.lastReminderKey = key
                 }
@@ -126,8 +156,14 @@ class LessonReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWo
         return Result.success()
     }
 
-    private fun notify(id: Int, title: String, text: String, ticker: String, island: Boolean = true) =
-        post(applicationContext, id, title, text, ticker, island)
+    private fun notify(
+        id: Int,
+        title: String,
+        text: String,
+        ticker: String,
+        island: Boolean = true,
+        islandExtras: Bundle? = null,
+    ) = post(applicationContext, id, title, text, ticker, island, islandExtras)
 
     private object IntentFactory {
         fun main(ctx: Context) = android.content.Intent(ctx, MainActivity::class.java)
@@ -144,6 +180,7 @@ class LessonReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWo
             text: String,
             ticker: String,
             island: Boolean = true,
+            islandExtras: Bundle? = null,
         ) {
             val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(
@@ -164,17 +201,71 @@ class LessonReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWo
                 .setCategory(NotificationCompat.CATEGORY_REMINDER)
                 .setContentIntent(pi)
                 .setAutoCancel(true)
-            // HyperOS 焦点通知（超级岛）：系统支持时上岛，不支持则忽略这些 extras
-            if (island) {
-                builder.addExtras(Bundle().apply {
-                    putString(
-                        "miui.focus.param",
-                        """{"param_v2":{"ticker":"${ticker.replace("\"", "")}","isShowNotification":true},"protocol":1}""",
-                    )
-                    putInt("miui.focus.priority", 1)
-                })
+            // HyperOS 焦点通知/超级岛：标准 V3 协议（HyperNotification 库序列化 param_v2）。
+            // 旧实现只有 ticker 且缺 business/aodTitle/param_island 必填字段，系统直接忽略 → 超级岛无效。
+            if (island && islandExtras != null) {
+                builder.addExtras(islandExtras)
             }
             nm.notify(id, builder.build())
+        }
+
+        /**
+         * 组装超级岛 V3 extras（官方协议：https://dev.mi.com/xiaomihyperos/documentation/detail?pId=2131）。
+         * 结构对齐 HyperNotification 库的 FocusTemplateV3 序列化（Apache-2.0，字段名一致）：
+         * param_v2 = { enableFloat, ticker, aodTitle, business, isShowNotification,
+         *              baseInfo, hintInfo, param_island { islandProperty, islandTimeout, bigIslandArea } }
+         */
+        private fun islandExtras(
+            ticker: String,
+            aodTitle: String,
+            timeoutSec: Int,
+            bigLeftFrontTitle: String?,
+            bigLeftTitle: String,
+            bigLeftContent: String,
+            bigRightTitle: String,
+            bigRightContent: String,
+        ) : Bundle {
+            fun textInfo(front: String?, title: String, content: String) = buildMap<String, Any> {
+                if (!front.isNullOrBlank()) put("frontTitle", front)
+                put("title", title)
+                put("content", content)
+            }
+            val param = linkedMapOf<String, Any>(
+                "enableFloat" to true,
+                "ticker" to ticker,
+                "aodTitle" to aodTitle,
+                "business" to "course",
+                "updatable" to false,
+                "isShowNotification" to true,
+                "baseInfo" to linkedMapOf(
+                    "type" to 1,
+                    "title" to bigRightTitle,
+                    "content" to bigLeftTitle + bigLeftContent,
+                ),
+                "hintInfo" to linkedMapOf(
+                    "type" to 2,
+                    "title" to bigRightTitle,
+                    "content" to bigRightContent,
+                ),
+                "param_island" to linkedMapOf<String, Any>(
+                    "islandProperty" to 1,
+                    "islandTimeout" to timeoutSec,
+                    "business" to "course",
+                    "bigIslandArea" to linkedMapOf(
+                        "imageTextInfoLeft" to linkedMapOf(
+                            "type" to 1,
+                            "textInfo" to textInfo(bigLeftFrontTitle, bigLeftTitle, bigLeftContent),
+                        ),
+                        "imageTextInfoRight" to linkedMapOf(
+                            "type" to 2,
+                            "textInfo" to textInfo(null, bigRightTitle, bigRightContent),
+                        ),
+                    ),
+                ),
+            )
+            return Bundle().apply {
+                putString("miui.focus.param", """{"param_v2":${com.google.gson.Gson().toJson(param)}}""")
+            }
         }
 
         /** 设置页「测试提醒」按钮。 */
@@ -184,6 +275,16 @@ class LessonReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWo
             "还有 20 分钟上课 · 松 5-308 · 张老师",
             "高等数学 20 分钟后上课",
             island,
+            islandExtras(
+                ticker = "高等数学 20 分钟后上课",
+                aodTitle = "20 分钟后上课",
+                timeoutSec = 25 * 60,
+                bigLeftFrontTitle = "第 1 节",
+                bigLeftTitle = "20 分钟",
+                bigLeftContent = "后上课",
+                bigRightTitle = "高等数学",
+                bigRightContent = "松 5-308 · 张老师",
+            ),
         )
 
         fun schedule(ctx: Context) {

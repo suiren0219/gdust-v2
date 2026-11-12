@@ -160,12 +160,38 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
 
         // ── 超级岛 ──
         SectionHeader("小米超级岛")
+        val focusProtocol = androidx.compose.runtime.remember {
+            runCatching { Settings.System.getInt(ctx.contentResolver, "notification_focus_protocol", 0) }.getOrDefault(0)
+        }
+        val islandFeature = androidx.compose.runtime.remember {
+            runCatching {
+                Class.forName("android.os.SystemProperties")
+                    .getMethod("get", String::class.java, String::class.java)
+                    .invoke(null, "persist.sys.feature.island", "") as String
+            }.getOrDefault("")
+        }
         SettingGroup {
             SettingOption(
                 title = "超级岛样式提醒",
-                subtitle = "通知附带 HyperOS 焦点通知字段；是否上岛取决于系统版本与通知权限",
+                subtitle = "按 HyperOS 标准 V3 岛协议发通知；是否上岛取决于系统版本与白名单",
                 switch = store.islandEnabled,
                 onSwitch = { on -> save { store.islandEnabled = on } },
+            )
+            SettingDivider()
+            SettingOption(
+                title = "系统支持",
+                subtitle = buildString {
+                    append("焦点协议 v$focusProtocol")
+                    append(" · 超级岛特性 ${if (islandFeature == "1") "已开启" else "未检测到"}")
+                    if (focusProtocol < 3) append("（v3 才有岛）")
+                },
+                detail = "诊断",
+            )
+            SettingDivider()
+            SettingOption(
+                title = "白名单",
+                subtitle = "HyperOS 只允许白名单 App 上岛；用 HyperCeiler 等模块加白时，注意其若进入安全模式会整组失效",
+                detail = "说明",
             )
             SettingDivider()
             SettingOption(

@@ -53,6 +53,16 @@
 - 判据：崩溃特征 = RenderThread SIGSEGV SEGV_ACCERR、同一 fault addr 段基址、launch 即崩
 - 模拟器共享冲突升级：对方会话在测试钱迹记账（com.xiaojinzi.tally），截图/点击随时被抢，交互验收只能抽空档做
 
+## 超级岛通知（2026-11-13 补）
+
+- 用户反馈无效。搜了官方文档（dev.mi.com pId=2131/2140/2146）+ HyperNotification 库源码（已克隆 D:/projects/refs/HyperNotification）：
+  - 旧实现 JSON 只有 ticker+isShowNotification，缺 **business/aodTitle/param_island 三个必填字段**，且 protocol:1 只是 OS1 焦点通知，不会上岛 → 系统直接忽略
+  - 新实现：手拼标准 V3 param_v2（enableFloat/ticker/aodTitle/business/baseInfo/hintInfo/param_island{islandProperty,islandTimeout,bigIslandArea{imageTextInfoLeft/Right{textInfo}}}}），字段名对齐 HyperNotification 的 @Serializable 模板
+  - 想引 HyperNotification 库（com.xzakota.hyper.notification:focus-api）但它 **Central/JitPack 都没发布**（403/空），只能 vendor；嫌重就手拼了（Gson 拼 LinkedHashMap）
+- **另一半原因在用户侧**：HyperOS 有焦点通知白名单；用户用 HyperCeiler 绕，但其截图显示 HyperCeiler 对 com.miui.securitycenter 已进安全模式（功能停用）→ 必须先解除安全模式并重新加白，通知发得再对也没用
+- 设置 → 课程提醒 → 超级岛 加了诊断行：焦点协议 v0-3（Settings.System notification_focus_protocol）+ persist.sys.feature.island；v3 且白名单通过才会上岛
+- 真机验证路径：修复 HyperCeiler → 设置里点「测试提醒」→ 看岛/
+
 ## 许可状态（2026-11-13 更新）
 
 - 应作者与上游（Nexio 作者）的沟通结论，**项目先闭源自用**：LICENSE 换成闭源声明、README/关于页改回「闭源自用」
