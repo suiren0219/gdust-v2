@@ -251,6 +251,32 @@ class Store(context: Context) {
         get() = plain.getInt("course_row_h", 56).coerceIn(44, 72)
         set(v) = plain.edit().putInt("course_row_h", v.coerceIn(44, 72)).apply()
 
+    // ── 课表卡片玻璃材质（Nexio「效果」页同款六项）──
+    /** 卡片着色程度（tint alpha，0~0.6，默认 0.12）。 */
+    var glassTint: Float
+        get() = plain.getFloat("glass_tint", 0.12f).coerceIn(0f, 0.6f)
+        set(v) = plain.edit().putFloat("glass_tint", v).apply()
+    /** 卡片不透明度（玻璃底色 alpha，0~1，默认 0.34）。 */
+    var glassOpacity: Float
+        get() = plain.getFloat("glass_opacity", 0.34f).coerceIn(0f, 1f)
+        set(v) = plain.edit().putFloat("glass_opacity", v).apply()
+    /** 卡片模糊（px，0~24，默认 1）。 */
+    var glassBlurPx: Int
+        get() = plain.getInt("glass_blur", 1).coerceIn(0, 24)
+        set(v) = plain.edit().putInt("glass_blur", v).apply()
+    /** 卡片折射强度（0=关闭，0~1）。 */
+    var glassRefraction: Float
+        get() = plain.getFloat("glass_refraction", 0f).coerceIn(0f, 1f)
+        set(v) = plain.edit().putFloat("glass_refraction", v).apply()
+    /** 边缘厚度：0 关闭 / 1 默认 / 2 细 / 3 厚。 */
+    var glassEdge: Int
+        get() = plain.getInt("glass_edge", 1).coerceIn(0, 3)
+        set(v) = plain.edit().putInt("glass_edge", v).apply()
+    /** 高光描边（折射着色器内的边缘高亮）。 */
+    var glassHighlightEdge: Boolean
+        get() = plain.getBoolean("glass_highlight", false)
+        set(v) = plain.edit().putBoolean("glass_highlight", v).apply()
+
     /** 课表格子圆角 dp。 */
     var courseCorner: Int
         get() = plain.getInt("course_corner", 10).coerceIn(4, 20)

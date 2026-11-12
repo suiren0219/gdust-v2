@@ -71,6 +71,7 @@ import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Theme
 import top.yukonga.miuix.kmp.icon.basic.ArrowUpDown
 import top.yukonga.miuix.kmp.icon.basic.Check
 import top.yukonga.miuix.kmp.icon.basic.FastForward
@@ -94,6 +95,7 @@ internal fun ScheduleHeader(
     onSwitchTerm: () -> Unit,
     onDisplaySettings: () -> Unit,
     onImport: () -> Unit,
+    onGlassEffect: () -> Unit,
 ) {
     val ds = LocalDs.current
     var showMenu by remember { mutableStateOf(false) }
@@ -135,6 +137,7 @@ internal fun ScheduleHeader(
                     ScheduleGlassMenu(
                         onChooseWeek = { showMenu = false; onChooseWeek() },
                         onDisplaySettings = { showMenu = false; onDisplaySettings() },
+                        onGlassEffect = { showMenu = false; onGlassEffect() },
                         onSwitchTerm = { showMenu = false; onSwitchTerm() },
                         onImport = { showMenu = false; onImport() },
                         onDismiss = { showMenu = false },
@@ -201,6 +204,7 @@ private fun HeaderGlassButton(onClick: () -> Unit, content: @Composable androidx
 private fun ScheduleGlassMenu(
     onChooseWeek: () -> Unit,
     onDisplaySettings: () -> Unit,
+    onGlassEffect: () -> Unit,
     onSwitchTerm: () -> Unit,
     onImport: () -> Unit,
     onDismiss: () -> Unit,
@@ -236,6 +240,7 @@ private fun ScheduleGlassMenu(
         ) {
             ScheduleMenuItem("选择周次", MiuixIcons.Basic.FastForward, onChooseWeek)
             ScheduleMenuItem("课表外观", MiuixIcons.Background, onDisplaySettings)
+            ScheduleMenuItem("课表效果", MiuixIcons.Theme, onGlassEffect)
             ScheduleMenuItem("切换学期", MiuixIcons.Normal.ConvertFile, onSwitchTerm)
             ScheduleMenuItem("导入课表", MiuixIcons.Backup, onImport)
         }

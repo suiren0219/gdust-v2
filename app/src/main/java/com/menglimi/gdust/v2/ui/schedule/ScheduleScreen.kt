@@ -60,6 +60,12 @@ import com.kyant.capsule.ContinuousRoundedRectangle
 import androidx.compose.ui.graphics.TileMode
 import com.haooz.softglass.backdrop.drawBackdrop
 import com.haooz.softglass.backdrop.effects.blur
+import com.haooz.softglass.backdrop.effects.runtimeShaderEffect
+import com.haooz.softglass.glass.SOFT_GLASS_LIVE_SHADER
+import com.haooz.softglass.glass.applySoftGlass
+import com.kyant.backdrop.edgelight.edgeLight
+import com.kyant.backdrop.edgelight.rememberCardEdgeLight
+import com.menglimi.gdust.v2.ui.nexio.glass.ScheduleSoftGlassStyle
 import com.menglimi.gdust.v2.ui.LocalWallpaperActive
 import com.menglimi.gdust.v2.ui.nexio.LocalPageLayerBackdrop
 import com.menglimi.gdust.v2.ui.nexio.glassSurfaceColor
@@ -80,6 +86,16 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Backup
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
+
+/** Nexio「效果」页六项卡片材质参数（从 Store 直读，回设置页即生效）。 */
+internal data class GlassSpec(
+    val tint: Float,
+    val opacity: Float,
+    val blurPx: Int,
+    val refraction: Float,
+    val edge: Int,
+    val highlightEdge: Boolean,
+)
 
 internal object ScheduleLayout {
     val RowHeight = 54.dp
@@ -105,6 +121,7 @@ fun ScheduleScreen(
     onSwitchTerm: (String) -> Unit = {},
     fullTermImported: Boolean = false,
     onImport: () -> Unit = {},
+    onGlassEffect: () -> Unit = {},
 ) {
     // One snapshot drives date, time, title, section marker, card status and the red line.
     var now by remember { mutableStateOf(LocalDateTime.now()) }
@@ -139,6 +156,15 @@ fun ScheduleScreen(
     }
     var textMono by remember(repo) { mutableStateOf(repo.store.cardTextMono) }
     var smartWeekend by remember(repo, repo.store.smartHideWeekend) { mutableStateOf(repo.store.smartHideWeekend) }
+    // 玻璃材质参数：每次重组直读 prefs（课表效果页改完回来即生效），不 remember 缓存
+    val glass = GlassSpec(
+        tint = repo.store.glassTint,
+        opacity = repo.store.glassOpacity,
+        blurPx = repo.store.glassBlurPx,
+        refraction = repo.store.glassRefraction,
+        edge = repo.store.glassEdge,
+        highlightEdge = repo.store.glassHighlightEdge,
+    )
     var showDisplaySettings by remember { mutableStateOf(false) }
     var showTermSwitch by remember { mutableStateOf(false) }
 
@@ -178,6 +204,7 @@ fun ScheduleScreen(
                 onSwitchTerm = { showTermSwitch = true },
                 onDisplaySettings = { showDisplaySettings = true },
                 onImport = onImport,
+                onGlassEffect = onGlassEffect,
             )
             if (syncError != null) {
                 Text(
@@ -212,6 +239,7 @@ fun ScheduleScreen(
                     alignCenter = alignCenter,
                     textMono = textMono,
                     smartHideWeekend = smartWeekend,
+                    glass = glass,
                     emptyTitle = when {
                         validBlocks.isEmpty() && !fullTermImported -> "还没有课表"
                         fullTermImported -> "第 $week 周暂无课程"
@@ -291,6 +319,7 @@ private fun WeekGrid(
     alignCenter: Boolean,
     textMono: Boolean,
     smartHideWeekend: Boolean,
+    glass: GlassSpec,
     emptyTitle: String,
     emptyMessage: String,
     onImport: () -> Unit,
@@ -403,6 +432,7 @@ private fun WeekGrid(
                                                         cornerRadius = cornerRadius,
                                                         alignCenter = alignCenter,
                                                         textMono = textMono,
+                                                        glass = glass,
                                                         cardHeight = rowHeight * (segment.last - segment.first + 1),
                                                         onClick = { onLessonClick(block) },
                                                         modifier = Modifier.offset(y = ScheduleLayout.sectionY(segment.first, rowHeight)),
@@ -499,6 +529,7 @@ private fun LessonCard(
     cornerRadius: Dp,
     alignCenter: Boolean,
     textMono: Boolean,
+    glass: GlassSpec,
     cardHeight: Dp,
     onClick: () -> Unit,
     modifier: Modifier,
@@ -508,11 +539,11 @@ private fun LessonCard(
     val inactive = Color(0xFF9E9E9E)
     val pageGlass = LocalPageLayerBackdrop.current
     val onWallpaper = LocalWallpaperActive.current && pageGlass != null
-    // 28a99a3 卡片材质：壁纸开启走玻璃路径（着色 12% + 底色 34% + 模糊透出壁纸），
+    // 28a99a3 卡片材质：壁纸开启走玻璃路径（着色 + 底色 + 模糊透出壁纸，参数见「课表效果」页），
     // 无壁纸沿用其无材质路径（0.12 着色 + 0.92 页底垫色）
-    val tintAlpha = 0.12f * (if (isPast) 0.7f else 1f)
+    val tintAlpha = glass.tint * (if (isPast) 0.7f else 1f)
     val baseTint = if (isPast) inactive else tint
-    val glassColor = glassSurfaceColor(baseTint, ds.isDark, tintAlpha = tintAlpha)
+    val glassColor = glassSurfaceColor(baseTint, ds.isDark, tintAlpha = tintAlpha, surfaceAlpha = glass.opacity)
     val cardColor = baseTint.copy(alpha = tintAlpha).compositeOver(ds.bg.copy(alpha = 0.92f))
     val preferredText = if (isPast) ds.sub.copy(alpha = 0.7f)
         else CourseColors.text(block.name, ds.isDark, onWallpaper = onWallpaper, monochrome = textMono)
@@ -551,9 +582,44 @@ private fun LessonCard(
                 if (onWallpaper) Modifier.drawBackdrop(
                     backdrop = pageGlass!!,
                     shape = { ContinuousRoundedRectangle(cornerRadius) },
-                    effects = { blur(8.dp.toPx(), TileMode.Mirror) },
+                    effects = {
+                        blur(glass.blurPx.dp.toPx(), TileMode.Mirror)
+                        if (glass.refraction > 0f) {
+                            runtimeShaderEffect(
+                                key = "NexioSoftGlassLiveCourseCard",
+                                shaderString = SOFT_GLASS_LIVE_SHADER,
+                                uniformShaderName = "content",
+                            ) {
+                                applySoftGlass(
+                                    style = ScheduleSoftGlassStyle.copy(
+                                        refractionScale = glass.refraction,
+                                        edgeHighlight = glass.highlightEdge,
+                                    ),
+                                    width = size.width,
+                                    height = size.height,
+                                )
+                            }
+                        }
+                    },
                     onDrawSurface = { drawRect(glassColor) },
-                ) else Modifier
+                )
+                    .then(
+                        when (glass.edge) {
+                            0 -> Modifier
+                            2 -> Modifier.edgeLight(
+                                shape = ContinuousRoundedRectangle(cornerRadius),
+                                edgeLight = rememberCardEdgeLight(glassColor).copy(width = 0.18.dp, blurRadius = 0.8.dp, intensity = 0.4f),
+                            )
+                            3 -> Modifier.edgeLight(
+                                shape = ContinuousRoundedRectangle(cornerRadius),
+                                edgeLight = rememberCardEdgeLight(glassColor).copy(width = 0.9.dp, blurRadius = 2.4.dp, intensity = 0.9f),
+                            )
+                            else -> Modifier.edgeLight(
+                                shape = ContinuousRoundedRectangle(cornerRadius),
+                                edgeLight = rememberCardEdgeLight(glassColor),
+                            )
+                        }
+                    ) else Modifier
             )
             .then(if (isOngoing) Modifier.border(1.5.dp, ds.accent, ContinuousRoundedRectangle(cornerRadius)) else Modifier),
         cornerRadius = cornerRadius,

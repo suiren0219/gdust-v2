@@ -85,6 +85,7 @@ fun AppRoot(
     var showReminder by remember { mutableStateOf(false) }
     var showChxNotifications by remember { mutableStateOf(false) }
     var showChxEntry by remember { mutableStateOf(false) }
+    var showGlassEffect by remember { mutableStateOf(false) }
     var notices by remember { mutableStateOf<List<Notice>>(emptyList()) }
     var noticesLoading by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
@@ -187,6 +188,7 @@ fun AppRoot(
             showReminder -> "reminder"
             showChxNotifications -> "chx_notifications"
             showChxEntry -> "chx_entry"
+            showGlassEffect -> "glass_effect"
             showProfile -> "profile"
             showAbout -> "about"
             showSettings.value -> "settings"
@@ -224,6 +226,10 @@ fun AppRoot(
             "chx_entry" -> {
                 androidx.activity.compose.BackHandler { showChxEntry = false }
                 ChxEntryScreen(repo = repo, onBack = { showChxEntry = false })
+            }
+            "glass_effect" -> {
+                androidx.activity.compose.BackHandler { showGlassEffect = false }
+                com.menglimi.gdust.v2.ui.screens.GlassEffectScreen(repo = repo, onBack = { showGlassEffect = false })
             }
             "notices" -> {
                 androidx.activity.compose.BackHandler { showNotices = false }
@@ -302,6 +308,7 @@ fun AppRoot(
                 onOpenNotices = { showNotices = true; loadNotices() },
                 notices = notices,
                 onImport = { showWebImport = true },
+                onGlassEffect = { showGlassEffect = true },
                 calendar = calendar,
                 blocks = blocks,
                 syncError = syncError,
@@ -375,6 +382,7 @@ private fun MainScaffold(
     onSwitchTerm: (String) -> Unit = {},
     wallpaperTick: Int = 0,
     onImport: () -> Unit = {},
+    onGlassEffect: () -> Unit = {},
 ) {
     val ds = LocalDs.current
     // 壁纸：路径非空即启用；页面底色转透明，让壁纸透出来（tick 变化时重读）
@@ -427,6 +435,7 @@ private fun MainScaffold(
                         onSwitchTerm = onSwitchTerm,
                         fullTermImported = repo.store.scheduleSource == "zf_term",
                         onImport = onImport,
+                        onGlassEffect = onGlassEffect,
                     )
                     2 -> PowerScreen(repo)
                     else -> TodoScreen(repo)
