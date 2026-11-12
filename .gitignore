@@ -15,3 +15,6 @@ build-*.log
 *.har
 *.har.gz
 har/
+
+# 本地分发包
+dist/
