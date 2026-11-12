@@ -101,7 +101,29 @@ fun ScheduleScreen(
     // 点课表格子弹详情
     var selected by remember { mutableStateOf<CourseBlock?>(null) }
     selected?.let { block ->
-        LessonDetailDialog(block = block, week = displayWeek, calendar = calendar, onDismiss = { selected = null })
+        // 同一时间格可能有多门课（不同周次）：聚合后一起展示
+        val cellLessons = remember(block, blocks) {
+            blocks.filter {
+                it.day == block.day && it.startSection <= block.endSection && it.endSection >= block.startSection
+            }.groupBy { Triple(it.name, it.room, it.teacher) }
+                .map { (key, list) ->
+                    CellLesson(
+                        name = key.first,
+                        room = key.second,
+                        teacher = key.third,
+                        startSection = list.minOf { it.startSection },
+                        endSection = list.maxOf { it.endSection },
+                        weeks = list.map { it.week }.distinct().sorted(),
+                    )
+                }
+                .sortedBy { it.startSection }
+        }
+        LessonSheet(
+            lessons = cellLessons,
+            week = displayWeek,
+            allWeek = calendar?.allWeek ?: 20,
+            onDismiss = { selected = null },
+        )
     }
     if (showTermSwitch) {
         TermSwitchDialog(
@@ -500,53 +522,136 @@ private fun LessonCard(
     }
 }
 
-/** 课程详情弹窗：点格子查看完整信息；颜色沿用格子同源色。 */
-@Composable
-private fun LessonDetailDialog(block: CourseBlock, week: Int, calendar: CalendarInfo?, onDismiss: () -> Unit) {
-    val ds = LocalDs.current
-    val bg = CourseColors.bg(block.name, ds.isDark)
-    val tint = CourseColors.tint(block.name)
-    val start = ScheduleTimes.start(block.startSection)
-    val end = ScheduleTimes.end(block.endSection)
-    val date = calendar?.startDate?.let {
-        runCatching { java.time.LocalDate.parse(it).plusDays((week - 1) * 7L + block.day - 1L).toString() }.getOrNull()
+/** 同一时间格里的一门课（聚合后）。 */
+private data class CellLesson(
+    val name: String,
+    val room: String,
+    val teacher: String,
+    val startSection: Int,
+    val endSection: Int,
+    val weeks: List<Int>,
+)
+
+/** 把周次列表压成「1-8周、10周、12-14周」这种紧凑描述。 */
+private fun formatWeeks(weeks: List<Int>, allWeek: Int): String {
+    if (weeks.isEmpty()) return ""
+    if (weeks.size >= allWeek) return "每周"
+    val sorted = weeks.distinct().sorted()
+    val sb = StringBuilder()
+    var start = sorted.first()
+    var prev = start
+    fun flush() {
+        if (sb.isNotEmpty()) sb.append("、")
+        if (prev == start) sb.append("${start}周") else sb.append("$start-$prev 周")
     }
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+    sorted.drop(1).forEach { w ->
+        if (w == prev + 1) {
+            prev = w
+        } else {
+            flush(); start = w; prev = w
+        }
+    }
+    flush()
+    return sb.toString()
+}
+
+/** 课程详情：底部面板（Nexio 式），列出该时间格的所有课 + 周次徽章。 */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun LessonSheet(
+    lessons: List<CellLesson>,
+    week: Int,
+    allWeek: Int,
+    onDismiss: () -> Unit,
+) {
+    val ds = LocalDs.current
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = ds.card,
+        scrimColor = Color.Black.copy(alpha = 0.32f),
+        dragHandle = {
+            Box(
+                Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .background(ds.sub.copy(alpha = 0.35f), RoundedCornerShape(2.dp)),
+                )
+            }
+        },
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .background(ds.card, RoundedCornerShape(20.dp))
-                .padding(20.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(start = 18.dp, end = 18.dp, bottom = 26.dp),
         ) {
-            Box(
-                Modifier
-                    .background(bg, RoundedCornerShape(12.dp))
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-            ) {
-                Text(block.name, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = tint)
-            }
+            Text("课程详情", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = ds.text)
+            Text(
+                "第 $week 周 · 这个时间格共 ${lessons.size} 门课",
+                fontSize = 11.sp, color = ds.sub, modifier = Modifier.padding(top = 3.dp),
+            )
             Spacer(Modifier.height(14.dp))
-            listOf(
-                "时间" to "周${ScheduleTimes.dayNames[block.day - 1]} · 第 ${block.startSection}–${block.endSection} 节" +
-                    (if (start.isNotEmpty() && end.isNotEmpty()) "（$start–$end）" else ""),
-                "教室" to block.room.ifEmpty { "未填写" },
-                "教师" to block.teacher.ifEmpty { "未填写" },
-                "周次" to "第 $week 周" + if (block.weekParity == 1) "（单周）" else if (block.weekParity == 2) "（双周）" else "",
-                "日期" to (date ?: "未知（需校历）"),
-            ).forEach { (k, v) ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-                    Text(k, fontSize = 13.sp, color = ds.sub, modifier = Modifier.width(44.dp))
-                    Text(v, fontSize = 13.sp, color = ds.text, modifier = Modifier.weight(1f))
+            lessons.forEach { l ->
+                val tint = CourseColors.tint(l.name)
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                        .background(
+                            if (ds.isDark) tint.copy(alpha = 0.14f) else tint.copy(alpha = 0.10f),
+                            RoundedCornerShape(14.dp),
+                        )
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            l.name,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = tint,
+                            maxLines = 2,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            formatWeeks(l.weeks, allWeek),
+                            fontSize = 10.sp,
+                            color = ds.sub,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .background(ds.sub.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    val start = ScheduleTimes.start(l.startSection)
+                    val end = ScheduleTimes.end(l.endSection)
+                    Text(
+                        buildString {
+                            append("第 ${l.startSection}-${l.endSection} 节")
+                            if (start.isNotEmpty() && end.isNotEmpty()) append("（$start-$end）")
+                            if (l.room.isNotBlank()) append(" · ${l.room}")
+                        },
+                        fontSize = 12.sp, color = ds.text,
+                    )
+                    if (l.teacher.isNotBlank()) {
+                        Text(l.teacher, fontSize = 12.sp, color = ds.sub, modifier = Modifier.padding(top = 2.dp))
+                    }
                 }
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(4.dp))
             Box(
                 Modifier
                     .fillMaxWidth()
                     .background(ds.accent, RoundedCornerShape(12.dp))
                     .clickable(onClick = onDismiss)
-                    .padding(vertical = 10.dp),
+                    .padding(vertical = 11.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text("知道了", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
