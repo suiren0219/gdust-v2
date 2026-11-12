@@ -27,6 +27,15 @@
 - **合并顺序**：板块一先合 main，板块二随后对齐；合并动作同一时刻只由一个会话执行
 - 用户侧唯一依赖：作业详情页抓包 + 考试清单 HAR（清单见 `docs/EXTENDING.md` §3.4）
 
+## 耗电优化 P0/P2 已落地（2026-11-13，versionCode 7）
+
+- **P0 采样跟作息**：PowerWorker 改链式调度——作息窗口（07:30–22:05 = 广科作息±1h）内按设定间隔联网；窗口外一次延迟睡到明早窗口。6h KEEP 心跳自愈（链被清则按当前作息重排，不联网）
+- **P2**：采样链加 NetworkType.CONNECTED（离线不唤醒）；故意不加电池约束（手机低电时更需宿舍预警）
+- **模拟器实测（.debug 包，协调规则生效后独占）**：WorkSpec 恰好两行——PowerHeartbeatWorker 6h 无网络 + PowerWorker OneTime CONNECTED；v6 的 15 分钟旧周期已消失
+- **P3**：卡片 blur 默认已是 1px（效果页可调），无需再动；仅剩两个静态玻璃圆钮用 16dp，静态不滚无感
+- 收益估算：默认 60min 间隔下唤醒 96→约16 次/天、联网 24→约15 次/天；interval=15 时联网 96→约58
+- **修复 WorkManager 首启竞态**：WM 数据库迁移（databases→no_backup）与 App.onCreate 入队互踩会把 WorkSpec 清空（实测 0 行）→ MainActivity.onCreate 幂等补排 schedule()
+
 ## 现在做到哪：Nexio 1.7 全量页面移植已完成（分支待合并）
 
 分支 `feat/nexio-ui-170`，提交 `4b62167`（基于 `857e1fd`）。四页（今日/课表/电费/待办）+ 设置 + 登录已全部换成 Nexio `28a99a3` 版式；底栏重写为独立玻璃胶囊 + 56dp 设置圆钮；主题统一 Miuix（SOFT=磨砂/LIQUID=折射两种材质保留）。42/42 单测通过，debug+release 构建通过。
