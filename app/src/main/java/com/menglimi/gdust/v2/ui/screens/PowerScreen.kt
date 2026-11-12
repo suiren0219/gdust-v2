@@ -147,37 +147,53 @@ fun PowerScreen(repo: Repository) {
             }
             Spacer(Modifier.height(12.dp))
 
-            // 最近几小时折线（App 自采样序列）
+            // 最近电量走势：1/30 天用本机剩余电量采样；3/7 天用服务端 weekuselist 的每日用电量
+            // （本机采样装了才几天，覆盖不了多天窗口——那是修数据源而不是修切换）
             GlassCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("最近电量走势", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
-                    if (samples.size < 2) {
-                        Text("采样点还不够，等下一个间隔自动记点（或点下方刷新）；采样最长保留 30 天", fontSize = 12.sp, color = ds.sub)
-                    } else {
-                        // 按时间窗口过滤（不是按点数）：采样不足时也能看出实际覆盖范围
-                        val cutoff = System.currentTimeMillis() - chartDays * 24L * 3600 * 1000
-                        val ranged = samples.filter { it.time >= cutoff }
-                        val coveredHours = if (ranged.size >= 2) {
-                            ((ranged.last().time - ranged.first().time) / 3600000.0).coerceAtLeast(0.0)
-                        } else 0.0
-                        com.menglimi.gdust.v2.ui.screens.SegmentedChoice(
-                            options = listOf(1 to "近 1 天", 3 to "近 3 天", 7 to "近 7 天", 30 to "近 30 天"),
-                            selected = chartDays,
-                            onSelect = { chartDays = it },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        UsageChart(ranged.takeLast(240), store.warnThreshold)
-                        Text(
-                            "已选近 $chartDays 天 · 实际覆盖 %.1f 小时 · ${ranged.size} 个采样点（每 ${store.sampleIntervalMinutes} 分钟）· 虚线=预警线（${store.warnThreshold.toInt()} 度）"
-                                .format(coveredHours),
-                            fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub,
-                        )
-                        if (chartDays > 1 && coveredHours < chartDays * 24 * 0.6) {
+                    Text("电量走势", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
+                    com.menglimi.gdust.v2.ui.screens.SegmentedChoice(
+                        options = listOf(1 to "近 1 天", 3 to "近 3 天", 7 to "近 7 天", 30 to "近 30 天"),
+                        selected = chartDays,
+                        onSelect = { chartDays = it },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    if (chartDays == 3 || chartDays == 7) {
+                        if (weekUse.isEmpty()) {
                             Text(
-                                "多天视图需要 App 在后台持续采样积累；当前只有 %.1f 小时数据，所以曲线看起来变化不大。".format(coveredHours),
-                                fontSize = 10.sp, color = ds.accent,
+                                "服务端没有返回每日用量（weekuselist 为空），暂无法显示近 $chartDays 天视图；可切回「近 1 天」看本机采样。",
+                                fontSize = 12.sp, lineHeight = 16.sp, color = ds.sub,
                             )
+                        } else {
+                            val points = weekUse.takeLast(chartDays)
+                            DailyUsageChart(points)
+                            Text(
+                                "近 $chartDays 天 · 每日用电量（数据来自完美校园接口，按天）· 点柱查看数值",
+                                fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub,
+                            )
+                        }
+                    } else {
+                        if (samples.size < 2) {
+                            Text("采样点还不够，等下一个间隔自动记点（或点下方刷新）；采样最长保留 30 天", fontSize = 12.sp, color = ds.sub)
+                        } else {
+                            val cutoff = System.currentTimeMillis() - chartDays * 24L * 3600 * 1000
+                            val ranged = samples.filter { it.time >= cutoff }
+                            val coveredHours = if (ranged.size >= 2) {
+                                ((ranged.last().time - ranged.first().time) / 3600000.0).coerceAtLeast(0.0)
+                            } else 0.0
+                            UsageChart(ranged.takeLast(240), store.warnThreshold)
+                            Text(
+                                "已选近 $chartDays 天 · 实际覆盖 %.1f 小时 · ${ranged.size} 个采样点（每 ${store.sampleIntervalMinutes} 分钟）· 虚线=预警线（${store.warnThreshold.toInt()} 度）"
+                                    .format(coveredHours),
+                                fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub,
+                            )
+                            if (chartDays > 1 && coveredHours < chartDays * 24 * 0.6) {
+                                Text(
+                                    "多天视图需要 App 在后台持续采样积累；当前只有 %.1f 小时数据，所以曲线看起来变化不大。".format(coveredHours),
+                                    fontSize = 10.sp, color = ds.accent,
+                                )
+                            }
                         }
                     }
                 }
@@ -390,6 +406,74 @@ fun PowerScreen(repo: Repository) {
     } // PullToRefreshBox
 
     NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
+}
+
+/** 近 N 天的每日用电量（柱状；数据来自完美校园 weekuselist，按天聚合）。 */
+@Composable
+private fun DailyUsageChart(points: List<Pair<String, Double>>) {
+    val ds = LocalDs.current
+    if (points.isEmpty()) {
+        Text("暂无数据", fontSize = 12.sp, color = ds.sub)
+        return
+    }
+    var selected by remember(points) { mutableStateOf(points.size - 1) }
+    val shown = if (selected in points.indices) selected else points.size - 1
+    val maxV = points.maxOf { it.second }.coerceAtLeast(0.1)
+
+    Column {
+        Text(
+            "${points[shown].first} 用电 %.2f 度".format(points[shown].second),
+            fontSize = 12.sp, color = ds.text,
+            modifier = Modifier.padding(bottom = 6.dp),
+        )
+        Row(Modifier.fillMaxWidth().height(150.dp)) {
+            Column(
+                Modifier.width(34.dp).fillMaxHeight(),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.End,
+            ) {
+                Text("%.1f".format(maxV), fontSize = 10.sp, color = ds.sub)
+                Text("%.1f".format(maxV / 2), fontSize = 10.sp, color = ds.sub)
+                Text("0", fontSize = 10.sp, color = ds.sub)
+            }
+            Canvas(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .pointerInput(points) {
+                        detectTapGestures { pos ->
+                            selected = (pos.x / (size.width / points.size)).toInt()
+                                .coerceIn(0, points.size - 1)
+                        }
+                    },
+            ) {
+                val n = points.size
+                val slot = size.width / n
+                val barW = slot * 0.5f
+                points.forEachIndexed { i, (_, use) ->
+                    val h = ((use / maxV).toFloat().coerceIn(0f, 1f)) * size.height * 0.92f
+                    drawRoundRect(
+                        color = if (i == selected) ds.accent else ds.accent.copy(alpha = 0.5f),
+                        topLeft = Offset(i * slot + (slot - barW) / 2, size.height - h),
+                        size = androidx.compose.ui.geometry.Size(barW, h),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(6f, 6f),
+                    )
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth()) {
+            points.forEachIndexed { i, (label, _) ->
+                val day = if (label.startsWith("周")) label else "周$label"
+                Text(
+                    day,
+                    fontSize = 10.sp,
+                    color = if (i == selected) ds.accent else ds.sub,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
 }
 
 /**
