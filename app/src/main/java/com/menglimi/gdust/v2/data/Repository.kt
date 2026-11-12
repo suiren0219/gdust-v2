@@ -105,8 +105,9 @@ class Store(context: Context) {
     }
 
     // ── 待办 ──
-    // due = 截止时间毫秒（0 = 无）；学习通作业同步用，旧数据没有该字段，Gson 反序列化默认 0，向后兼容
-    data class Todo(val id: Long, val text: String, val done: Boolean, val due: Long = 0)
+    // due = 截止时间毫秒（0 = 无）；tag = 来源课程名（学习通作业用，手动待办为空）。
+    // 旧数据没有这两个字段，Gson 反序列化默认 0/""，向后兼容。
+    data class Todo(val id: Long, val text: String, val done: Boolean, val due: Long = 0, val tag: String = "")
 
     companion object {
         private val todoLock = Any()
@@ -715,7 +716,9 @@ class Repository(context: Context) {
                 val due = if (isPending) {
                     System.currentTimeMillis() + ChxWorkParser.remainingMillis(item.remainingText)
                 } else 0L
-                updates[item.workId] = Store.Todo(item.workId, item.title, done = !isPending, due = due)
+                updates[item.workId] = Store.Todo(
+                    item.workId, item.title, done = !isPending, due = due, tag = course.name,
+                )
             }
         }
         if (updates.isEmpty()) {
@@ -736,6 +739,7 @@ class Repository(context: Context) {
                         text = todo.text,
                         done = existing.done || todo.done,
                         due = todo.due,
+                        tag = todo.tag,
                     )
                 }
             }

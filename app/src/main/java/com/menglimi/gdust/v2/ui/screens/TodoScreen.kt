@@ -32,8 +32,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.data.Store
 import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun TodoScreen(repo: Repository) {
@@ -46,6 +50,11 @@ fun TodoScreen(repo: Repository) {
         items = repo.store.loadTodos()
         onDispose { stop() }
     }
+
+    // 未完成在上（有截止的按时间排序，没截止的垫底），已完成折叠在下面的卡里
+    val pending = items.filterNot { it.done }
+        .sortedWith(compareBy({ it.due <= 0L }, { it.due }))
+    val doneItems = items.filter { it.done }
 
     Column(
         Modifier
@@ -105,49 +114,57 @@ fun TodoScreen(repo: Repository) {
             Spacer(Modifier.height(12.dp))
             GlassCard { Text("还没有待办。期末周将至，先记一笔吧～", fontSize = 14.sp, color = ds.sub) }
         } else {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(14.dp))
+            Text(
+                "未完成 ${pending.size}",
+                fontSize = 12.sp, color = ds.sub,
+                modifier = Modifier.padding(start = 6.dp, bottom = 6.dp),
+            )
             GlassCard {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    items.forEach { item ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable {
+                    if (pending.isEmpty()) {
+                        Text("都完成啦，歇口气～", fontSize = 14.sp, color = ds.sub, modifier = Modifier.padding(vertical = 10.dp))
+                    }
+                    pending.forEach { item ->
+                        TodoRow(
+                            item = item,
+                            onToggle = {
+                                items = repo.store.updateTodos { current ->
+                                    current.map { if (it.id == item.id) it.copy(done = !it.done) else it }
+                                }
+                            },
+                            onDelete = {
+                                items = repo.store.updateTodos { current -> current.filter { it.id != item.id } }
+                            },
+                        )
+                    }
+                }
+            }
+
+            if (doneItems.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "已完成 ${doneItems.size}",
+                    fontSize = 12.sp, color = ds.sub,
+                    modifier = Modifier.padding(start = 6.dp, bottom = 6.dp),
+                )
+                GlassCard {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        doneItems.forEach { item ->
+                            TodoRow(
+                                item = item,
+                                onToggle = {
                                     items = repo.store.updateTodos { current ->
                                         current.map { if (it.id == item.id) it.copy(done = !it.done) else it }
                                     }
-                                }
-                                .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Box(
-                                Modifier
-                                    .size(22.dp)
-                                    .background(if (item.done) ds.accent else ds.bg, CircleShape),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (item.done) Text("✓", fontSize = 12.sp, color = androidx.compose.ui.graphics.Color.White)
-                            }
-                            Text(
-                                item.text,
-                                fontSize = 15.sp,
-                                color = if (item.done) ds.sub else ds.text,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                "删",
-                                fontSize = 12.sp,
-                                color = ds.danger,
-                                modifier = Modifier.clickable {
+                                },
+                                onDelete = {
                                     items = repo.store.updateTodos { current -> current.filter { it.id != item.id } }
                                 },
                             )
                         }
                     }
                 }
-            }
-            if (items.any { it.done }) {
                 Text(
                     "清除已完成",
                     fontSize = 13.sp,
@@ -161,5 +178,80 @@ fun TodoScreen(repo: Repository) {
             }
         }
         Spacer(Modifier.height(110.dp))
+    }
+}
+
+/** 单条待办：勾选圈 + 标题；来源课程 tag 与截止时间（学习通作业）渲染在第二行。 */
+@Composable
+private fun TodoRow(
+    item: Store.Todo,
+    onToggle: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val ds = LocalDs.current
+    val due = dueLabel(item.due)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            Modifier
+                .size(22.dp)
+                .background(if (item.done) ds.accent else ds.bg, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (item.done) Text("✓", fontSize = 12.sp, color = androidx.compose.ui.graphics.Color.White)
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                item.text,
+                fontSize = 15.sp,
+                color = if (item.done) ds.sub else ds.text,
+            )
+            if (item.tag.isNotEmpty() || due != null) {
+                Spacer(Modifier.height(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (item.tag.isNotEmpty()) {
+                        Text(
+                            item.tag,
+                            fontSize = 10.sp,
+                            color = ds.accent,
+                            modifier = Modifier
+                                .background(ds.accent.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 1.dp),
+                        )
+                    }
+                    if (due != null && !item.done) {
+                        Text(
+                            due.first,
+                            fontSize = 11.sp,
+                            color = if (due.second) ds.danger else ds.sub,
+                        )
+                    }
+                }
+            }
+        }
+        Text(
+            "删",
+            fontSize = 12.sp,
+            color = ds.danger,
+            modifier = Modifier.clickable(onClick = onDelete),
+        )
+    }
+}
+
+/** 截止时间 → 「M月d日 · 剩N天/今天截止/已过期」；urgent=true 用警示色。 */
+private fun dueLabel(due: Long): Pair<String, Boolean>? {
+    if (due <= 0) return null
+    val date = SimpleDateFormat("M月d日", Locale.CHINA).format(Date(due))
+    val diff = due - System.currentTimeMillis()
+    return when {
+        diff < 0 -> "${date} · 已过期" to true
+        diff < 24 * 3600_000L -> "${date} · 今天截止" to true
+        else -> "${date} · 剩${diff / (24 * 3600_000L) + 1}天" to false
     }
 }
