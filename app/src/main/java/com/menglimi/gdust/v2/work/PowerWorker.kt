@@ -100,11 +100,22 @@ class PowerWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
     companion object {
         const val CHANNEL = "gdust_power_warn"
 
+        /**
+         * 周期直接用用户配置的采样间隔（默认 60 分钟）：Worker 唤醒次数从 96 次/天降到 24 次/天。
+         * UPDATE 策略——采样间隔在设置里改动后重排即生效；doWork 内的节流保留作兜底。
+         */
         fun schedule(ctx: Context) {
+            val interval = ctx.getSharedPreferences("gdust_power", Context.MODE_PRIVATE)
+                .getInt("interval", 60).coerceAtLeast(15)
             WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
-                "gdust_power", ExistingPeriodicWorkPolicy.KEEP,
-                PeriodicWorkRequestBuilder<PowerWorker>(15, TimeUnit.MINUTES).build(),
+                "gdust_power", ExistingPeriodicWorkPolicy.UPDATE,
+                PeriodicWorkRequestBuilder<PowerWorker>(interval.toLong(), TimeUnit.MINUTES).build(),
             )
+        }
+
+        /** 未绑定宿舍电号时取消周期唤醒（省电：不绑定就不该有 15 分钟一次的进程唤醒）。 */
+        fun cancel(ctx: Context) {
+            WorkManager.getInstance(ctx).cancelUniqueWork("gdust_power")
         }
     }
 }

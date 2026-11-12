@@ -22,12 +22,21 @@ class Store(context: Context) {
     private val app = context.applicationContext
     private val gson = Gson()
 
-    private val secure = EncryptedSharedPreferences.create(
-        app, "gdust_secure",
-        MasterKey.Builder(app).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-    )
+    // EncryptedSharedPreferences 初始化要读 keystore（冷启动 100–500ms），且每次 new Store 都会重建：
+    // 改懒加载——Worker 等只碰 plain 的路径不再付这笔开销；App 启动时后台预热一次。
+    private val secure: android.content.SharedPreferences by lazy {
+        EncryptedSharedPreferences.create(
+            app, "gdust_secure",
+            MasterKey.Builder(app).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+    }
+
+    /** 主线程外预热加密存储（App 启动时调用，避免首次敏感读写卡主线程）。 */
+    fun warmSecure() {
+        runCatching { secure }
+    }
 
     private val plain = app.getSharedPreferences("gdust_cache", Context.MODE_PRIVATE)
 
@@ -102,6 +111,18 @@ class Store(context: Context) {
             date != null && date.dayOfWeek.value == block.day &&
                 java.time.temporal.ChronoUnit.DAYS.between(start, date) / 7 + 1 == block.week.toLong()
         }
+    }
+
+    // ── 学习通 tab 签名缓存：courseId → (enc/workEnc/t) ──
+    // 免去每次同步都拉 138KB 的课程页；签名疑似失效时由调用方刷新并回写。
+    fun loadChxTabCache(): Map<Long, ChxCourseTabs> {
+        val t = object : TypeToken<Map<Long, ChxCourseTabs>>() {}.type
+        return runCatching { gson.fromJson<Map<Long, ChxCourseTabs>>(plain.getString("chx_tabs", "[]"), t) }
+            .getOrNull().orEmpty()
+    }
+
+    fun saveChxTabCache(cache: Map<Long, ChxCourseTabs>) = synchronized(todoLock) {
+        plain.edit().putString("chx_tabs", gson.toJson(cache)).commit()
     }
 
     // ── 待办 ──
@@ -666,6 +687,9 @@ class Repository(context: Context) {
         var failed = 0
         var firstFail: String? = null
         val updates = mutableMapOf<Long, Store.Todo>()
+        // tab 签名缓存：courseId → 课程页隐藏域。命中则省掉 138KB 课程页下载；
+        // 签名疑似失效（作业列表页被踢回登录）时刷新一次再试。
+        val tabCache = store.loadChxTabCache().toMutableMap()
         // 批量预过滤（stu-job-info 一次带全量 clazzId_cpi 对）：全班都完成/无作业的课直接跳过，
         // 把 work/list 的请求数从「课程数」压到「有未完成的课」。接口无有效数据时退回全量检查。
         val clazzPersonStr = courses.joinToString("%2C") { "${it.classId}_${it.cpi}" }
@@ -679,29 +703,46 @@ class Repository(context: Context) {
                 async {
                     if (jobInfo.isNotEmpty()) {
                         val (jobCount, jobFinish) = jobInfo[course.classId]
-                            ?: return@async course to Result.success(emptyList<ChxWorkItem>())
+                            ?: return@async Triple(course, Result.success(emptyList<ChxWorkItem>()), null)
                         if (jobCount == 0 || jobFinish >= jobCount) {
                             // 无作业，或全班（含本人）都完成
-                            return@async course to Result.success(emptyList<ChxWorkItem>())
+                            return@async Triple(course, Result.success(emptyList<ChxWorkItem>()), null)
                         }
                     }
                     semaphore.withPermit {
-                        course to runCatching {
-                            val tabsHtml = chxApi.courseTabsHtml(cookie, course.courseId, course.classId, course.cpi)
-                                ?: error("课程页读取失败")
-                            val tabs = ChxWorkParser.parseCourseTabs(tabsHtml)
-                                ?: error("课程页缺少作业签名（可能没有作业 tab）")
+                        var tabs = tabCache[course.courseId]
+                        var refreshed: ChxCourseTabs? = null
+                        var items: List<ChxWorkItem> = emptyList()
+                        for (attempt in 1..2) {
+                            if (tabs == null) {
+                                val tabsHtml = chxApi.courseTabsHtml(cookie, course.courseId, course.classId, course.cpi)
+                                    ?: error("课程页读取失败")
+                                tabs = ChxWorkParser.parseCourseTabs(tabsHtml)
+                                    ?: error("课程页缺少作业签名（可能没有作业 tab）")
+                                refreshed = tabs
+                            }
                             val workHtml = chxApi.workListHtml(
                                 cookie, tabs.moocDomain, course.courseId, course.classId, course.cpi,
                                 tabs.enc, tabs.workEnc, tabs.t,
                             ) ?: error("作业列表读取失败")
-                            ChxWorkParser.parseWorkList(workHtml)
+                            items = ChxWorkParser.parseWorkList(workHtml)
+                            // 列表页 title=「作业列表」；缺失说明签名失效被踢走 → 刷新课程页再试一次
+                            if (workHtml.contains("作业列表") || attempt == 2) break
+                            tabs = null
                         }
+                        Triple(course, Result.success(items), refreshed)
                     }
                 }
             }.awaitAll()
         }
-        for ((course, r) in results) {
+        var cacheDirty = false
+        for ((course, r, refreshed) in results) {
+            refreshed?.let {
+                if (tabCache[course.courseId] != it) {
+                    tabCache[course.courseId] = it
+                    cacheDirty = true
+                }
+            }
             val items = r.getOrNull()
             if (items == null) {
                 failed++
@@ -721,6 +762,7 @@ class Repository(context: Context) {
                 )
             }
         }
+        if (cacheDirty) store.saveChxTabCache(tabCache)
         if (updates.isEmpty()) {
             return "同步完成：扫了 $scanned 门课${failSuffix(failed, firstFail)}，学习通里没有作业"
         }

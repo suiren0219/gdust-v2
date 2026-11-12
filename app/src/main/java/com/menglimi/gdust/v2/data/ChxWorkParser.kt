@@ -68,10 +68,14 @@ object ChxWorkParser {
         return out
     }
 
-    /** 课程页 → 各 tab 的签名；缺 enc/workEnc 视为结构变化，返回 null 由调用方跳过。 */
+    /**
+     * 课程页 → 各 tab 的签名；缺 enc/workEnc 视为结构变化，返回 null 由调用方跳过。
+     * 课程页是 138KB 的大页面、只需要 6 个隐藏域：正则直抽比 Jsoup 全量解析快一个量级。
+     */
     fun parseCourseTabs(html: String): ChxCourseTabs? {
-        val doc = Jsoup.parse(html)
-        fun v(id: String) = doc.select("input#$id").attr("value").trim()
+        fun v(id: String): String =
+            Regex("<input[^>]*id=\"$id\"[^>]*value=\"([^\"]*)\"").find(html)
+                ?.groupValues?.get(1)?.trim().orEmpty()
         val enc = v("enc")
         val workEnc = v("workEnc")
         if (enc.isEmpty() || workEnc.isEmpty()) return null

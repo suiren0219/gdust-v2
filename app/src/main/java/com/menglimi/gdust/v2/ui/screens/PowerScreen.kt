@@ -52,6 +52,7 @@ fun PowerScreen(repo: Repository) {
     val ds = LocalDs.current
     val scope = rememberCoroutineScope()
     val store = repo.store
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     var account by remember { mutableStateOf(store.powerAccount) }
     var code by remember { mutableStateOf(store.powerCode.takeIf { it > 0 }?.toString() ?: "") }
@@ -316,6 +317,8 @@ fun PowerScreen(repo: Repository) {
                                     )
                                     .clickable {
                                         store.sampleIntervalMinutes = m
+                                        // 周期=采样间隔（UPDATE 重排）：改动立即生效，不再等下次启动
+                                        com.menglimi.gdust.v2.work.PowerWorker.schedule(context)
                                         intervalSaved = true
                                     }
                                     .padding(vertical = 10.dp),
@@ -365,6 +368,8 @@ fun PowerScreen(repo: Repository) {
                         .padding(top = 10.dp)
                         .clickable {
                             repo.savePowerBinding(account.trim(), code.toInt(), room)
+                            // 绑定成功才开启水电后台巡检；解绑走设置的退出清理
+                            com.menglimi.gdust.v2.work.PowerWorker.schedule(context)
                             rooms = emptyList()
                             refresh()
                         },
