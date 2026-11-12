@@ -10,23 +10,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.isSystemInDarkTheme
 import com.menglimi.gdust.v2.data.Store
 
-/** 两套 UI 风格：SOFT=HyperOS 柔光（softglass），LIQUID=iOS 27 液态玻璃（Glasmio）。 */
+/** 保留已存的 SOFT/LIQUID 值；两种材质共用 Nexio 页面和 Miuix 主题。 */
 enum class UiStyle(val label: String, val desc: String) {
-    SOFT("柔光玻璃", "HyperOS 风格 · 折射/方向光/磨砂 · 轻量"),
-    LIQUID("液态玻璃", "iOS 27 风格 · 原生控件与动效 · 体积大"),
+    SOFT("柔光玻璃", "轻柔磨砂 · 清晰易读"),
+    LIQUID("液态玻璃", "通透折射 · 跟手高光"),
 }
 
 val LocalUiStyle = compositionLocalOf<MutableState<UiStyle>> { error("no UiStyle") }
 
-/** 全局主题入口：按风格把状态注入，再分派到对应实现。 */
+/** 风格切换只改变材质参数，不销毁页面状态与导航树。 */
 @Composable
 fun AppTheme(styleState: MutableState<UiStyle>, monetEnabled: Boolean = false, content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
     CompositionLocalProvider(LocalUiStyle provides styleState) {
-        when (styleState.value) {
-            UiStyle.SOFT -> SoftGlassAppTheme(dark = dark, monetEnabled = monetEnabled, content = content)
-            UiStyle.LIQUID -> LiquidGlassAppTheme(dark = dark, monetEnabled = monetEnabled, content = content)
-        }
+        com.menglimi.gdust.v2.ui.nexio.NexioTheme(monetEnabled, content)
     }
 }
 

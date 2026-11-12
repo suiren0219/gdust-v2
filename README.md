@@ -15,7 +15,7 @@
 - **宿舍水电**：完美校园接口直连，剩余电量大字 + 今日/近 7 日/当月用量 + 走势图（点按查看任意采样点）+ 低电量/掉电速率双预警（后台 15 分钟巡检，同类 12h 冷却）
 - **通知 AI 总结**：自填任意 OpenAI 兼容端点，把学校公告提炼成要点
 - **桌面小组件 ×3**：下一节课（2×1）/ 今日课程+电量（3×2）/ 电量大字（2×2），数据全部本机缓存，不打网络
-- **双 UI 风格**：HyperOS 柔光玻璃（[softglass](https://github.com/HaoZai000/softglass)）/ iOS 27 液态玻璃（[Glasmio](https://github.com/neoruaa/Glasmio)），一键切换
+- **Nexio 界面**：基于 [NexioSchedule](https://github.com/HaoZai000/NexioSchedule) `1.7.0-1113`（`28a99a3`）移植的 Miuix 页面与 SoftGlass 底栏，保留柔光/液态两种材质
 - **更多**：莫奈动态取色、课表壁纸（模糊/压暗可调）、卡片字号/高度/圆角/对齐/文字颜色可调、点课程卡看详情、备份与恢复（SAF）、待办
 
 ## 隐私
@@ -49,4 +49,4 @@ Kotlin · Jetpack Compose · Material 3 · [softglass](https://github.com/HaoZai
 
 ## 协议
 
-闭源自用。仅供学习交流，请勿二次分发或商用。
+GNU AGPL-3.0，全文见 [LICENSE](LICENSE)，上游来源与第三方许可见 [NOTICE.md](NOTICE.md)。课表、今日、设置等页面为适配广科数据的移植；电费与待办按同一组件体系实现，并非 Nexio 原有功能。

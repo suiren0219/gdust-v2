@@ -1,39 +1,81 @@
+// Adapted from NexioSchedule 1.7, revision 28a99a3 (AGPL-3.0).
+// Sources under ui-shared/src/commonMain/kotlin/com/haooz/chedule/ui/activities/:
+// today/TodayScreen.kt (date header / period groups), today/TodayAssistantCard.kt
+// (status badge / countdown / full-width name / rule bar), today/TodayTimelineView.kt
+// (36dp axis / 16dp cards / 4dp accent bar), and main/CourseScheduleChrome.kt.
+// The 30sp expanded title comes from miuix/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CollapsibleTopAppBar.kt.
+// Only presentation is adapted: Gdust CourseBlock, ScheduleTimes and navigation remain local.
 package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
-import com.menglimi.gdust.v2.ui.GlassCard
-import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.pageBackground
 import com.menglimi.gdust.v2.ui.schedule.ScheduleTimes
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Info
+import top.yukonga.miuix.kmp.icon.extended.Months
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import java.time.Duration
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.temporal.ChronoUnit
 
 @Composable
 fun TodayScreen(
@@ -41,138 +83,378 @@ fun TodayScreen(
     blocks: List<CourseBlock>,
     onOpenNotices: () -> Unit = {},
     unreadCount: Int = 0,
+    onOpenSchedule: () -> Unit = {},
+    onImport: () -> Unit = {},
+    hasImportedSchedule: Boolean = blocks.isNotEmpty(),
 ) {
-    val ds = LocalDs.current
-    val today = LocalDate.now()
-    val now = LocalTime.now()
-    val week = calendar?.week ?: 1
-    val day = today.dayOfWeek.value
-
-    val todayBlocks = remember(blocks, week, day) {
-        blocks.filter { it.week == week && it.day == day }.sortedBy { it.startSection }
+    val now by rememberTodayMinuteClock()
+    val today = now.toLocalDate()
+    val currentWeek = remember(calendar, today) {
+        parseScheduleDate(calendar?.startDate.orEmpty())?.let {
+            // floorDiv keeps the week before term start at 0, rather than incorrectly at 1.
+            Math.floorDiv(ChronoUnit.DAYS.between(it, today), 7L).toInt() + 1
+        } ?: calendar?.week?.takeIf { it > 0 }
+    }
+    val datedBlocks = remember(blocks) { blocks.map { it to parseScheduleDate(it.date) } }
+    val todayCourses = remember(datedBlocks, currentWeek, today) {
+        datedBlocks.filter { (block, date) ->
+            if (date != null) date == today
+            else currentWeek != null && block.week == currentWeek && block.day == today.dayOfWeek.value
+        }.map { (block, _) -> TodayCourse(block) }.sortedBy { it.block.startSection }
+    }
+    val missingDates = currentWeek == null && datedBlocks.any { it.second == null }
+    val imported = hasImportedSchedule || blocks.isNotEmpty()
+    val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val colors = MiuixTheme.colorScheme
+    val weekText = when {
+        currentWeek == null -> if (imported) "按课程日期展示" else "导入课表，安排今天"
+        currentWeek <= 0 -> "学期尚未开始"
+        calendar != null && calendar.allWeek > 0 && currentWeek > calendar.allWeek -> "本学期已结束"
+        else -> "第 $currentWeek 周"
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(com.menglimi.gdust.v2.ui.pageBackground())
-            .statusBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+    // Nexio's phone list uses 16dp horizontal padding and 12dp item spacing.
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().background(pageBackground()).statusBarsPadding(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 104.dp + bottomInset),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Spacer(Modifier.height(24.dp))
-        Box(Modifier.fillMaxWidth()) {
-            PageTitle(
-                title = "今天是周${ScheduleTimes.dayNames[day - 1].removePrefix("周")}",
-                subtitle = "${today.year}年${today.monthValue}月${today.dayOfMonth}日 · 第 $week 周",
-            )
-            // 学校通知入口：右上角，未读红点
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .size(40.dp)
-                    .background(
-                        if (unreadCount > 0) ds.accent.copy(alpha = 0.14f) else ds.card.copy(alpha = 0.75f),
-                        CircleShape,
+        item(key = "today-header") {
+            Column(Modifier.fillMaxWidth().padding(start = 12.dp, bottom = 4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "今天是${ScheduleTimes.dayNames[today.dayOfWeek.value - 1]}",
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.Normal,
+                        color = colors.onSurface,
+                        modifier = Modifier.weight(1f).semantics { heading() },
                     )
-                    .clickable(onClick = onOpenNotices),
-                contentAlignment = Alignment.Center,
-            ) {
-                io.github.neoruaa.glasmio.icons.SfIcon(
-                    symbol = io.github.neoruaa.glasmio.icons.SfSymbol.InfoCircle,
-                    contentDescription = "学校通知",
-                    size = 20.dp,
-                    tint = if (unreadCount > 0) ds.accent else ds.sub,
-                )
-                if (unreadCount > 0) {
-                    Box(
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 2.dp, end = 2.dp)
-                            .size(8.dp)
-                            .background(ds.danger, CircleShape),
-                    )
+                    TodayNoticeButton(unreadCount, onOpenNotices)
                 }
-            }
-        }
-
-        if (todayBlocks.isEmpty()) {
-            GlassCard {
+                Spacer(Modifier.height(14.dp))
                 Text(
-                    "今天没有课程，好好休息～",
-                    fontSize = 15.sp,
-                    color = ds.text,
+                    text = "${today.year}年${today.monthValue}月${today.dayOfMonth}日",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface,
+                )
+                Text(
+                    text = weekText,
+                    fontSize = 14.sp,
+                    color = colors.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(top = 4.dp),
                 )
             }
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                todayBlocks.forEach { b ->
-                    TodayCard(b, now)
+        }
+        when {
+            !imported -> item(key = "schedule-not-imported") {
+                TodayEmptyCard(
+                    title = "还没有导入课表",
+                    message = "导入本学期课表后，今日课程和下一课会显示在这里。",
+                    action = "导入课表",
+                    onAction = onImport,
+                )
+            }
+            todayCourses.isEmpty() -> item(key = "today-empty") {
+                TodayEmptyCard(
+                    title = if (missingDates) "课表日期待确认" else "今天没有课程",
+                    message = if (missingDates) "部分课程缺少日期，请检查课表中的学期设置。"
+                    else "已导入的课表中没有今日安排，可以查看其他日期的课程。",
+                    action = "查看课表",
+                    onAction = onOpenSchedule,
+                )
+            }
+            else -> {
+                item(key = "today-overview") {
+                    val completed = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.Ended }
+                    val ongoing = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.Ongoing }
+                    val pending = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.NotStarted }
+                    val unknown = todayCourses.size - completed - ongoing - pending
+                    Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp, insideMargin = PaddingValues(16.dp)) {
+                        Text(
+                            "今日 ${todayCourses.size} 门课",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.onSurface,
+                        )
+                        Text(
+                            buildList {
+                                add("已结束 $completed")
+                                if (ongoing > 0) add("进行中 $ongoing")
+                                add("未开始 $pending")
+                                if (unknown > 0) add("时间待确认 $unknown")
+                            }.joinToString("  /  "),
+                            fontSize = 14.sp,
+                            color = colors.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                }
+                item(key = "today-assistant") {
+                    TodayAssistantPanel(todayCourses, now.toLocalTime(), missingDates)
+                }
+                listOf("上午" to 1..4, "下午" to 5..8, "晚上" to 9..Int.MAX_VALUE).forEach { (label, sections) ->
+                    val courses = todayCourses.filter { it.block.startSection in sections }
+                    if (courses.isNotEmpty()) {
+                        item(key = "today-period-$label") { TodayPeriodTitle(label) }
+                        courses.forEachIndexed { index, course ->
+                            item(key = "today-$label-$index") {
+                                TodayTimelineCard(course, now.toLocalTime(), onOpenSchedule)
+                            }
+                        }
+                    }
+                }
+                val unspecified = todayCourses.filter { it.block.startSection < 1 }
+                if (unspecified.isNotEmpty()) {
+                    item(key = "today-period-unknown") { TodayPeriodTitle("节次待确认") }
+                    unspecified.forEachIndexed { index, course ->
+                        item(key = "today-unknown-$index") { TodayTimelineCard(course, now.toLocalTime(), onOpenSchedule) }
+                    }
+                }
+                item(key = "today-schedule-action") {
+                    TextButton(text = "查看完整课表", onClick = onOpenSchedule, modifier = Modifier.fillMaxWidth(), minHeight = 48.dp)
                 }
             }
         }
-
-        // 今日小结
-        if (todayBlocks.isNotEmpty()) {
-            Spacer(Modifier.height(14.dp))
-            Text(
-                "共 ${todayBlocks.size} 门课 · 最早 ${ScheduleTimes.start(todayBlocks.first().startSection)}",
-                fontSize = 12.sp,
-                color = ds.sub,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-        }
-        Spacer(Modifier.height(110.dp))
     }
 }
 
 @Composable
-private fun TodayCard(b: CourseBlock, now: LocalTime) {
-    val ds = LocalDs.current
-    val start = ScheduleTimes.start(b.startSection)
-    val end = ScheduleTimes.end(b.endSection)
-    val status = when {
-        start.isEmpty() || end.isEmpty() -> ""
-        now.isBefore(LocalTime.parse(start)) -> "未开始"
-        now.isAfter(LocalTime.parse(end)) -> "已结束"
-        else -> "上课中"
+private fun TodayNoticeButton(unreadCount: Int, onClick: () -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    Box {
+        IconButton(
+            onClick = onClick,
+            modifier = Modifier.size(48.dp).semantics {
+                contentDescription = if (unreadCount > 0) "学校公告，$unreadCount 条未读" else "学校公告"
+            },
+            backgroundColor = colors.surfaceContainer,
+            minWidth = 48.dp,
+            minHeight = 48.dp,
+        ) {
+            Icon(MiuixIcons.Info, contentDescription = null, tint = colors.primary, modifier = Modifier.size(23.dp))
+        }
+        if (unreadCount > 0) {
+            Box(Modifier.align(Alignment.TopEnd).padding(4.dp).size(8.dp).background(colors.error, CircleShape))
+        }
     }
-    GlassCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.padding(end = 14.dp)) {
-                Text(start, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = ds.text)
-                Text(end, fontSize = 11.sp, color = ds.sub)
-            }
-            Box(
-                Modifier
-                    .width(3.dp)
-                    .height(38.dp)
-                    .background(if (status == "上课中") ds.accent else ds.sub.copy(alpha = 0.35f), RoundedCornerShape(2.dp)),
-            )
-            Column(Modifier.padding(start = 14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        b.name,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = ds.text,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (status.isNotEmpty()) {
-                        Text(
-                            status,
-                            fontSize = 10.sp,
-                            color = if (status == "上课中") ds.accent else ds.sub,
-                            modifier = Modifier.padding(start = 8.dp),
-                        )
-                    }
-                }
+}
+
+@Composable
+private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, missingDates: Boolean) {
+    val colors = MiuixTheme.colorScheme
+    val current = courses.firstOrNull { it.statusAt(now) == TodayCourseStatus.Ongoing }
+    val next = courses.firstOrNull { it.statusAt(now) == TodayCourseStatus.NotStarted }
+    val active = current ?: next
+    val unknown = courses.count { it.statusAt(now) == TodayCourseStatus.Unknown }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 20.dp,
+        insideMargin = PaddingValues(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 14.dp),
+    ) {
+        if (active != null) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "第${b.startSection}${if (b.endSection > b.startSection) "-${b.endSection}" else ""}节 · ${b.room.ifEmpty { "待定" }} · ${b.teacher.ifEmpty { "-" }}",
+                    text = if (current != null) "正在上课" else "下一课",
                     fontSize = 12.sp,
-                    color = ds.sub,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.primary,
+                    modifier = Modifier.background(colors.primary.copy(alpha = 0.14f), CircleShape)
+                        .padding(horizontal = 9.dp, vertical = 3.dp),
                 )
+                val boundary = if (current != null) active.end else active.start
+                Text(
+                    text = boundary?.let { remainingTime(now, it, current != null) }.orEmpty(),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.primary,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+        Text(
+            text = active?.block?.name ?: if (unknown > 0) "课程时间待确认" else "今天的课程已结束",
+            fontSize = 18.sp,
+            lineHeight = 25.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.onSurface,
+        )
+        if (active != null) {
+            Text(
+                text = active.block.metadata(),
+                fontSize = 13.sp,
+                color = colors.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 5.dp),
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        val progress = current?.let { course ->
+            val start = course.start ?: return@let null
+            val end = course.end ?: return@let null
+            (Duration.between(start, now).toMillis().toFloat() / Duration.between(start, end).toMillis()).coerceIn(0f, 1f)
+        }
+        Box(
+            Modifier.fillMaxWidth().height(if (progress != null) 6.dp else 0.5.dp).clip(CircleShape)
+                .background(if (progress != null) colors.primary.copy(alpha = 0.08f) else colors.onSurfaceVariantActions.copy(alpha = 0.09f))
+                .then(if (progress != null) Modifier.semantics {
+                    contentDescription = "本节课程进度"
+                    progressBarRangeInfo = ProgressBarRangeInfo(progress, 0f..1f)
+                } else Modifier),
+        ) {
+            if (progress != null && progress > 0f) {
+                Box(Modifier.fillMaxHeight().fillMaxWidth(progress).background(colors.primary))
+            }
+        }
+        Text(
+            text = when {
+                unknown > 0 || missingDates -> "部分课程的日期或时间待确认，请以完整课表为准。"
+                current != null && next != null -> "下一课：${next.block.name}，${next.start} 开始。"
+                current != null && courses.count { it.statusAt(now) == TodayCourseStatus.Ongoing } > 1 -> "当前有多门课程时间重叠，请查看下方课程安排。"
+                current != null -> "这是今天最后一门课。"
+                next != null -> "${next.timeRange}，${next.block.room.ifBlank { "教室待定" }}。"
+                else -> "今日 ${courses.size} 门课已全部结束，接下来安排自己的时间。"
+            },
+            fontSize = 14.sp,
+            lineHeight = 21.sp,
+            color = colors.onSurfaceVariantSummary,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+    }
+}
+
+@Composable
+private fun TodayPeriodTitle(title: String) {
+    Text(
+        text = title,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Medium,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(start = 4.dp, top = 4.dp).semantics { heading() },
+    )
+}
+
+@Composable
+private fun TodayTimelineCard(course: TodayCourse, now: LocalTime, onOpenSchedule: () -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    val status = course.statusAt(now)
+    val axisWidth = 36.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
+    // Adapted TodayTimelineCard: axis + accent bar + name/time/metadata. Natural-height
+    // rows retain large-font readability; Gdust does not import Nexio's proportional grid.
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.width(axisWidth).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                course.start?.toString() ?: "待定",
+                fontSize = 11.sp,
+                color = if (status == TodayCourseStatus.Ongoing) colors.primary else colors.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            Box(Modifier.padding(top = 8.dp).width(1.dp).weight(1f).background(colors.onSurfaceVariantActions.copy(alpha = 0.15f)))
+        }
+        Card(modifier = Modifier.weight(1f), cornerRadius = 16.dp) {
+            Row(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp).height(IntrinsicSize.Min)
+                    .clickable(role = Role.Button, onClickLabel = "查看${course.block.name}所在课表", onClick = onOpenSchedule)
+                    .padding(start = 10.dp, top = 12.dp, end = 12.dp, bottom = 12.dp),
+            ) {
+                Box(
+                    Modifier.width(4.dp).fillMaxHeight().clip(CircleShape)
+                        .background(colors.primary.copy(alpha = if (status == TodayCourseStatus.Ended) 0.28f else 1f)),
+                )
+                Column(Modifier.weight(1f).padding(start = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(course.block.sectionLabel(), fontSize = 12.sp, color = colors.onSurfaceVariantSummary, modifier = Modifier.weight(1f))
+                        Text(status.label, fontSize = 12.sp, color = if (status == TodayCourseStatus.Ongoing) colors.primary else colors.onSurfaceVariantSummary)
+                    }
+                    Text(
+                        course.block.name,
+                        fontSize = 15.sp,
+                        lineHeight = 20.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.onSurface,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(course.timeRange, fontSize = 12.5.sp, color = colors.onSurfaceVariantSummary)
+                    Text(course.block.metadata(), fontSize = 12.5.sp, lineHeight = 18.sp, color = colors.onSurfaceVariantSummary)
+                }
             }
         }
     }
+}
+
+@Composable
+private fun TodayEmptyCard(title: String, message: String, action: String, onAction: () -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp, insideMargin = PaddingValues(24.dp)) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(MiuixIcons.Months, contentDescription = null, tint = colors.primary, modifier = Modifier.padding(top = 12.dp).size(40.dp))
+            Text(title, fontSize = 18.sp, fontWeight = FontWeight.Medium, color = colors.onSurface)
+            Text(message, fontSize = 14.sp, lineHeight = 21.sp, textAlign = TextAlign.Center, color = colors.onSurfaceVariantSummary)
+            TextButton(
+                text = action,
+                onClick = onAction,
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+                minHeight = 48.dp,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+private enum class TodayCourseStatus(val label: String) {
+    NotStarted("未开始"), Ongoing("进行中"), Ended("已结束"), Unknown("时间待确认"),
+}
+
+private data class TodayCourse(val block: CourseBlock) {
+    val start: LocalTime? = runCatching { LocalTime.parse(ScheduleTimes.start(block.startSection)) }.getOrNull()
+    val end: LocalTime? = runCatching { LocalTime.parse(ScheduleTimes.end(block.endSection)) }.getOrNull()
+    private val validTime = start != null && end != null && end.isAfter(start)
+    val timeRange: String get() = if (validTime) "$start - $end" else "上课时间待确认"
+
+    fun statusAt(now: LocalTime): TodayCourseStatus = when {
+        !validTime -> TodayCourseStatus.Unknown
+        now.isBefore(start) -> TodayCourseStatus.NotStarted
+        !now.isBefore(end) -> TodayCourseStatus.Ended // Start inclusive, end exclusive.
+        else -> TodayCourseStatus.Ongoing
+    }
+}
+
+private fun CourseBlock.sectionLabel(): String = when {
+    startSection < 1 || endSection < startSection -> "节次待确认"
+    startSection == endSection -> "第 $startSection 节"
+    else -> "第 $startSection-$endSection 节"
+}
+
+private fun CourseBlock.metadata(): String = listOf(room.ifBlank { "教室待定" }, teacher).filter { it.isNotBlank() }.joinToString(" / ")
+
+private fun parseScheduleDate(value: String): LocalDate? = runCatching {
+    LocalDate.parse(value.trim().substringBefore('T').substringBefore(' ').replace('/', '-'))
+}.getOrNull()
+
+private fun remainingTime(now: LocalTime, boundary: LocalTime, inClass: Boolean): String {
+    val minutes = ((Duration.between(now, boundary).toMillis() + 59_999L) / 60_000L).coerceAtLeast(1)
+    val duration = when {
+        minutes < 60 -> "$minutes 分钟"
+        minutes % 60L == 0L -> "${minutes / 60} 小时"
+        else -> "${minutes / 60} 小时 ${minutes % 60} 分钟"
+    }
+    return if (inClass) "距下课 $duration" else "距上课 $duration"
+}
+
+/** One clock for the page, initialized immediately; stops in background and refreshes on resume. */
+@Composable
+private fun rememberTodayMinuteClock(): State<LocalDateTime> {
+    val owner = LocalLifecycleOwner.current
+    val clock = remember { mutableStateOf(LocalDateTime.now()) }
+    LaunchedEffect(owner) {
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (currentCoroutineContext().isActive) {
+                clock.value = LocalDateTime.now()
+                delay((60_000L - System.currentTimeMillis() % 60_000L).coerceAtLeast(1L))
+            }
+        }
+    }
+    return clock
 }

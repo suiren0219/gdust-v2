@@ -1,69 +1,94 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Adapted from NexioSchedule revision 28a99a3 (AGPL-3.0):
+// ui-shared/src/commonMain/kotlin/com/haooz/chedule/ui/activities/classschedule/{ScheduleTopBar,MainScheduleScreen}.kt
+// ui-shared/src/portable/kotlin/com/haooz/chedule/ui/activities/classschedule/{CourseCard,DayColumn,SectionColumn}.kt
+// GDUST keeps its actual CourseBlock data, school times, display preferences and date-based status.
+// This is a layout/component adaptation, not the portable source's GlassSurface rendering host.
 package com.menglimi.gdust.v2.ui.schedule
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.util.VelocityTracker
-import com.menglimi.gdust.v2.data.Repository
-import kotlinx.coroutines.launch
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kyant.capsule.ContinuousRoundedRectangle
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
+import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.LocalWallpaperActive
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.LocalTime
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Backup
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
-private val ROW_H = 56.dp
-private val BREAK_H = 24.dp
-private val SCALE_W = 40.dp
+internal object ScheduleLayout {
+    val RowHeight = 54.dp
+    val SectionWidth = 36.dp
+    val DateHeight = 40.dp
+    val BreakHeight = 24.dp
+    val CardGap = 2.dp
+    val BottomClearance = 100.dp
 
+    fun sectionY(section: Int, rowHeight: Dp): Dp = rowHeight * (section - 1) +
+        (if (section >= 5) BreakHeight else 0.dp) + (if (section >= 9) BreakHeight else 0.dp)
+}
+
+@Suppress("UNUSED_PARAMETER") // Legacy week callbacks remain source-compatible; the pager owns week navigation.
 @Composable
 fun ScheduleScreen(
     repo: Repository,
@@ -74,421 +99,386 @@ fun ScheduleScreen(
     onNextWeek: () -> Unit,
     onSwitchTerm: (String) -> Unit = {},
     fullTermImported: Boolean = false,
+    onImport: () -> Unit = {},
 ) {
-    val ds = LocalDs.current
-    val currentWeek = calendar?.week ?: 1
-    var offset by remember { mutableIntStateOf(0) }
-    val displayWeek = (currentWeek + offset).coerceAtLeast(1)
-
-    // 卡片显示设置（Nexio 式：字号 / 教师 / 地点）
-    var textScale by remember { mutableStateOf(repo.store.courseTextScale) }
-    var showTeacher by remember { mutableStateOf(repo.store.showTeacherOnCard) }
-    var showClassroom by remember { mutableStateOf(repo.store.showClassroomOnCard) }
+    // One snapshot drives date, time, title, section marker, card status and the red line.
+    var now by remember { mutableStateOf(LocalDateTime.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val tick = LocalDateTime.now()
+            now = tick
+            delay((60_000L - tick.second * 1_000L - tick.nano / 1_000_000L + 50L).coerceAtLeast(50L))
+        }
+    }
+    val termStart = remember(calendar?.startDate) { ScheduleTimes.parseDate(calendar?.startDate) }
+    val validBlocks = remember(blocks) {
+        blocks.filter { it.week > 0 && it.day in 1..7 && it.startSection > 0 && it.endSection >= it.startSection }
+            .distinct()
+    }
+    val totalWeeks = maxOf(calendar?.allWeek?.takeIf { it > 0 } ?: 20, validBlocks.maxOfOrNull { it.week } ?: 1)
+    val currentWeek = termStart?.let { ScheduleTimes.weekAt(it, now.toLocalDate()) }
+        ?: calendar?.week ?: 1
+    val initialWeek = currentWeek.coerceIn(1, totalWeeks)
+    val context = LocalContext.current
+    val stored = remember(context) { context.getSharedPreferences("gdust_cache", Context.MODE_PRIVATE) }
+    var textScale by remember(repo) { mutableStateOf(repo.store.courseTextScale) }
+    var showTeacher by remember(repo) { mutableStateOf(repo.store.showTeacherOnCard) }
+    var showClassroom by remember(repo) { mutableStateOf(repo.store.showClassroomOnCard) }
+    // Shared storage still defaults to 56dp/top-start. Use Nexio defaults only for unset keys.
+    var rowHeight by remember(repo) {
+        mutableStateOf(if (stored.contains("course_row_h")) repo.store.courseRowHeight else ScheduleLayout.RowHeight.value.toInt())
+    }
+    var corner by remember(repo) { mutableStateOf(repo.store.courseCorner) }
+    var alignCenter by remember(repo) {
+        mutableStateOf(if (stored.contains("card_align_center")) repo.store.cardAlignCenter else true)
+    }
+    var textMono by remember(repo) { mutableStateOf(repo.store.cardTextMono) }
+    var smartWeekend by remember(repo, repo.store.smartHideWeekend) { mutableStateOf(repo.store.smartHideWeekend) }
     var showDisplaySettings by remember { mutableStateOf(false) }
-    var rowHeightDp by remember { mutableStateOf(repo.store.courseRowHeight) }
-    var cornerDp by remember { mutableStateOf(repo.store.courseCorner) }
-    var alignCenter by remember { mutableStateOf(repo.store.cardAlignCenter) }
-    var textMono by remember { mutableStateOf(repo.store.cardTextMono) }
     var showTermSwitch by remember { mutableStateOf(false) }
 
-    // 横向滑动翻周：跟手 + 松手惯性判定 + 平滑回弹（不再硬跳）
-    var dragPx by remember { mutableStateOf(0f) }
-    val rebound = remember { Animatable(0f) }
-    val scope = rememberCoroutineScope()
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val dragThreshold = with(density) { 56.dp.toPx() }
-    val flingVelocity = with(density) { 320.dp.toPx() }
-    val enterOffset = with(density) { 110.dp.toPx() }
-    val tracker = remember { VelocityTracker() }
-
-    // 点课表格子弹详情
-    var selected by remember { mutableStateOf<CourseBlock?>(null) }
-    selected?.let { block ->
-        // 同一时间格可能有多门课（不同周次）：聚合后一起展示
-        val cellLessons = remember(block, blocks) {
-            blocks.filter {
-                it.day == block.day && it.startSection <= block.endSection && it.endSection >= block.startSection
-            }.groupBy { Triple(it.name, it.room, it.teacher) }
-                .map { (key, list) ->
-                    CellLesson(
-                        name = key.first,
-                        room = key.second,
-                        teacher = key.third,
-                        startSection = list.minOf { it.startSection },
-                        endSection = list.maxOf { it.endSection },
-                        weeks = list.map { it.week }.distinct().sorted(),
-                    )
-                }
-                .sortedBy { it.startSection }
-        }
-        LessonSheet(
-            lessons = cellLessons,
-            week = displayWeek,
-            allWeek = calendar?.allWeek ?: 20,
-            onDismiss = { selected = null },
-        )
-    }
-    if (showTermSwitch) {
-        TermSwitchDialog(
-            year = calendar?.year.orEmpty(),
-            current = calendar?.semester.orEmpty(),
-            onPick = { showTermSwitch = false; onSwitchTerm(it) },
-            onDismiss = { showTermSwitch = false },
-        )
-    }
-    if (showDisplaySettings) {
-        LessonDisplayDialog(
-            textScale = textScale,
-            showTeacher = showTeacher,
-            showClassroom = showClassroom,
-            rowHeight = rowHeightDp,
-            corner = cornerDp,
-            alignCenter = alignCenter,
-            textMono = textMono,
-            onScale = { textScale = it; repo.store.courseTextScale = it },
-            onTeacher = { showTeacher = it; repo.store.showTeacherOnCard = it },
-            onClassroom = { showClassroom = it; repo.store.showClassroomOnCard = it },
-            onRowHeight = { rowHeightDp = it; repo.store.courseRowHeight = it },
-            onCorner = { cornerDp = it; repo.store.courseCorner = it },
-            onAlignCenter = { alignCenter = it; repo.store.cardAlignCenter = it },
-            onTextMono = { textMono = it; repo.store.cardTextMono = it },
-            onDismiss = { showDisplaySettings = false },
-        )
-    }
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .statusBarsPadding(),
-    ) {
-        // ── 顶部：居中周次 + 右上切换课表/外观（Nexio 式，无左右箭头） ──
-        Box(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 8.dp)) {
-            Column(
-                Modifier.align(Alignment.Center),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text("第 $displayWeek 周", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = ds.text)
-                if (displayWeek == currentWeek) Text("本周", fontSize = 11.sp, color = ds.accent)
+    // Switching terms/start dates resets paging and selection even when the parent keeps this screen alive.
+    key(calendar?.year, calendar?.semester, calendar?.startDate) {
+        val pager = rememberPagerState(initialPage = initialWeek - 1, pageCount = { totalWeeks })
+        val scope = rememberCoroutineScope()
+        var selected by remember { mutableStateOf<CourseBlock?>(null) }
+        var showLesson by remember { mutableStateOf(false) }
+        var showWeekPicker by remember { mutableStateOf(false) }
+        val displayWeek = pager.currentPage + 1
+        var lastCurrentWeek by remember { mutableStateOf(currentWeek) }
+        LaunchedEffect(currentWeek, totalWeeks) {
+            // Follow midnight/week rollover only when the user was looking at the previous current week.
+            if (pager.currentPage + 1 == lastCurrentWeek && currentWeek in 1..totalWeeks) {
+                pager.scrollToPage(currentWeek - 1)
+            } else if (pager.currentPage >= totalWeeks) {
+                pager.scrollToPage(totalWeeks - 1)
             }
-            Row(
-                Modifier.align(Alignment.CenterEnd).padding(end = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // 切换课表（整个学期）
-                Box(
-                    Modifier
-                        .size(34.dp)
-                        .background(ds.card.copy(alpha = if (LocalWallpaperActive.current) 0.55f else 0.8f), CircleShape)
-                        .clickable { showTermSwitch = true },
-                    contentAlignment = Alignment.Center,
-                ) { Text("⇄", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = ds.accent) }
-                // 外观设置
-                Box(
-                    Modifier
-                        .size(34.dp)
-                        .background(ds.card.copy(alpha = if (LocalWallpaperActive.current) 0.55f else 0.8f), CircleShape)
-                        .clickable { showDisplaySettings = true },
-                    contentAlignment = Alignment.Center,
-                ) { Text("Aa", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = ds.accent) }
+            lastCurrentWeek = currentWeek
+        }
+        val jumpToWeek: (Int) -> Unit = { week ->
+            scope.launch { pager.animateScrollToPage((week - 1).coerceIn(0, totalWeeks - 1)) }
+        }
+        val weekCounts = remember(validBlocks) { validBlocks.groupingBy { it.week }.eachCount() }
+        val blocksByWeek = remember(validBlocks) { validBlocks.groupBy { it.week } }
+        val ds = LocalDs.current
+
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            ScheduleHeader(
+                week = displayWeek,
+                currentWeek = currentWeek,
+                totalWeeks = totalWeeks,
+                weekStart = ScheduleTimes.dateAt(termStart, displayWeek, 1),
+                onChooseWeek = { showWeekPicker = true },
+                onCurrentWeek = { jumpToWeek(currentWeek) },
+                onSwitchTerm = { showTermSwitch = true },
+                onDisplaySettings = { showDisplaySettings = true },
+                onImport = onImport,
+            )
+            if (syncError != null) {
+                Text(
+                    "同步失败：$syncError",
+                    color = ds.danger,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
+                )
+            }
+            HorizontalPager(
+                state = pager,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+                key = { it },
+            ) { page ->
+                val week = page + 1
+                val weekBlocks = blocksByWeek[week].orEmpty()
+                WeekGrid(
+                    week = week,
+                    termStart = termStart,
+                    blocks = weekBlocks,
+                    allBlocks = validBlocks,
+                    now = now,
+                    textScale = textScale,
+                    showTeacher = showTeacher,
+                    showClassroom = showClassroom,
+                    rowHeight = rowHeight.dp,
+                    cornerRadius = corner.dp,
+                    alignCenter = alignCenter,
+                    textMono = textMono,
+                    smartHideWeekend = smartWeekend,
+                    emptyTitle = when {
+                        validBlocks.isEmpty() && !fullTermImported -> "还没有课表"
+                        fullTermImported -> "第 $week 周暂无课程"
+                        else -> "第 $week 周尚未导入"
+                    },
+                    emptyMessage = if (fullTermImported) "教务当前返回的课表中没有本周排课。调课后可重新导入核对。"
+                        else "导入教务学期课表，查看实际排课与完整周次。",
+                    onImport = onImport,
+                    onLessonClick = { selected = it; showLesson = true },
+                )
             }
         }
-
-        if (syncError != null) {
-            Text(
-                text = "同步失败：$syncError（设置里重试）",
-                fontSize = 12.sp,
-                color = ds.danger,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-            )
-        } else if (blocks.isEmpty()) {
-            Text(
-                text = "尚未获取课表，请到「设置 → 教务学期导入」读取实际排课。",
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
-                color = ds.sub,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-            )
+        WeekPickerDialog(
+            show = showWeekPicker,
+            selectedWeek = displayWeek,
+            currentWeek = currentWeek,
+            totalWeeks = totalWeeks,
+            weekCounts = weekCounts,
+            fullTermImported = fullTermImported,
+            onPick = { showWeekPicker = false; jumpToWeek(it) },
+            onDismiss = { showWeekPicker = false },
+        )
+        val selectedBlock = selected
+        val lessons = remember(selectedBlock, validBlocks) {
+            if (selectedBlock == null) emptyList() else aggregateCellLessons(selectedBlock, validBlocks)
         }
-
-        val weekBlocks = remember(blocks, displayWeek) { blocks.filter { it.week == displayWeek } }
-        if (weekBlocks.isEmpty() && blocks.isNotEmpty()) {
-            Text(
-                if (fullTermImported) "教务当前响应中，本周没有排课；后续调课请重新导入核对。"
-                else "第 $displayWeek 周尚未获取。门户仅返回部分周次，请使用教务学期导入。",
-                fontSize = 12.sp, color = ds.sub,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-            )
-        }
-        WeekGrid(
-            week = displayWeek,
-            calendar = calendar,
-            blocks = weekBlocks,
-            textScale = textScale,
-            showTeacher = showTeacher,
-            showClassroom = showClassroom,
-            rowHeight = rowHeightDp.dp,
-            cornerRadius = cornerDp.dp,
-            alignCenter = alignCenter,
-            textMono = textMono,
-            smartHideWeekend = repo.store.smartHideWeekend,
-            onLessonClick = { selected = it },
-            modifier = Modifier
-                .offset {
-                    androidx.compose.ui.unit.IntOffset((dragPx + rebound.value).toInt(), 0)
-                }
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
-                        onDragStart = {
-                            tracker.resetTracking()
-                            dragPx = 0f
-                        },
-                        onDragEnd = {
-                            val vx = runCatching { tracker.calculateVelocity().x }.getOrDefault(0f)
-                            val goNext = dragPx <= -dragThreshold || vx <= -flingVelocity
-                            val goPrev = dragPx >= dragThreshold || vx >= flingVelocity
-                            val canPrev = currentWeek + offset > 1
-                            val moved = (goNext || (goPrev && canPrev))
-                            if (goNext) offset += 1 else if (goPrev && canPrev) offset -= 1
-                            dragPx = 0f
-                            // 切周后新内容从滑动方向轻推入位再缓动归零；没切成就原地平滑回弹
-                            val start = when {
-                                goNext -> enterOffset
-                                goPrev && canPrev -> -enterOffset
-                                else -> 0f
-                            }
-                            scope.launch {
-                                rebound.snapTo(start)
-                                rebound.animateTo(0f, tween(if (moved) 210 else 150, easing = FastOutSlowInEasing))
-                            }
-                        },
-                        onDragCancel = {
-                            dragPx = 0f
-                            scope.launch { rebound.animateTo(0f, tween(120)) }
-                        },
-                    ) { change, dragAmount ->
-                        tracker.addPosition(change.uptimeMillis, change.position)
-                        // 右滑=上一周（offset-1），左滑=下一周（offset+1）；不越出学期边界
-                        val atStart = currentWeek + offset <= 1 && dragAmount > 0
-                        if (!atStart) dragPx += dragAmount
-                        change.consume()
-                    }
-                },
+        ScheduleLessonSheet(
+            show = showLesson,
+            lessons = lessons,
+            week = selectedBlock?.week ?: displayWeek,
+            allWeeks = totalWeeks,
+            onDismiss = { showLesson = false },
+            onDismissFinished = { selected = null },
         )
     }
+    ScheduleDisplayDialog(
+        show = showDisplaySettings,
+        textScale = textScale,
+        showTeacher = showTeacher,
+        showClassroom = showClassroom,
+        rowHeight = rowHeight,
+        corner = corner,
+        alignCenter = alignCenter,
+        textMono = textMono,
+        smartWeekend = smartWeekend,
+        onScale = { textScale = it; repo.store.courseTextScale = it },
+        onTeacher = { showTeacher = it; repo.store.showTeacherOnCard = it },
+        onClassroom = { showClassroom = it; repo.store.showClassroomOnCard = it },
+        onRowHeight = { rowHeight = it; repo.store.courseRowHeight = it },
+        onCorner = { corner = it; repo.store.courseCorner = it },
+        onAlignCenter = { alignCenter = it; repo.store.cardAlignCenter = it },
+        onTextMono = { textMono = it; repo.store.cardTextMono = it },
+        onSmartWeekend = { smartWeekend = it; repo.store.smartHideWeekend = it },
+        onDismiss = { showDisplaySettings = false },
+    )
+    ScheduleTermDialog(
+        show = showTermSwitch,
+        year = calendar?.year.orEmpty(),
+        current = calendar?.semester.orEmpty(),
+        onPick = { showTermSwitch = false; onSwitchTerm(it) },
+        onDismiss = { showTermSwitch = false },
+    )
 }
 
 @Composable
 private fun WeekGrid(
     week: Int,
-    calendar: CalendarInfo?,
+    termStart: LocalDate?,
     blocks: List<CourseBlock>,
+    allBlocks: List<CourseBlock>,
+    now: LocalDateTime,
     textScale: Float,
     showTeacher: Boolean,
     showClassroom: Boolean,
-    rowHeight: androidx.compose.ui.unit.Dp,
-    cornerRadius: androidx.compose.ui.unit.Dp,
+    rowHeight: Dp,
+    cornerRadius: Dp,
     alignCenter: Boolean,
     textMono: Boolean,
     smartHideWeekend: Boolean,
+    emptyTitle: String,
+    emptyMessage: String,
+    onImport: () -> Unit,
     onLessonClick: (CourseBlock) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val ds = LocalDs.current
-    // 时间线/上课中标记要自己走：对齐到下一整分钟刷新一次，页面停留期间红线才会移动
-    var today by remember { mutableStateOf(LocalDate.now()) }
-    var now by remember { mutableStateOf(LocalTime.now()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            val t = LocalDateTime.now()
-            today = t.toLocalDate()
-            now = t.toLocalTime()
-            delay(60_000L - t.second * 1_000L - t.nano / 1_000_000L + 200L)
-        }
-    }
-
-    // 智能周末：开=无课则隐藏周六日；关=始终 7 天
+    val today = now.toLocalDate()
+    val time = now.toLocalTime()
     val days = remember(blocks, smartHideWeekend) {
-        if (!smartHideWeekend) (1..7).toList()
-        else (1..7).filter { it <= 5 || blocks.any { b -> b.day == it } }
+        (1..7).filter { !smartHideWeekend || it <= 5 || blocks.any { block -> block.day == it } }
     }
-
-    val monday = remember(calendar) {
-        calendar?.startDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+    val dates = remember(termStart, week, days) { days.associateWith { ScheduleTimes.dateAt(termStart, week, it) } }
+    val totalSections = maxOf(ScheduleTimes.TOTAL_SECTIONS, blocks.maxOfOrNull { it.endSection } ?: 1)
+    val gridHeight = remember(rowHeight, totalSections) { ScheduleLayout.sectionY(totalSections, rowHeight) + rowHeight }
+    val currentSection = remember(dates, today, time) {
+        if (dates.values.any { it == today }) ScheduleTimes.currentSection(time) else null
     }
-
-    val ROW_H = rowHeight
-    fun sectionY(section: Int) =
-        ROW_H * (section - 1) +
-            (if (section >= 5) BREAK_H else 0.dp) +
-            (if (section >= 9) BREAK_H else 0.dp)
-
-    val gridH = sectionY(ScheduleTimes.TOTAL_SECTIONS) + ROW_H
-
-    // 当前时间线位置（只在显示本周时画）
-    val nowLineY: androidx.compose.ui.unit.Dp? = remember(week, calendar, days, now) {
-        if (calendar?.week != week) return@remember null
-        if (!days.contains(today.dayOfWeek.value)) return@remember null
-        ScheduleTimes.slots.forEachIndexed { index, slot ->
-            val s = runCatching { LocalTime.parse(slot.first) }.getOrNull() ?: return@forEachIndexed
-            val e = runCatching { LocalTime.parse(slot.second) }.getOrNull() ?: return@forEachIndexed
-            if (!now.isBefore(s) && !now.isAfter(e)) {
-                val frac = (now.toSecondOfDay() - s.toSecondOfDay()).toFloat() /
-                    (e.toSecondOfDay() - s.toSecondOfDay()).coerceAtLeast(1)
-                return@remember sectionY(index + 1) + ROW_H * frac
-            }
-        }
-        null
-    }
-
-    Column(modifier.fillMaxSize()) {
-        // 表头
-        Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
-            Spacer(Modifier.width(SCALE_W))
-            days.forEach { day ->
-                // startDate = 学期第一周周一（门户校历语义），不是当前周周一
-                val date = monday?.plusDays((week - 1) * 7L + (day - 1))
-                val isToday = date == today
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        ScheduleTimes.dayNames[day - 1],
-                        fontSize = 13.sp,
-                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isToday) ds.accent else ds.text,
-                    )
-                    Text(
-                        date?.let { "${it.monthValue}/${it.dayOfMonth}" } ?: "",
-                        fontSize = 10.sp,
-                        color = if (isToday) ds.accent else ds.sub,
-                    )
+    // Keys include date AND rowHeight; stale calendar.week never decides whether this is today's grid.
+    val lineY = remember(dates, today, time, rowHeight) {
+        if (dates.values.none { it == today }) null else {
+            ScheduleTimes.currentSection(time)?.let { section ->
+                ScheduleTimes.sectionProgress(section, time)?.let { progress ->
+                    ScheduleLayout.sectionY(section, rowHeight) + rowHeight * progress
                 }
             }
         }
-
-        // 网格
-        Box(
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
+    }
+    val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().height(ScheduleLayout.DateHeight).padding(end = 2.dp)) {
+            Box(Modifier.width(ScheduleLayout.SectionWidth).height(ScheduleLayout.DateHeight), contentAlignment = Alignment.Center) {
+                Text(dates.values.firstOrNull()?.let { "${it.monthValue}月" }.orEmpty(), fontSize = 10.sp, color = ds.sub)
+            }
+            days.forEach { day ->
+                val date = dates[day]
+                val isToday = date == today
+                Box(Modifier.weight(1f).height(ScheduleLayout.DateHeight).padding(horizontal = 2.dp), contentAlignment = Alignment.Center) {
+                    Column(
+                        Modifier.fillMaxSize().background(if (isToday) ds.accentSoft else Color.Transparent, CircleShape),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            ScheduleTimes.dayNames[day - 1],
+                            fontSize = 13.sp,
+                            lineHeight = 16.sp,
+                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isToday) ds.accent else ds.text,
+                        )
+                        if (date != null) {
+                            Text("${date.monthValue}/${date.dayOfMonth}", fontSize = 10.sp, lineHeight = 13.sp, color = if (isToday) ds.accent else ds.sub)
+                        }
+                    }
+                }
+            }
+        }
+        Column(
+            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(top = 2.dp, bottom = ScheduleLayout.BottomClearance + bottomInset),
         ) {
-            Box(Modifier.fillMaxWidth().height(gridH)) {
-                Row(Modifier.fillMaxWidth().height(gridH)) {
-                    // 刻度
-                    Box(Modifier.width(SCALE_W).height(gridH)) {
-                        val cur = ScheduleTimes.currentSection(now)
-                        for (s in 1..ScheduleTimes.TOTAL_SECTIONS) {
-                            // 刻度与指示条用 Box 叠加：指示条不占布局高度（占位会把节号顶下去）
-                            Box(
-                                Modifier.offset(y = sectionY(s)).width(SCALE_W).height(ROW_H),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (s == cur) {
-                                    Box(
-                                        Modifier
-                                            .align(Alignment.CenterStart)
-                                            .width(3.dp)
-                                            .height(ROW_H - 10.dp)
-                                            .background(ds.accent, RoundedCornerShape(2.dp)),
-                                    )
-                                }
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        "$s",
-                                        fontSize = 12.sp,
-                                        lineHeight = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = ds.text,
-                                        textAlign = TextAlign.Center,
-                                    )
-                                    if (ScheduleTimes.start(s).isNotEmpty()) {
-                                        Text(ScheduleTimes.start(s), fontSize = 8.sp, lineHeight = 10.sp, color = ds.sub)
-                                        Text(ScheduleTimes.end(s), fontSize = 8.sp, lineHeight = 10.sp, color = ds.sub)
+            if (blocks.isEmpty()) {
+                ScheduleEmptyState(emptyTitle, emptyMessage, onImport)
+            }
+            Box(Modifier.fillMaxWidth().height(gridHeight).padding(end = 2.dp)) {
+                val gridColor = ds.text.copy(alpha = if (ds.isDark) 0.055f else 0.035f)
+                Box(
+                    Modifier.fillMaxSize().padding(start = ScheduleLayout.SectionWidth).drawBehind {
+                        val dayWidth = size.width / days.size
+                        for (index in 0..days.size) {
+                            drawLine(gridColor, Offset(dayWidth * index, 0f), Offset(dayWidth * index, size.height), 0.5.dp.toPx())
+                        }
+                        for (section in 1..totalSections) {
+                            val y = ScheduleLayout.sectionY(section, rowHeight).toPx()
+                            drawLine(gridColor, Offset(0f, y), Offset(size.width, y), 0.5.dp.toPx())
+                        }
+                    },
+                )
+                Row(Modifier.fillMaxSize()) {
+                    ScheduleSectionColumn(totalSections, currentSection, rowHeight, gridHeight)
+                    days.forEach { day ->
+                        val dayBlocks = remember(blocks, day) { blocks.filter { it.day == day }.sortedBy { it.startSection } }
+                        Box(Modifier.weight(1f).height(gridHeight)) {
+                            // Keep every real section span. Only exactly matching slots share a card;
+                            // partial overlaps get separate lanes rather than extending a representative.
+                            val groups = remember(dayBlocks) { groupOverlappingLessons(dayBlocks) }
+                            groups.forEach { group ->
+                                val lanes = remember(group) { lessonLanes(group) }
+                                Row(Modifier.fillMaxSize()) {
+                                    lanes.forEach { lane ->
+                                        Box(Modifier.weight(1f).height(gridHeight)) {
+                                            lane.forEach { slot ->
+                                                val block = slot.firstOrNull { ScheduleTimes.isOngoing(it, termStart, now) } ?: slot.first()
+                                                val relatedCount = remember(block, allBlocks) { aggregateCellLessons(block, allBlocks).size }
+                                                val segments = remember(block.startSection, block.endSection) {
+                                                    ScheduleTimes.segments(block.startSection, block.endSection)
+                                                }
+                                                segments.forEachIndexed { index, segment ->
+                                                    LessonCard(
+                                                        block = block,
+                                                        isPast = slot.all {
+                                                            ScheduleTimes.isPast(it.copy(startSection = segment.first, endSection = segment.last), termStart, now)
+                                                        },
+                                                        isOngoing = slot.any {
+                                                            ScheduleTimes.isOngoing(it.copy(startSection = segment.first, endSection = segment.last), termStart, now)
+                                                        },
+                                                        hasMultipleCourses = index == 0 && relatedCount > 1,
+                                                        textScale = textScale,
+                                                        showTeacher = showTeacher,
+                                                        showClassroom = showClassroom,
+                                                        cornerRadius = cornerRadius,
+                                                        alignCenter = alignCenter,
+                                                        textMono = textMono,
+                                                        cardHeight = rowHeight * (segment.last - segment.first + 1),
+                                                        onClick = { onLessonClick(block) },
+                                                        modifier = Modifier.offset(y = ScheduleLayout.sectionY(segment.first, rowHeight)),
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-
-                    // 日列
-                    days.forEach { day ->
-                        Box(
-                            Modifier
-                                .weight(1f)
-                                .height(gridH)
-                                .padding(horizontal = 1.dp),
-                        ) {
-                            blocks.filter { it.day == day }.forEach { b ->
-                                val date = monday?.plusDays((week - 1) * 7L + (day - 1))
-                                val startT = ScheduleTimes.start(b.startSection)
-                                    .takeIf { it.isNotEmpty() }?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
-                                val endT = ScheduleTimes.end(b.endSection)
-                                    .takeIf { it.isNotEmpty() }?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
-                                val isToday = date == today
-                                val ongoing = isToday && startT != null && endT != null &&
-                                    !now.isBefore(startT) && !now.isAfter(endT)
-                                val past = when {
-                                    date == null -> false
-                                    date.isBefore(today) -> true
-                                    isToday && endT != null -> now.isAfter(endT)
-                                    else -> false
-                                }
-                                LessonCard(
-                                    block = b,
-                                    isPast = past,
-                                    isOngoing = ongoing,
-                                    textScale = textScale,
-                                    showTeacher = showTeacher,
-                                    showClassroom = showClassroom,
-                                    cornerRadius = cornerRadius,
-                                    alignCenter = alignCenter,
-                                    textMono = textMono,
-                                    onClick = { onLessonClick(b) },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .offset(y = sectionY(b.startSection) + 2.dp)
-                                        .height((ROW_H * (b.endSection - b.startSection + 1)) - 4.dp)
-                                        .padding(horizontal = 1.dp),
-                                )
-                            }
-                        }
-                    }
                 }
-
-                // 当前时间横线（红线 + 左端圆点）
-                nowLineY?.let { y ->
+                ScheduleBreakBand("午休", Modifier.offset(y = ScheduleLayout.sectionY(5, rowHeight) - ScheduleLayout.BreakHeight))
+                ScheduleBreakBand("晚休", Modifier.offset(y = ScheduleLayout.sectionY(9, rowHeight) - ScheduleLayout.BreakHeight))
+                lineY?.let { y ->
                     Box(
-                        Modifier
-                            .offset(y = y)
-                            .fillMaxWidth()
-                            .height(1.5.dp)
-                            .background(ds.danger.copy(alpha = 0.75f)),
+                        Modifier.offset(y = y).fillMaxWidth().padding(start = ScheduleLayout.SectionWidth - 2.dp)
+                            .height(1.5.dp).background(ds.danger.copy(alpha = 0.85f)),
                     )
                     Box(
-                        Modifier
-                            .offset(x = SCALE_W - 5.dp, y = y - 2.5.dp)
-                            .size(6.dp)
-                            .background(ds.danger, CircleShape),
+                        Modifier.offset(x = ScheduleLayout.SectionWidth - 5.dp, y = y - 2.5.dp)
+                            .size(6.dp).background(ds.danger, CircleShape),
                     )
                 }
-
-                // 午休 / 晚休
-                BreakBand("午休", Modifier.offset(y = sectionY(5) - BREAK_H).fillMaxWidth().padding(horizontal = 6.dp))
-                BreakBand("晚休", Modifier.offset(y = sectionY(9) - BREAK_H).fillMaxWidth().padding(horizontal = 6.dp))
             }
         }
     }
 }
 
 @Composable
-private fun BreakBand(text: String, modifier: Modifier) {
+private fun ScheduleSectionColumn(totalSections: Int, currentSection: Int?, rowHeight: Dp, gridHeight: Dp) {
+    val ds = LocalDs.current
+    Box(Modifier.width(ScheduleLayout.SectionWidth).height(gridHeight)) {
+        for (section in 1..totalSections) {
+            val current = section == currentSection
+            Column(
+                Modifier.fillMaxWidth().offset(y = ScheduleLayout.sectionY(section, rowHeight)).height(rowHeight),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    "$section", fontSize = 15.sp, lineHeight = 18.sp,
+                    fontWeight = if (current) FontWeight.Medium else FontWeight.Normal,
+                    color = if (current) ds.accent else ds.text,
+                )
+                if (ScheduleTimes.start(section).isNotEmpty()) {
+                    val color = if (current) ds.accent else ds.sub
+                    Text(ScheduleTimes.start(section), fontSize = 10.sp, lineHeight = 12.sp, color = color)
+                    Text(ScheduleTimes.end(section), fontSize = 10.sp, lineHeight = 12.sp, color = color)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScheduleBreakBand(text: String, modifier: Modifier) {
+    val ds = LocalDs.current
     Box(
-        modifier
-            .height(BREAK_H)
-            .padding(vertical = 4.dp)
-            .background(LocalDs.current.breakBar, RoundedCornerShape(8.dp)),
+        modifier.fillMaxWidth().height(ScheduleLayout.BreakHeight)
+            .padding(start = ScheduleLayout.SectionWidth + 2.dp, end = 2.dp, top = 2.dp, bottom = 2.dp)
+            .background((if (ds.isDark) Color.White else Color.Black).copy(alpha = if (ds.isDark) 0.06f else 0.04f), ContinuousRoundedRectangle(10.dp)),
         contentAlignment = Alignment.Center,
+    ) { Text(text, fontSize = 10.sp, color = ds.sub) }
+}
+
+@Composable
+private fun ScheduleEmptyState(title: String, message: String, onImport: () -> Unit) {
+    val ds = LocalDs.current
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 22.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(text, fontSize = 10.sp, color = LocalDs.current.sub)
+        Icon(MiuixIcons.Backup, contentDescription = null, modifier = Modifier.size(32.dp), tint = ds.sub)
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Medium, color = ds.text)
+        Text(message, fontSize = 12.sp, lineHeight = 17.sp, color = ds.sub, textAlign = TextAlign.Center)
+        Button(onClick = onImport, colors = ButtonDefaults.buttonColorsPrimary(), insideMargin = PaddingValues(horizontal = 22.dp, vertical = 10.dp)) {
+            Text("导入课表", fontSize = 14.sp)
+        }
     }
 }
 
@@ -497,401 +487,87 @@ private fun LessonCard(
     block: CourseBlock,
     isPast: Boolean,
     isOngoing: Boolean,
+    hasMultipleCourses: Boolean,
     textScale: Float,
     showTeacher: Boolean,
     showClassroom: Boolean,
-    cornerRadius: androidx.compose.ui.unit.Dp,
+    cornerRadius: Dp,
     alignCenter: Boolean,
     textMono: Boolean,
+    cardHeight: Dp,
     onClick: () -> Unit,
     modifier: Modifier,
 ) {
     val ds = LocalDs.current
     val tint = CourseColors.tint(block.name)
-    // 三态：已上过=灰、正在上=高亮描边、未开始=常色
-    val fg = when {
-        isPast -> ds.sub.copy(alpha = if (ds.isDark) 0.55f else 0.65f)
-        textMono -> ds.text
-        else -> tint
+    val inactive = Color(0xFF9E9E9E)
+    // 28a99a3: 12% tint + 92% page backing. This adapter uses its no-material path,
+    // including over wallpaper, rather than sampling an incompatible backdrop host.
+    val baseColor = (if (isPast) inactive else tint).copy(alpha = if (isPast) 0.12f * 0.7f else 0.12f)
+    val cardColor = baseColor.compositeOver(ds.bg.copy(alpha = 0.92f))
+    val preferredText = if (isPast) ds.sub.copy(alpha = 0.7f)
+        else CourseColors.text(block.name, ds.isDark, onWallpaper = false, monochrome = textMono)
+    val foreground = CourseColors.readableText(preferredText, cardColor.compositeOver(ds.bg))
+    val scale = textScale.coerceIn(0.7f, 1.4f)
+    val nameSize = (12.7f * scale).sp
+    val nameLine = (14.2f * scale).sp
+    val infoSize = (11f * scale).sp
+    val body = remember(block.name, block.room, block.teacher, showClassroom, showTeacher, nameSize, infoSize) {
+        buildAnnotatedString {
+            pushStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = nameSize))
+            append(block.name)
+            pop()
+            if (showClassroom && block.room.isNotBlank()) {
+                append('\n')
+                pushStyle(SpanStyle(fontSize = infoSize))
+                append("@${block.room}")
+                pop()
+            }
+            if (showTeacher && block.teacher.isNotBlank()) {
+                append('\n')
+                pushStyle(SpanStyle(fontSize = infoSize))
+                append(block.teacher)
+                pop()
+            }
+        }
     }
-    val onWallpaper = com.menglimi.gdust.v2.ui.LocalWallpaperActive.current
-    val liquid = com.menglimi.gdust.v2.ui.LocalUiStyle.current.value == com.menglimi.gdust.v2.ui.UiStyle.LIQUID
-    val cardBg = when {
-        isPast -> if (onWallpaper) {
-            if (ds.isDark) Color.Black.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.30f)
-        } else {
-            if (ds.isDark) Color.White.copy(alpha = 0.03f) else Color.Black.copy(alpha = 0.035f)
-        }
-        isOngoing -> if (onWallpaper) {
-            if (liquid) tint.copy(alpha = 0.30f) else tint.copy(alpha = 0.34f)
-        } else {
-            tint.copy(alpha = if (ds.isDark) 0.26f else 0.30f)
-        }
-        onWallpaper -> if (liquid) {
-            if (ds.isDark) Color.Black.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.30f)
-        } else {
-            if (ds.isDark) Color(0xFF1C1C21).copy(alpha = 0.60f) else Color.White.copy(alpha = 0.66f)
-        }
-        else -> CourseColors.bg(block.name, ds.isDark)
-    }
-    Box(
-        modifier
-            .background(cardBg, RoundedCornerShape(cornerRadius))
-            .then(
-                when {
-                    // 正在上课：课程色描边（替代原来的黄点）
-                    isOngoing -> Modifier.border(1.5.dp, tint.copy(alpha = 0.9f), RoundedCornerShape(cornerRadius))
-                    isPast -> Modifier
-                    onWallpaper && liquid -> Modifier.border(1.dp, tint.copy(alpha = 0.35f), RoundedCornerShape(cornerRadius))
-                    onWallpaper -> Modifier.border(
-                        1.dp, Color.White.copy(alpha = if (ds.isDark) 0.10f else 0.7f), RoundedCornerShape(cornerRadius))
-                    else -> Modifier
-                }
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 5.dp, vertical = 5.dp),
+    val density = LocalDensity.current
+    val maxLines = with(density) { ((cardHeight - 16.dp).value / nameLine.toDp().value).toInt().coerceAtLeast(1) }
+    Card(
+        modifier = modifier.fillMaxWidth().height(cardHeight).padding(ScheduleLayout.CardGap)
+            .then(if (isOngoing) Modifier.border(1.5.dp, ds.accent, ContinuousRoundedRectangle(cornerRadius)) else Modifier),
+        cornerRadius = cornerRadius,
+        insideMargin = PaddingValues(0.dp),
+        colors = CardDefaults.defaultColors(color = cardColor, contentColor = foreground),
+        pressFeedbackType = PressFeedbackType.Sink,
+        showIndication = true,
+        onClick = onClick,
     ) {
-        Column(
-            horizontalAlignment = if (alignCenter) Alignment.CenterHorizontally else Alignment.Start,
-            modifier = if (alignCenter) Modifier.fillMaxWidth() else Modifier,
-        ) {
-            val scale = textScale.coerceIn(0.7f, 1.4f)
+        Box(Modifier.fillMaxSize().clipToBounds()) {
             Text(
-                block.name,
-                fontSize = (12.7f * scale).sp,
-                lineHeight = (14.2f * scale).sp,
-                fontWeight = FontWeight.Bold,
-                color = fg,
-                maxLines = if (scale > 1.2f) 3 else 4,
-                overflow = TextOverflow.Ellipsis,
+                body,
+                modifier = Modifier.fillMaxWidth()
+                    .align(if (alignCenter) Alignment.Center else Alignment.TopStart)
+                    .padding(horizontal = 4.dp, vertical = 6.dp)
+                    .clearAndSetSemantics {
+                        contentDescription = buildString {
+                            append(block.name)
+                            if (block.room.isNotBlank()) append("，${block.room}")
+                            if (block.teacher.isNotBlank()) append("，${block.teacher}")
+                            append("，第 ${block.startSection} 至 ${block.endSection} 节")
+                            if (isOngoing) append("，进行中") else if (isPast) append("，已结束")
+                            if (hasMultipleCourses) append("，包含其他周次或重叠课程，点击查看")
+                        }
+                    },
+                color = foreground,
+                lineHeight = nameLine,
                 textAlign = if (alignCenter) TextAlign.Center else TextAlign.Start,
+                maxLines = maxLines,
+                overflow = TextOverflow.Ellipsis,
             )
-            if (showClassroom && block.room.isNotEmpty()) {
-                Text(
-                    "@${block.room}",
-                    fontSize = (11f * scale).sp,
-                    lineHeight = (12f * scale).sp,
-                    color = fg,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            if (hasMultipleCourses) {
+                Box(Modifier.align(Alignment.BottomEnd).padding(5.dp).size(6.dp).background(foreground, CircleShape))
             }
-            if (showTeacher && block.teacher.isNotEmpty()) {
-                Text(
-                    block.teacher,
-                    fontSize = (11f * scale).sp,
-                    lineHeight = (12f * scale).sp,
-                    color = fg,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
-}
-
-/** 同一时间格里的一门课（聚合后）。 */
-private data class CellLesson(
-    val name: String,
-    val room: String,
-    val teacher: String,
-    val startSection: Int,
-    val endSection: Int,
-    val weeks: List<Int>,
-)
-
-/** 把周次列表压成「1-8周、10周、12-14周」这种紧凑描述。 */
-private fun formatWeeks(weeks: List<Int>, allWeek: Int): String {
-    if (weeks.isEmpty()) return ""
-    if (weeks.size >= allWeek) return "每周"
-    val sorted = weeks.distinct().sorted()
-    val sb = StringBuilder()
-    var start = sorted.first()
-    var prev = start
-    fun flush() {
-        if (sb.isNotEmpty()) sb.append("、")
-        if (prev == start) sb.append("${start}周") else sb.append("$start-$prev 周")
-    }
-    sorted.drop(1).forEach { w ->
-        if (w == prev + 1) {
-            prev = w
-        } else {
-            flush(); start = w; prev = w
-        }
-    }
-    flush()
-    return sb.toString()
-}
-
-/** 课程详情：底部面板（Nexio 式），列出该时间格的所有课 + 周次徽章。 */
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-@Composable
-private fun LessonSheet(
-    lessons: List<CellLesson>,
-    week: Int,
-    allWeek: Int,
-    onDismiss: () -> Unit,
-) {
-    val ds = LocalDs.current
-    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    androidx.compose.material3.ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = ds.card,
-        scrimColor = Color.Black.copy(alpha = 0.32f),
-        dragHandle = {
-            Box(
-                Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    Modifier
-                        .width(36.dp)
-                        .height(4.dp)
-                        .background(ds.sub.copy(alpha = 0.35f), RoundedCornerShape(2.dp)),
-                )
-            }
-        },
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(start = 18.dp, end = 18.dp, bottom = 26.dp),
-        ) {
-            Text("课程详情", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = ds.text)
-            Text(
-                "第 $week 周 · 这个时间格共 ${lessons.size} 门课",
-                fontSize = 11.sp, color = ds.sub, modifier = Modifier.padding(top = 3.dp),
-            )
-            Spacer(Modifier.height(14.dp))
-            lessons.forEach { l ->
-                val tint = CourseColors.tint(l.name)
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 10.dp)
-                        .background(
-                            if (ds.isDark) tint.copy(alpha = 0.14f) else tint.copy(alpha = 0.10f),
-                            RoundedCornerShape(14.dp),
-                        )
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            l.name,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = tint,
-                            maxLines = 2,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            formatWeeks(l.weeks, allWeek),
-                            fontSize = 10.sp,
-                            color = ds.sub,
-                            maxLines = 1,
-                            modifier = Modifier
-                                .padding(start = 8.dp)
-                                .background(ds.sub.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
-                        )
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    val start = ScheduleTimes.start(l.startSection)
-                    val end = ScheduleTimes.end(l.endSection)
-                    Text(
-                        buildString {
-                            append("第 ${l.startSection}-${l.endSection} 节")
-                            if (start.isNotEmpty() && end.isNotEmpty()) append("（$start-$end）")
-                            if (l.room.isNotBlank()) append(" · ${l.room}")
-                        },
-                        fontSize = 12.sp, color = ds.text,
-                    )
-                    if (l.teacher.isNotBlank()) {
-                        Text(l.teacher, fontSize = 12.sp, color = ds.sub, modifier = Modifier.padding(top = 2.dp))
-                    }
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .background(ds.accent, RoundedCornerShape(12.dp))
-                    .clickable(onClick = onDismiss)
-                    .padding(vertical = 11.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("知道了", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            }
-        }
-    }
-}
-
-/** 课表显示设置：字号档位 + 地点/教师开关（Nexio 式，立即生效并持久化）。 */
-@Composable
-private fun LessonDisplayDialog(
-    textScale: Float,
-    showTeacher: Boolean,
-    showClassroom: Boolean,
-    rowHeight: Int,
-    corner: Int,
-    alignCenter: Boolean,
-    textMono: Boolean,
-    onScale: (Float) -> Unit,
-    onTeacher: (Boolean) -> Unit,
-    onClassroom: (Boolean) -> Unit,
-    onRowHeight: (Int) -> Unit,
-    onCorner: (Int) -> Unit,
-    onAlignCenter: (Boolean) -> Unit,
-    onTextMono: (Boolean) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val ds = LocalDs.current
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .background(ds.card, RoundedCornerShape(20.dp))
-                .padding(20.dp)
-                .verticalScroll(rememberScrollState()),
-        ) {
-            Text("课表显示", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = ds.text)
-            Spacer(Modifier.height(14.dp))
-            Text("卡片字号", fontSize = 13.sp, color = ds.sub)
-            Spacer(Modifier.height(8.dp))
-            com.menglimi.gdust.v2.ui.screens.SegmentedChoice(
-                options = listOf(
-                    0.85f to "小",
-                    1.0f to "标准",
-                    1.15f to "大",
-                    1.3f to "特大",
-                ),
-                selected = listOf(0.85f, 1.0f, 1.15f, 1.3f).minBy { kotlin.math.abs(it - textScale) },
-                onSelect = onScale,
-            )
-            Spacer(Modifier.height(14.dp))
-            Text("卡片高度", fontSize = 13.sp, color = ds.sub)
-            Spacer(Modifier.height(8.dp))
-            com.menglimi.gdust.v2.ui.screens.SegmentedChoice(
-                options = listOf(48 to "紧凑", 56 to "标准", 64 to "宽松"),
-                selected = listOf(48, 56, 64).minBy { kotlin.math.abs(it - rowHeight) },
-                onSelect = onRowHeight,
-            )
-            Spacer(Modifier.height(14.dp))
-            Text("卡片圆角", fontSize = 13.sp, color = ds.sub)
-            Spacer(Modifier.height(8.dp))
-            com.menglimi.gdust.v2.ui.screens.SegmentedChoice(
-                options = listOf(6 to "小", 10 to "中", 14 to "大"),
-                selected = listOf(6, 10, 14).minBy { kotlin.math.abs(it - corner) },
-                onSelect = onCorner,
-            )
-            Spacer(Modifier.height(14.dp))
-            Text("内容对齐", fontSize = 13.sp, color = ds.sub)
-            Spacer(Modifier.height(8.dp))
-            com.menglimi.gdust.v2.ui.screens.SegmentedChoice(
-                options = listOf(false to "左对齐", true to "居中"),
-                selected = alignCenter,
-                onSelect = onAlignCenter,
-            )
-            Spacer(Modifier.height(14.dp))
-            Text("文字颜色", fontSize = 13.sp, color = ds.sub)
-            Spacer(Modifier.height(8.dp))
-            com.menglimi.gdust.v2.ui.screens.SegmentedChoice(
-                options = listOf(false to "彩色", true to "单色"),
-                selected = textMono,
-                onSelect = onTextMono,
-            )
-            Spacer(Modifier.height(16.dp))
-            DisplayToggleRow("显示地点", showClassroom, onClassroom)
-            Spacer(Modifier.height(10.dp))
-            DisplayToggleRow("显示教师", showTeacher, onTeacher)
-            Spacer(Modifier.height(18.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .background(ds.accent, RoundedCornerShape(12.dp))
-                    .clickable(onClick = onDismiss)
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("完成", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            }
-        }
-    }
-}
-
-@Composable
-private fun DisplayToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    val ds = LocalDs.current
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, fontSize = 14.sp, color = ds.text, modifier = Modifier.weight(1f))
-        androidx.compose.material3.Switch(
-            checked = checked,
-            onCheckedChange = onChange,
-            colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = ds.accent),
-        )
-    }
-}
-
-/** 切换课表（学期）：切换后清空当前展示并尝试重新同步该学期。 */
-@Composable
-private fun TermSwitchDialog(
-    year: String,
-    current: String,
-    onPick: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val ds = LocalDs.current
-    val options = listOf("3" to "第一学期", "12" to "第二学期")
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .background(ds.card, RoundedCornerShape(20.dp))
-                .padding(20.dp),
-        ) {
-            Text("切换课表", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = ds.text)
-            Text(
-                if (year.isNotBlank()) "$year 学年" else "选择学期",
-                fontSize = 12.sp, color = ds.sub, modifier = Modifier.padding(top = 4.dp),
-            )
-            Spacer(Modifier.height(14.dp))
-            options.forEach { (code, label) ->
-                val picked = code == current
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (picked) ds.accent.copy(alpha = 0.14f) else Color.Transparent,
-                            RoundedCornerShape(12.dp),
-                        )
-                        .clickable { if (!picked) onPick(code) else onDismiss() }
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(label, fontSize = 15.sp, color = ds.text, modifier = Modifier.weight(1f))
-                    if (picked) Text("当前", fontSize = 11.sp, color = ds.accent)
-                }
-                Spacer(Modifier.height(6.dp))
-            }
-            Text(
-                "切换后会清空当前展示并尝试同步该学期课表；失败时可回到设置用网页导入。",
-                fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-            Spacer(Modifier.height(12.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .background(ds.sub.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
-                    .clickable(onClick = onDismiss)
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center,
-            ) { Text("取消", fontSize = 14.sp, color = ds.sub) }
         }
     }
 }

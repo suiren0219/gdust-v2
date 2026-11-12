@@ -1,4 +1,5 @@
-package com.menglimi.gdust.v2.ui.nexio.effects
+// Ported from HaoZai000/NexioSchedule 28a99a3b23458a0d39741b9841c9755f5374fba2 (AGPL-3.0).
+package com.menglimi.gdust.v2.ui.nexio.effects.liquidglass
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
@@ -10,12 +11,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.unit.IntSize
+import kotlin.math.abs
+import kotlin.time.Clock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlin.math.abs
-import kotlin.time.Clock
 
 /**
  * 复刻自 AndroidLiquidGlass-kmp catalog/utils/DampedDragAnimation.kt

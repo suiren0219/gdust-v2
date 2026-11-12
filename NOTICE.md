@@ -9,9 +9,9 @@
 - 上游项目：Nexio课程表（作者：HaoZai000 / haooz）
 - 上游许可：GNU AGPL-3.0（与本项目一致）
 - 参考包：`Nexio课程表 1.7.0-1113`（versionCode 170，package `com.haooz.chedule`，内含 revision `28a99a3b23458a0d39741b9841c9755f5374fba2`）
-- 参考源码：本地检出 `NexioSchedule`（HEAD `c540e9a`，早于上述包）用于对照写法
+- 精确参考源码：[HaoZai000/NexioSchedule](https://github.com/HaoZai000/NexioSchedule/tree/28a99a3b23458a0d39741b9841c9755f5374fba2)，对应上述 APK revision；先前 `c540e9a` 仅用于移植组件底座对照
 
-移植方式：把上游 Compose 页面与组件源码抄入本项目（`ui/` 下对应文件），仅替换数据来源与业务调用（原项目用 KMP `:core` + ViewModel，本项目用 `Repository` + `Store`）。UI 结构、版式参数与动效节奏保持上游实现。
+移植范围：新版 `LiquidBottomTabs`、`CapsuleSlider`、`CapsuleSelector`、SoftGlass 样式及交互 helpers 直接移植并适配；今日、课表、设置参照该提交的 Compose 页面和组件重写数据接线。保留广科的 `Repository` / `Store`、实际排课与导航契约。电费和待办为使用同一组件体系的本地页面。课表卡当前采用无材质着色路径，未接入上游 `GlassSurface`；本项目不宣称全页面像素级复刻。
 
 ## 其他依赖
 

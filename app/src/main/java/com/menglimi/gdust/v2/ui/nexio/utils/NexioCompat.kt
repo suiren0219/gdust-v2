@@ -1,53 +1,53 @@
 package com.menglimi.gdust.v2.ui.nexio.utils
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
+import com.haooz.softglass.GlassMaterialLevel
+import com.haooz.softglass.glass.BrightTone
+import com.haooz.softglass.glass.GlassFill
+import com.haooz.softglass.glass.GlassTone
+import com.haooz.softglass.glass.SoftGlassStyle
+import com.haooz.softglass.glass.ThemeFill
+import com.haooz.softglass.tuning
+import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.LocalUiStyle
+import com.menglimi.gdust.v2.ui.UiStyle
+
+/** Read the host theme; SoftGlassTheme owns GlassEnvironment for drawing. */
+@Composable
+fun isAppDarkTheme(): Boolean = LocalDs.current.isDark
 
 /**
- * Nexio 组件的接线点：上游这些工具读的是它自己的偏好（主题档位/材质档/壁纸）。
- * 本项目只保留语义等价的最小实现，避免把上游整套设置系统搬进来。
+ * Adapted from NexioSchedule 28a99a3 AppMaterialSettings.kt (AGPL-3.0).
+ * gdust SOFT is the upstream frosted tier; LIQUID retains refraction and edge highlights.
+ * Read CompositionLocal state directly so style changes invalidate the remembered shader effects.
  */
-
-val AppThemeSnapshot = com.kyant.backdrop.AppThemeSnapshot
-
-val PageBackdropSnapshot = com.kyant.backdrop.PageBackdropSnapshot
-
-/** 当前生效的深浅色；顺带把结果写进 [AppThemeSnapshot] 供 draw 阶段读取。 */
-@Composable
-fun isAppDarkTheme(): Boolean {
-    val dark = isSystemInDarkTheme()
-    SideEffect { AppThemeSnapshot.isDark.value = dark }
-    return dark
-}
-
-/** 材质档位：本项目只有「标准」一档，取值对齐上游默认（均衡）。 */
 object AppMaterialSettings {
+    @Composable
+    private fun materialLevel(): GlassMaterialLevel = when (LocalUiStyle.current.value) {
+        UiStyle.SOFT -> GlassMaterialLevel.FROSTED
+        UiStyle.LIQUID -> GlassMaterialLevel.SOFT
+    }
+
+    @Composable
+    fun chromeLensEnabled(): Boolean = materialLevel() == GlassMaterialLevel.SOFT
+
+    @Composable
+    fun glassEffectsEnabled(): Boolean = materialLevel() != GlassMaterialLevel.NONE
+
+    @Composable
+    fun glassBlurDp(): Float = materialLevel().tuning().blurDp
+
     fun solidSurfaceAlpha(value: Float): Float = value
-    fun chromeLensEnabled(): Boolean = true
-    fun glassEffectsEnabled(): Boolean = true
-    fun glassBlurDp(): Float = 8f
-    fun resolveEdgeLight(base: com.kyant.backdrop.edgelight.EdgeLight, isLight: Boolean, color: Color?): com.kyant.backdrop.edgelight.EdgeLight = base
+
+    @Composable
+    fun chromeGlassStyle(
+        base: SoftGlassStyle,
+        isDark: Boolean,
+        fill: GlassFill = ThemeFill,
+        tone: GlassTone = BrightTone,
+    ): SoftGlassStyle {
+        val resolved = base.copy(fill = fill, tone = tone).filled(isDark)
+        return if (chromeLensEnabled()) resolved
+        else resolved.copy(refractionScale = 0f, edgeHighlight = false)
+    }
 }
-
-/** 描边光：上游注入「是否浅色 + 材质档」，这里只保留深浅色信息。 */
-@Composable
-fun rememberDefaultEdgeLight(baseColor: Color? = null): com.kyant.backdrop.edgelight.EdgeLight =
-    com.kyant.backdrop.edgelight.rememberDefaultEdgeLight(
-        baseColor = baseColor,
-        isLightTheme = !isAppDarkTheme(),
-        resolveMaterial = { base, _, _ -> base },
-    )
-
-@Composable
-fun rememberCardEdgeLight(baseColor: Color? = null): com.kyant.backdrop.edgelight.EdgeLight =
-    com.kyant.backdrop.edgelight.rememberCardEdgeLight(
-        baseColor = baseColor,
-        isLightTheme = !isAppDarkTheme(),
-        resolveMaterial = { base, _, _ -> base },
-    )
-
-/** 底栏内边距档位：上游按屏幕尺寸取，这里固定标准值。 */
-val BottomBarHorizontalPadding = 4.dp

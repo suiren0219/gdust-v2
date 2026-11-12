@@ -45,10 +45,7 @@ class MainActivity : ComponentActivity() {
             val checked = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
             val monetEnabled = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(app.repo.store.monetEnabled) }
             AppTheme(styleState = style, monetEnabled = monetEnabled.value) {
-                // 新版界面（Nexio 1.7 移植）跑在 Miuix 主题下；外层玻璃主题继续供旧页面/弹层使用
-                com.menglimi.gdust.v2.ui.nexio.NexioTheme(monetEnabled = monetEnabled.value) {
-                    AppRoot(app.repo, tab = tab, showSettings = showSettings, loggedIn = loggedIn, checked = checked, monetEnabled = monetEnabled)
-                }
+                AppRoot(app.repo, tab = tab, showSettings = showSettings, loggedIn = loggedIn, checked = checked, monetEnabled = monetEnabled)
             }
         }
     }

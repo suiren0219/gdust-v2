@@ -76,8 +76,14 @@ fun WithTypography(ds: Ds, content: @Composable () -> Unit) {
     androidx.compose.material3.MaterialTheme(
         colorScheme = if (ds.isDark) androidx.compose.material3.darkColorScheme(
             background = ds.bg, surface = ds.card, primary = ds.accent,
+            onBackground = ds.text, onSurface = ds.text, onSurfaceVariant = ds.sub,
+            primaryContainer = ds.accentSoft, onPrimaryContainer = ds.accent,
+            error = ds.danger, outline = ds.cardStroke,
         ) else androidx.compose.material3.lightColorScheme(
             background = ds.bg, surface = ds.card, primary = ds.accent,
+            onBackground = ds.text, onSurface = ds.text, onSurfaceVariant = ds.sub,
+            primaryContainer = ds.accentSoft, onPrimaryContainer = ds.accent,
+            error = ds.danger, outline = ds.cardStroke,
         ),
         typography = androidx.compose.material3.Typography(
             headlineLarge = androidx.compose.ui.text.TextStyle(fontSize = 35.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = ds.text),
@@ -90,59 +96,28 @@ fun WithTypography(ds: Ds, content: @Composable () -> Unit) {
     )
 }
 
-/** 玻璃卡按风格分派：SOFT 走 softglass drawBackdrop，LIQUID 走 GlasmioCard。 */
+/** Nexio 的 Miuix Card 表面；保留旧调用签名，业务页共享同一套圆角与材质。 */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    // 有壁纸时：不用 backdrop（采样层已透明），改半透明磨砂——但两套风格材质必须可区分：
-    // SOFT = 偏实的白色磨砂（HyperOS 卡片感）；LIQUID = 更通透 + accent 细描边 + 大圆角（iOS 卡片感）
-    if (LocalWallpaperActive.current) {
-        val ds = LocalDs.current
-        val liquid = LocalUiStyle.current.value == UiStyle.LIQUID
-        val surface = when {
-            liquid && ds.isDark -> Color.Black.copy(alpha = 0.30f)
-            liquid -> Color.White.copy(alpha = 0.28f)
-            ds.isDark -> Color(0xFF1C1C21).copy(alpha = 0.72f)
-            else -> Color.White.copy(alpha = 0.62f)
-        }
-        val corner = if (liquid) 24.dp else 20.dp
-        val stroke = if (liquid) ds.accent.copy(alpha = 0.30f)
-        else if (ds.isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.75f)
-        Box(
-            modifier
-                .fillMaxWidth()
-                .background(surface, RoundedCornerShape(corner))
-                .border(1.dp, stroke, RoundedCornerShape(corner))
-                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
-        ) {
-            Box(Modifier.padding(16.dp)) { content() }
-        }
-        return
-    }
-    if (LocalUiStyle.current.value == UiStyle.SOFT) {
-        val backdrop = LocalBackdrop.current
-        val shape = ContinuousRoundedRectangle(20.dp)
-        Box(
-            modifier
-                .fillMaxWidth()
-                .drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { shape },
-                    effects = { blur(16f) },
-                )
-                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
-        ) {
-            Box(Modifier.padding(16.dp)) { content() }
-        }
-    } else {
-        io.github.neoruaa.glasmio.ui.GlasmioCard(
-            modifier = modifier.fillMaxWidth(),
-            onClick = onClick,
-        ) {
-            Box(Modifier.padding(16.dp)) { content() }
-        }
+    val ds = LocalDs.current
+    val liquid = LocalUiStyle.current.value == UiStyle.LIQUID
+    val surface = if (LocalWallpaperActive.current) {
+        ds.card.copy(alpha = if (liquid) 0.80f else 0.94f)
+    } else ds.card
+    top.yukonga.miuix.kmp.basic.Card(
+        modifier = modifier.fillMaxWidth(),
+        cornerRadius = 20.dp,
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(
+            color = surface,
+            contentColor = ds.text,
+        ),
+        onClick = onClick,
+        showIndication = onClick != null,
+    ) {
+        Box(Modifier.padding(16.dp), content = content)
     }
 }

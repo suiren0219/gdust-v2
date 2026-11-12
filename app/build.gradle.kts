@@ -100,7 +100,7 @@ dependencies {
 
     // Nexio 作者的 HyperOS 柔光玻璃引擎（Apache-2.0，JitPack，纯 Kotlin 无 native）
     // 风格一：HyperOS 柔光（只取 android 变体，根坐标会拉 jvm jar 导致 duplicate class）
-    implementation("com.github.HaoZai000.softglass:softglass-android:0.1.0")
+    implementation("com.github.HaoZai000.softglass:softglass-android:0.1.1")
     // 风格二：iOS 27 液态玻璃（Apache-2.0，Maven 三模块同版本 0.1.2）
     implementation("io.github.neoruaa.glasmio:glasmio-scaffold:0.1.2")
     implementation("io.github.neoruaa.glasmio:glasmio-preference:0.1.2")
