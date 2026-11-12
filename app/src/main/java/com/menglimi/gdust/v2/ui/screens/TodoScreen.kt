@@ -1,4 +1,4 @@
-// Adapted from NexioSchedule 1.7, revision 28a99a3 (AGPL-3.0).
+// Adapted from NexioSchedule 1.7, revision 28a99a3.
 // Sources under ui-shared/src/commonMain/kotlin/com/haooz/chedule/ui/activities/:
 // today/TodayScreen.kt (period headings / cards / CourseItemContent spacing),
 // CourseManageScreen.kt (16dp cards and metadata rows).

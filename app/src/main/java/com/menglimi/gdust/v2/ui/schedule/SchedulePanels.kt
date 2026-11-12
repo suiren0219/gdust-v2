@@ -1,5 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Schedule-only adaptation of NexioSchedule revision 28a99a3 (AGPL-3.0):
+// Schedule-only adaptation of NexioSchedule revision 28a99a3:
 // ui-shared/src/commonMain/kotlin/com/haooz/chedule/ui/activities/classschedule/ScheduleTopBar.kt
 // ui-shared/src/commonMain/kotlin/com/haooz/chedule/ui/activities/main/CourseScheduleChrome.kt
 // ui-shared/src/commonMain/kotlin/com/haooz/chedule/ui/activities/classschedule/MainScheduleScreen.kt

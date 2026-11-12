@@ -46,6 +46,13 @@
 - 反编译：`D:/projects/reverse/nexio-170-1113-session/`（input/nexio.apk、classes.txt、output2/）
 - 移植映射：今日/课表/待办/设置/底栏各自的来源文件写在对应 .kt 文件头注释里
 
+## 许可状态（2026-11-13 更新）
+
+- 应作者与上游（Nexio 作者）的沟通结论，**项目先闭源自用**：LICENSE 换成闭源声明、README/关于页改回「闭源自用」
+- 代码文件头**保留**「Ported from NexioSchedule 28a99a3」出处注释（SPDX AGPL 标识行已删）；NOTICE.md 记录上游许可与授权状态
+- 若日后要对外分发：先拿上游书面豁免，或整体转回 AGPL-3.0 合规（NOTICE.md 里有现成说明）
+- 仓库远程仍是 PRIVATE
+
 ## 远程备份（已解决）
 
 - `origin` = `https://github.com/suiren0219/gdust-v2`，**PRIVATE**，48+ 提交已全部推上去

@@ -106,7 +106,7 @@ dependencies {
     implementation("io.github.neoruaa.glasmio:glasmio-preference:0.1.2")
     implementation("io.github.neoruaa.glasmio:glasmio-ui:0.1.2")
 
-    // Miuix（小米 HyperOS 风格，Apache-2.0）：:miuix / :backdrop 两个 fork 已 vendor 进源码（AGPL-3.0，见 NOTICE.md），
+    // Miuix（小米 HyperOS 风格，Apache-2.0）：:miuix / :backdrop 两个 fork 已 vendor 进源码（移植来源见 NOTICE.md），
     // 因此**不再**依赖官方 miuix-ui / kyant backdrop 构件，只保留图标等独立子库并排除会带来重复类的 miuix-ui。
     implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.4") { excludeMiuixUi() }
     implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.4") { excludeMiuixUi() }

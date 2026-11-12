@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-only
 package com.menglimi.gdust.v2.ui.schedule
 
 import androidx.compose.ui.graphics.Color
@@ -101,7 +100,7 @@ object ScheduleTimes {
 }
 
 /**
- * Adapted from NexioSchedule revision 28a99a3 (AGPL-3.0):
+ * Adapted from NexioSchedule revision 28a99a3:
  * core/src/commonMain/kotlin/com/haooz/chedule/data/model/Course.kt (11 course colors),
  * ui-shared/src/portable/kotlin/com/haooz/chedule/ui/activities/classschedule/CourseCard.kt,
  * and ui-shared/src/portable/kotlin/com/haooz/chedule/ui/theme/ScheduleColors.kt

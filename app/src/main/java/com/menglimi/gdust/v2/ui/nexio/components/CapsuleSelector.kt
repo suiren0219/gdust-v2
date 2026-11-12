@@ -1,4 +1,4 @@
-// Ported from HaoZai000/NexioSchedule 28a99a3b23458a0d39741b9841c9755f5374fba2 (AGPL-3.0).
+// Ported from HaoZai000/NexioSchedule 28a99a3b23458a0d39741b9841c9755f5374fba2.
 package com.menglimi.gdust.v2.ui.nexio.components
 
 import androidx.compose.runtime.getValue

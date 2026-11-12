@@ -90,7 +90,7 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 
 /**
- * Adapted from NexioSchedule (AGPL-3.0), revision 28a99a3:
+ * Adapted from NexioSchedule, revision 28a99a3:
  * ui-shared/.../ui/screens/SettingsScreen.kt (SettingsEntryRow / SettingsEntryIcon),
  * SettingsSearch.kt and ui/activities/PreferenceSettingsScreen.kt.
  * Retains the grouped Miuix layout and icon geometry; actions use GDUST's local repository.

@@ -17,7 +17,7 @@ import com.menglimi.gdust.v2.ui.UiStyle
 fun isAppDarkTheme(): Boolean = LocalDs.current.isDark
 
 /**
- * Adapted from NexioSchedule 28a99a3 AppMaterialSettings.kt (AGPL-3.0).
+ * Adapted from NexioSchedule 28a99a3 AppMaterialSettings.kt.
  * gdust SOFT is the upstream frosted tier; LIQUID retains refraction and edge highlights.
  * Read CompositionLocal state directly so style changes invalidate the remembered shader effects.
  */

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-only
 // Schedule-only GDUST adaptation of the slot/detail model in NexioSchedule revision 28a99a3:
 // ui-shared/src/portable/kotlin/com/haooz/chedule/ui/activities/classschedule/DayColumn.kt and
 // ui-shared/src/commonMain/kotlin/com/haooz/chedule/ui/activities/classschedule/MainScheduleScreen.kt.

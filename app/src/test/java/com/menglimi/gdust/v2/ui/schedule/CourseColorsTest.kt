@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-only
 // Regression tests for the Nexio-derived course palette and contrast fallback.
 package com.menglimi.gdust.v2.ui.schedule
 

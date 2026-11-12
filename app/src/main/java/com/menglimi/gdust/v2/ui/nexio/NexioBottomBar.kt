@@ -31,7 +31,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * Adapted from NexioSchedule 28a99a3b23458a0d39741b9841c9755f5374fba2
- * ScheduleBottomBar.kt (AGPL-3.0): four gdust tabs and an independent settings button.
+ * ScheduleBottomBar.kt: four gdust tabs and an independent settings button.
  * The complete bar is min(available width - 32dp, 480dp); settings never selects a tab.
  */
 @Composable

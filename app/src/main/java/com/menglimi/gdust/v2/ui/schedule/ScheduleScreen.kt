@@ -1,5 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Adapted from NexioSchedule revision 28a99a3 (AGPL-3.0):
+// Adapted from NexioSchedule revision 28a99a3:
 // ui-shared/src/commonMain/kotlin/com/haooz/chedule/ui/activities/classschedule/{ScheduleTopBar,MainScheduleScreen}.kt
 // ui-shared/src/portable/kotlin/com/haooz/chedule/ui/activities/classschedule/{CourseCard,DayColumn,SectionColumn}.kt
 // GDUST keeps its actual CourseBlock data, school times, display preferences and date-based status.

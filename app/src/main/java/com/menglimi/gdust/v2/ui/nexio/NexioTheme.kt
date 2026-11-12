@@ -13,7 +13,7 @@ import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 
-/** Adapted from Nexio Theme.kt / ThemeUtils.kt (AGPL-3.0); retains gdust's preference keys. */
+/** Adapted from Nexio Theme.kt / ThemeUtils.kt; retains gdust's preference keys. */
 @Composable
 fun NexioTheme(
     monetEnabled: Boolean = false,

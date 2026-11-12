@@ -49,4 +49,4 @@ Kotlin · Jetpack Compose · Material 3 · [softglass](https://github.com/HaoZai
 
 ## 协议
 
-GNU AGPL-3.0，全文见 [LICENSE](LICENSE)，上游来源与第三方许可见 [NOTICE.md](NOTICE.md)。课表、今日、设置等页面为适配广科数据的移植；电费与待办按同一组件体系实现，并非 Nexio 原有功能。
+闭源自用，仅供学习交流，请勿二次分发或商用。界面移植自 [NexioSchedule](https://github.com/HaoZai000/NexioSchedule)（已与上游作者沟通），来源与第三方许可见 [NOTICE.md](NOTICE.md)；课表、今日、设置等页面为适配广科数据的移植，电费与待办按同一组件体系实现，并非 Nexio 原有功能。

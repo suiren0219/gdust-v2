@@ -38,7 +38,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 
-/** Shared page chrome adapted from Nexio's document and preference pages (AGPL-3.0). */
+/** Shared page chrome adapted from Nexio's document and preference pages. */
 @Composable
 fun PageTitle(title: String, subtitle: String? = null, onBack: (() -> Unit)? = null) {
     val ds = LocalDs.current

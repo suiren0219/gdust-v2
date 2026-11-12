@@ -61,7 +61,7 @@ import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 
 /**
- * Layout adapted from NexioSchedule (AGPL-3.0), revision 28a99a3:
+ * Layout adapted from NexioSchedule, revision 28a99a3:
  * ui-shared/.../ui/screens/SettingsScreen.kt and ui/activities/PreferenceSettingsScreen.kt.
  * Uses the same large-title, grouped-card and Miuix preference rhythm with real power data.
  */

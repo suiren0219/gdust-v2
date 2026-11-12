@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-only
 // Regression tests for GDUST's pure schedule slot/weekly detail adaptation.
 package com.menglimi.gdust.v2.ui.schedule
 
