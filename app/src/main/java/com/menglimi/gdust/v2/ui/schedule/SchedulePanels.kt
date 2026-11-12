@@ -67,7 +67,6 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Switch
-import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -448,14 +447,7 @@ private fun <T> ScheduleChoice(label: String, options: List<Pair<T, String>>, se
     val ds = LocalDs.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, fontSize = 13.sp, color = ds.sub)
-        TabRow(
-            tabs = options.map { it.second },
-            selectedTabIndex = options.indexOfFirst { it.first == selected }.coerceAtLeast(0),
-            onTabSelected = { onSelect(options[it].first) },
-            minWidth = 54.dp,
-            height = 42.dp,
-            itemSpacing = 6.dp,
-        )
+        com.menglimi.gdust.v2.ui.screens.SegmentedChoice(options, selected, onSelect)
     }
 }
 

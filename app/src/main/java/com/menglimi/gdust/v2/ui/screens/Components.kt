@@ -1,6 +1,7 @@
 package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -150,12 +151,15 @@ fun <T> SegmentedChoice(
 ) {
     val ds = LocalDs.current
     Row(modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-        .background(ds.sub.copy(alpha = 0.08f)).padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        .background(ds.sub.copy(alpha = 0.06f))
+        .border(1.dp, ds.sub.copy(alpha = 0.16f), RoundedCornerShape(14.dp))
+        .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         options.forEach { (value, label) ->
             val picked = value == selected
             Box(Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(10.dp))
-                .background(if (picked) ds.card else Color.Transparent)
+                .background(if (picked) ds.accentSoft else Color.Transparent)
+                .border(1.dp, if (picked) ds.accent.copy(alpha = 0.55f) else ds.sub.copy(alpha = 0.14f), RoundedCornerShape(10.dp))
                 .selectable(picked, role = Role.RadioButton, onClick = { onSelect(value) })
                 .padding(horizontal = 2.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
                 Text(label, fontSize = 13.sp, fontWeight = if (picked) FontWeight.SemiBold else FontWeight.Normal,
