@@ -31,6 +31,9 @@ class MainActivity : ComponentActivity() {
             notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
         val app = application as App
+        // WorkManager 首启迁移数据库与 App.onCreate 的入队存在竞态（入队可能被迁移覆盖清空）：
+        // 在 Activity 建立后再幂等补排一次（心跳 KEEP / 链 REPLACE，重复调用无副作用）
+        com.menglimi.gdust.v2.work.PowerWorker.schedule(app)
         setContent {
             val style = rememberUiStyle(app.repo.store)
             // 风格切换持久化：值变了就写本机
