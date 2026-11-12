@@ -10,13 +10,14 @@
 
 | 用途 | 路径 |
 |---|---|
-| **主工程（唯一代码库）** | `D:\ai-projects\gdust-v2` |
+| **主工程（唯一代码库）** | `D:\projects\gdust\gdust-v2` |
 | 交付 APK（覆盖更新） | `D:\广科课程表-v2-release.apk` |
-| 构建产物 | `D:\ai-projects\gdust-v2\app\build\outputs\apk\release\app-release.apk` |
-| git 仓库 | 本地 `main`（远程已移除，**不开源**） |
-| 文档目录 | `D:\ai-projects\gdust-v2\docs\` |
-| 旧版参考（v1，Nexio 基底，只读参考） | `D:\ai-projects\gdust-app` |
-| 组件源码参考（不进工程） | `D:\ai-projects\softglass_ref`、`D:\ai-projects\glasmio_ref` |
+| 构建产物 | `D:\projects\gdust\gdust-v2\app\build\outputs\apk\release\app-release.apk` |
+| git 仓库 | 本地 `main` + 远程 `origin`（`suiren0219/gdust-v2`，**仅私有**，见红线 2） |
+| 文档目录 | `D:\projects\gdust\gdust-v2\docs\` |
+| 旧版参考（v1，Nexio 基底，**已废弃**，只读参考） | `D:\projects\gdust\gdust-app` |
+| 组件源码参考（不进工程） | `D:\projects\refs\softglass_ref`、`D:\projects\refs\glasmio_ref` |
+| **研究线 worktree（教务×学习通）** | `D:\projects\gdust\gdust-v2-academic`（分支 `feat/academic-chaoxing`） |
 
 ### 1.2 关键源码（扩展点）
 
@@ -179,13 +180,13 @@ ui/screens/*  ──(只调)──▶  data/Repository  ──(只调)──▶ 
 
 ```bash
 # 编译
-D:/android-sdk/gradle-dist/gradle-9.7.1/bin/gradle.bat -p D:/ai-projects/gdust-v2 compileReleaseKotlin --console=plain
+D:/android-sdk/gradle-dist/gradle-9.7.1/bin/gradle.bat -p D:/projects/gdust/gdust-v2 compileReleaseKotlin --console=plain
 
 # 单测 + 正式包
-D:/android-sdk/gradle-dist/gradle-9.7.1/bin/gradle.bat -p D:/ai-projects/gdust-v2 testDebugUnitTest assembleRelease --console=plain
+D:/android-sdk/gradle-dist/gradle-9.7.1/bin/gradle.bat -p D:/projects/gdust/gdust-v2 testDebugUnitTest assembleRelease --console=plain
 
 # 装模拟器（真机用 -s 192.168.1.104:36125）
-D:/android-sdk/platform-tools/adb.exe -s emulator-5554 install -r D:/ai-projects/gdust-v2/app/build/outputs/apk/release/app-release.apk
+D:/android-sdk/platform-tools/adb.exe -s emulator-5554 install -r D:/projects/gdust/gdust-v2/app/build/outputs/apk/release/app-release.apk
 
 # 复制交付
 cp app/build/outputs/apk/release/app-release.apk "/d/广科课程表-v2-release.apk"
