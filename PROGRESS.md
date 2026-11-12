@@ -10,6 +10,22 @@
 - `.gitignore` 已加 `*.har`（抓包带 Cookie/uid/token，禁止入库）
 - gh CLI 位置：`D:\机器人插件\gh-cli\Program Files\GitHub CLI\gh.exe`（账号 suiren0219，keyring 登录）
 
+## 研究线「教务 × 学习通互通」（本次新增）
+
+- 分支 `feat/academic-chaoxing`，worktree `D:\projects\gdust\gdust-v2-academic`（已推 origin）
+- **阶段 1 登录互通：实测完成**（2026-11-12 夜，medium_phone/API35 + 真实账号扫码）
+  - 学习通：CAS 扫码 → fysso(HTTP) → fanya(HTTP) → passport2(HTTP) → 课程页；App 显示「已联动」
+  - Cookies：`.chaoxing.com` 域 `UID/_uid/_d/fid/uname/p_auth_token`（7–30 天）+ 子域 `JSESSIONID`(session)
+  - 教务：同一 CAS 会话为 `gkjx.gdust.edu.cn` **签发 ticket（免密双通成立）**；
+    但该入口当前从测试网络 `ERR_CONNECTION_TIMED_OUT`（宿主机 curl 也超时）——环境问题，不是 App 缺陷
+- **两个必须记住的坑**
+  1. **WebView 不能放 Compose `AndroidView`**：页面的 `100vh/100dvh` 会恒为 0，CAS（Tailwind `min-h-screen`）
+     整页白屏；裸 Activity 正常。登录页已迁到 `ChxWebActivity` / `TeachingWebActivity`；
+     最小复现探针在 debug 源集 `WebViewProbeActivity`（`--es mode compose-box`）
+  2. **超星登录链走明文 HTTP**：`network_security_config` 需放行
+     `fysso/fanya/passport/passport2/mooc1/mooc1-api.chaoxing.com`，否则后两跳被 cleartext 拦
+- 已做的小工具：debug 包开 WebView 远程调试（CDP），`ChxWeb`/`TeachWeb` 日志转发 console/网络/SSL 错误
+
 ## 现在做到哪
 
 课表周网格的**「当前时间线 + 今日/进行中/已上过」三态**已完成并提交：
@@ -17,6 +33,10 @@
 ```
 0533195 课表周网格加当前时间线与三态卡片：红线按节次插值+左端圆点，已上过/上课中/未开始三态配色，替换原右下角黄点
 ```
+
+> 备注：模拟器里旧的 release 包（`com.menglimi.gdust.v2`）会抢前台，干扰自动化；
+> 已在测试机 `pm disable-user` 停用，验收时先确认 `topResumedActivity` 是 `.debug`。
+
 
 验收方式（模拟器像素级核对，本次实测通过）：
 - 线位：15:00 / 15:01 / 15:03 三个时刻截图，红线 y 与节次插值期望差 ≤1px
@@ -41,6 +61,11 @@
 
 ## 下一步
 
+0. 研究线（feat/academic-chaoxing）：
+   - 「退出联动」目前只清本机 Cookie，**不清 WebView 的 Cookie/CAS TGC**（要做彻底退出）
+   - `TeachingSsoClient.probe()` 仍是 Boolean，网络故障与失效不可区分（要改三态）
+   - `chxSessionAlive()` 探活=false 时直接清 Cookie，启发式误判会误删会话（收紧后再清）
+   - 教务入口可达性：`gkjx.gdust.edu.cn` 公网超时，需校园网 / WebVPN 复测
 1. **等用户给抓包**（清单已写进 `docs/EXTENDING.md` §3.4）：
    - `D:\ai\chaoxing-work.har` —— 作业清单（≥3 门课、含未交/已交/已过期各一条、点开一条详情）
    - `D:\ai\chaoxing-exam.har` —— 考试清单（Web 无入口则手机端 Reqable 抓）
