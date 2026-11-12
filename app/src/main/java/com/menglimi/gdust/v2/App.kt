@@ -10,6 +10,13 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 研究线诊断：debug 包开放 WebView 远程调试（chrome://inspect / CDP），
+        // 用于查看 CAS/学习通页面白屏时的 DOM、控制台与网络失败；release 不开。
+        val debuggable = applicationInfo.flags and
+            android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+        if (debuggable) {
+            android.webkit.WebView.setWebContentsDebuggingEnabled(true)
+        }
         repo = Repository(this)
         repo.store.publishPowerWorkerConfig()
         com.menglimi.gdust.v2.work.PowerWorker.schedule(this)

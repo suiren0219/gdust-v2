@@ -206,6 +206,36 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit) {
                     settings.userAgentString =
                         "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
                     webViewClient = object : WebViewClient() {
+                        // 研究线诊断：页面白屏时能看到子资源/主文档失败的具体 URL 与错误码
+                        override fun onReceivedError(
+                            view: WebView,
+                            request: android.webkit.WebResourceRequest,
+                            error: android.webkit.WebResourceError,
+                        ) {
+                            val u = request.url?.toString().orEmpty()
+                            android.util.Log.w(
+                                "ChxWeb",
+                                "onReceivedError ${error.errorCode} ${error.description} " +
+                                    "main=${request.isForMainFrame} $u",
+                            )
+                            if (request.isForMainFrame) {
+                                isError = true
+                                message = "页面加载失败（${error.description}）：$u"
+                            }
+                        }
+
+                        override fun onReceivedHttpError(
+                            view: WebView,
+                            request: android.webkit.WebResourceRequest,
+                            errorResponse: android.webkit.WebResourceResponse,
+                        ) {
+                            android.util.Log.w(
+                                "ChxWeb",
+                                "http ${errorResponse.statusCode} ${request.url} " +
+                                    "main=${request.isForMainFrame}",
+                            )
+                        }
+
                         override fun shouldOverrideUrlLoading(
                             view: WebView,
                             request: android.webkit.WebResourceRequest,
@@ -225,6 +255,7 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit) {
                         override fun onPageFinished(view: WebView, url: String) {
                             host = runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
                             progress = 100
+                            android.util.Log.i("ChxWeb", "onPageFinished $url")
                             // 每次落地都试存一次：CAS 跳转链里可能最后一跳才拿到超星 Cookie
                             val saved = saveCookieIfAny()
                             val onChaoxing = ChxSso.isChaoxingHost(host)
@@ -252,6 +283,10 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit) {
                         ) {
                             // 只对校方与超星域放行证书链，其他域一律阻止
                             val h = runCatching { Uri.parse(error.url).host.orEmpty() }.getOrDefault("")
+                            android.util.Log.w(
+                                "ChxWeb",
+                                "sslError ${error.primaryError} $h ${error.url}",
+                            )
                             val allowed = h.endsWith("gdust.edu.cn") || ChxSso.isChaoxingHost(h)
                             if (allowed) handler.proceed() else {
                                 handler.cancel()
@@ -263,6 +298,16 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit) {
                     webChromeClient = object : WebChromeClient() {
                         override fun onProgressChanged(view: WebView, newProgress: Int) {
                             progress = newProgress
+                        }
+
+                        // WebView 默认吞掉 JS 报错；白屏排障必须把 console 消息转出来
+                        override fun onConsoleMessage(msg: android.webkit.ConsoleMessage): Boolean {
+                            android.util.Log.d(
+                                "ChxWeb",
+                                "console ${msg.messageLevel()} ${msg.message()} " +
+                                    "@${msg.sourceId()}:${msg.lineNumber()}",
+                            )
+                            return true
                         }
                     }
                     web = this
