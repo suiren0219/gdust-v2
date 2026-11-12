@@ -544,10 +544,10 @@ class Repository(context: Context) {
             .getCookie(page).isNullOrBlank()
     }
 
-    /** 教务会话是否还活着（轻量探测，供续租与定时任务决定是否要重登）。 */
-    suspend fun teachingSessionAlive(): Boolean = runCatching {
+    /** 教务会话探活：true 有效 / false 明确失效 / null 网络原因未知（不判死、不清会话）。 */
+    suspend fun teachingSessionAlive(): Boolean? = runCatching {
         teachingSso.probe(teachingCookies)
-    }.getOrDefault(false)
+    }.getOrNull()
 
     suspend fun isSessionAlive(): Boolean {
         if (!store.hasSession) return false
@@ -631,12 +631,56 @@ class Repository(context: Context) {
 
     suspend fun notices() = api.notices(store.portalToken, store.jobNumber)
 
-    /** 学习通会话探活：true 有效 / false 失效 / null 网络原因未知（不清 Cookie）。 */
+    /**
+     * 学习通会话探活：true 有效 / false 失效 / null 网络原因未知（不清 Cookie）。
+     *
+     * 探活的失效判定一半靠页面文案启发式，单次 false 可能是误判；
+     * 连续两次都判失效才清 Cookie，避免把有效会话删掉。
+     */
     suspend fun chxSessionAlive(): Boolean? {
         if (store.chxCookie.isBlank()) return false
-        val alive = chxApi.probe(store.chxCookie)
+        val first = chxApi.probe(store.chxCookie)
+        val alive = if (first == false) chxApi.probe(store.chxCookie) else first
         if (alive == false) store.clearChxCookie()
         return alive
+    }
+
+    /**
+     * 彻底退出学习通联动：清本机存储 + WebView 里的超星/CAS 会话 Cookie。
+     *
+     * 只按域清（超星各域 + 学校 CAS），不整体 removeAllCookies——
+     * 教务网页导入、学校门户的会话跟学习通无关，不能误伤。
+     * CAS 的本地登录态在 localStorage 里，由 ChxWebActivity 打开登出页时顺带清空。
+     */
+    fun clearChxSession() {
+        store.clearChxCookie()
+        clearWebCookies(
+            listOf(
+                "https://chaoxing.com",
+                "https://passport2.chaoxing.com",
+                "https://i.chaoxing.com",
+                "https://mooc2-ans.chaoxing.com",
+                "http://gdkjxy.fysso.chaoxing.com",
+                "http://gdkjxy.fanya.chaoxing.com",
+                "https://cas.gdust.edu.cn",
+            ),
+        )
+    }
+
+    /** 对给定入口逐个把同名 Cookie 写成过期（CookieManager 没有按域删除的 API）。 */
+    private fun clearWebCookies(hosts: List<String>) {
+        val cm = android.webkit.CookieManager.getInstance()
+        for (host in hosts) {
+            val header = cm.getCookie(host) ?: continue
+            for (pair in header.split(";")) {
+                val name = pair.trim().substringBefore("=")
+                if (name.isBlank()) continue
+                // host 级与 .chaoxing.com 域级各过期一次，覆盖两种归属
+                cm.setCookie(host, "$name=; Max-Age=0; Path=/")
+                cm.setCookie(host, "$name=; Max-Age=0; Path=/; Domain=.chaoxing.com")
+            }
+        }
+        cm.flush()
     }
 
     suspend fun summarize() = api.summarize(

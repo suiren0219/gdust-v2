@@ -29,6 +29,9 @@ object ChxSso {
     /** 教务（正方）网页入口，同样走 CAS，验证「一次登录双通」用。 */
     private const val TEACHING_SERVICE = "http://gkjx.gdust.edu.cn/sso/lyiotlogin"
 
+    /** 学校 CAS 登出：作废服务端会话 + 登出页落地时顺带清本机 localStorage。 */
+    const val LOGOUT_URL = "https://cas.gdust.edu.cn/cas/logout"
+
     private fun sso(service: String) = CAS_LOGIN + URLEncoder.encode(service, "UTF-8")
 
     val fyssoUrl: String get() = sso(FYSSO_SERVICE)

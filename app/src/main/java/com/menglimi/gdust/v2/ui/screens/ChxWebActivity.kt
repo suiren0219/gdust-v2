@@ -63,7 +63,7 @@ class ChxWebActivity : ComponentActivity() {
             text = "‹"
             textSize = 26f
             setPadding(dp(4), 0, dp(12), 0)
-            setOnClickListener { finishWithResult() }
+            setOnClickListener { finishBySession() }
         }
         hostLabel = TextView(this).apply {
             textSize = 13f
@@ -113,7 +113,7 @@ class ChxWebActivity : ComponentActivity() {
         }
 
         onBackPressedDispatcher.addCallback(this) {
-            if (web.canGoBack()) web.goBack() else finishWithResult()
+            if (web.canGoBack()) web.goBack() else finishBySession()
         }
 
         web.loadUrl(intent.getStringExtra(EXTRA_URL) ?: ChxSso.fyssoUrl)
@@ -130,10 +130,13 @@ class ChxWebActivity : ComponentActivity() {
         super.finish()
     }
 
-    private fun finishWithResult() {
-        setResult(if (repo.store.hasChxSession) RESULT_OK else RESULT_CANCELED)
+    private fun finishWithResult(code: Int) {
+        setResult(code)
         finish()
     }
+
+    private fun finishBySession() =
+        finishWithResult(if (repo.store.hasChxSession) RESULT_OK else RESULT_CANCELED)
 
     private fun dp(v: Int): Int =
         (v * resources.displayMetrics.density).toInt()
@@ -201,8 +204,17 @@ class ChxWebActivity : ComponentActivity() {
 
             override fun onPageFinished(view: WebView, url: String) {
                 progressBar.visibility = ProgressBar.GONE
-                val host = runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
                 android.util.Log.i("ChxWeb", "onPageFinished $url")
+                // CAS 登出页：清掉该域 localStorage 里的登录态后自动关闭（退出联动用）
+                if (url.contains("/logout")) {
+                    view.evaluateJavascript(
+                        "try{localStorage.clear();sessionStorage.clear();}catch(e){};'ok'",
+                        null,
+                    )
+                    finishWithResult(RESULT_CANCELED)
+                    return
+                }
+                val host = runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
                 // 每次落地都试存一次：CAS 跳转链里可能最后一跳才拿到超星 Cookie
                 val saved = saveCookieIfAny()
                 hostLabel.text = when {

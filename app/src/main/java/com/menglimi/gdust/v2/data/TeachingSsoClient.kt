@@ -151,22 +151,30 @@ class TeachingSsoClient {
         }
     }
 
-    /** 轻量探活：判断会话是否仍有效，供续租与定时任务决定是否要重登。 */
-    suspend fun probe(jar: CookieJar): Boolean = withContext(Dispatchers.IO) {
+    /**
+     * 轻量探活：判断会话是否仍有效，供续租与定时任务决定是否要重登。
+     * true 有效 / false 明确被踢回登录（302/401/901）/ null 网络或服务端异常——不下失效结论。
+     * Cookie 按入口 host 分开存：任一入口有效即算有效，全部明确失效才算失效。
+     */
+    suspend fun probe(jar: CookieJar): Boolean? = withContext(Dispatchers.IO) {
+        var invalid = false
         for (base in bases) {
             val host = hostOf(base) ?: continue
             if (!hasCookiesFor(jar, host)) continue
-            val ok = runCatching {
+            val code = runCatching {
                 val req = Request.Builder()
                     .url("$base/kbcx/xskbcx_cxXsgrkb.html?gnmkdm=N2151")
                     .header("User-Agent", ua).get().build()
-                client(jar, followRedirects = false).newCall(req).execute().use { resp ->
-                    resp.code == 200 || resp.code == 400 || resp.code == 405
-                }
-            }.getOrDefault(false)
-            if (ok) return@withContext true
+                client(jar, followRedirects = false).newCall(req).execute().use { resp -> resp.code }
+            }.getOrElse { null }
+            when (code) {
+                null -> continue                          // 网络故障：换入口，不下结论
+                200, 400, 405 -> return@withContext true  // 会话有效
+                302, 401, 901 -> invalid = true           // 正方明确拒绝
+                else -> continue                          // 维护页等异常响应，不下结论
+            }
         }
-        false
+        if (invalid) false else null
     }
 
     private fun exchangeTicket(

@@ -72,6 +72,11 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit) {
         }
     }
 
+    // 退出联动：清完本地后打开 CAS 登出页退掉服务端会话（落地即自动关闭）
+    val casLogout = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { /* 保留退出提示文案 */ }
+
     fun open(url: String) {
         isError = false
         message = "正在打开登录页…"
@@ -167,10 +172,14 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit) {
             if (linked) {
                 Box(Modifier.weight(1f)) {
                     Button("退出联动") {
-                        repo.store.clearChxCookie()
+                        repo.clearChxSession()
                         linked = false
                         checkResult = null
-                        message = "已清除本机保存的学习通会话；网页里的登录态需要在登录页里退出学习通账号。"
+                        message = "已清除本机学习通会话与网页 Cookie，并退出学校统一身份认证。"
+                        casLogout.launch(
+                            Intent(context, ChxWebActivity::class.java)
+                                .putExtra(ChxWebActivity.EXTRA_URL, ChxSso.LOGOUT_URL),
+                        )
                     }
                 }
             }
