@@ -450,7 +450,12 @@ fun SettingsScreen(
             SettingOption(
                 title = "学习通联动",
                 subtitle = "复用学校统一身份认证：同一会话下学习通与教务网页都不用再输密码",
-                detail = if (store.hasChxSession) "已联动" else null,
+                detail = when {
+                    !store.hasChxSession -> null
+                    store.chxCookieAt > 0 -> "已联动 " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.CHINA)
+                        .format(java.util.Date(store.chxCookieAt))
+                    else -> "已联动"
+                },
                 onClick = onChxEntry,
             )
 

@@ -42,8 +42,23 @@ object ChxSso {
         "https://www.fanya.chaoxing.com",
     )
 
+    /** 学习通首页（HAR 实测存在的入口，用于探活与回到主页）。 */
+    const val HOME = "https://mooc2-ans.chaoxing.com/mooc2-ans/visit/interaction"
+
+    private val sessionMarks = listOf("JSESSIONID", "_uid", "UID=")
+
+    /** 粗判 Cookie 头是否包含会话特征；空串/只有路由标记都不算登录。 */
+    fun hasSessionCookie(header: String?): Boolean {
+        val h = header.orEmpty()
+        if (h.isBlank()) return false
+        return sessionMarks.any { h.contains(it) }
+    }
+
     fun isChaoxingHost(host: String?): Boolean {
         val h = host.orEmpty().lowercase()
-        return h.endsWith("chaoxing.com") || h.endsWith("chaoxing.cn")
+        if (h.isEmpty()) return false
+        // 必须按域名边界匹配，避免 notchaoxing.com 这类伪装域被当成超星
+        return h == "chaoxing.com" || h.endsWith(".chaoxing.com") ||
+            h == "chaoxing.cn" || h.endsWith(".chaoxing.cn")
     }
 }

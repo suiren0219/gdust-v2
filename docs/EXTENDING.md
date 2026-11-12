@@ -115,7 +115,23 @@ ui/screens/*  ──(只调)──▶  data/Repository  ──(只调)──▶ 
 
 **③ 手机端 API 逆向（不建议）**：`mooc1-api.chaoxing.com` 有设备指纹/`_enc` 风控，易被判异常登录。
 
-### 3.3 需要补的 HAR（给数据契约用）
+### 3.3 联动登录（已落地，复用学校 CAS）
+
+证据：门户前端 `index.js` 的应用磁贴里，超星入口本身就是 CAS 链接：
+`https://cas.gdust.edu.cn/lyuapServer/login?service=http://gdkjxy.fysso.chaoxing.com/sso/gdkjxy`
+（另有 `gdkj.mh.chaoxing.com/sso/login/3rd?wfwfid=420` 课程中心、`gkjx.gdust.edu.cn/sso/lyiotlogin` 教务）。
+实测未登录访问 fysso 会 302 回 `cas.gdust.edu.cn`，登录页标题「广科统一身份认证」→ 学习通与教务**同一套认证**。
+
+- `data/ChxSso.kt`：三个 SSO 入口常量 + 学习通首页 + 会话判定（`hasSessionCookie`，按域名边界识别超星）
+- `data/ChxApi.kt`：`probe(cookie)` 探活 —— 拉学习通首页，被踢回 passport/login 判失效；网络故障返回 `null`（保留 Cookie，不误登出）
+- `ui/screens/ChxEntryScreen.kt`：一个 WebView 装四个入口（学习通 / 课程中心 / 教务网页 / 首页），带进度条、当前域名、三态会话检查、退出联动；离开页面 `CookieManager.flush()`
+- Cookie 只存超星域，写 `Store.chxCookie`（加密），退出登录一并清除；**不存密码**
+- `network_security_config.xml`：`gdkjxy.fysso.chaoxing.com` 放行明文（该域 443 无响应，实测）
+
+已验证：学习通按钮 → fysso(HTTP) → 302 → CAS 登录页（标题「广科统一身份认证」）全链路可达；未登录点首页会落到 `passport2.chaoxing.com` 并提示「已进入超星域名但没拿到会话」，不伪造会话。
+**未验证**：登录后的 fysso 回跳与 Cookie 落地（需要真实账号，无法代测）。
+
+### 3.4 需要补的 HAR（给数据契约用）
 
 抓法：
 1. 浏览器登录学习通 → 某门课 → **作业列表页**

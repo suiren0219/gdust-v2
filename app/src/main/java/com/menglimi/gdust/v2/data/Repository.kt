@@ -138,7 +138,12 @@ class Store(context: Context) {
         chxCookieAt = System.currentTimeMillis()
     }
 
-    val hasChxSession: Boolean get() = chxCookie.isNotEmpty()
+    fun clearChxCookie() {
+        chxCookie = ""
+        chxCookieAt = 0L
+    }
+
+    val hasChxSession: Boolean get() = ChxSso.hasSessionCookie(chxCookie)
 
     fun addChxNotification(key: String, text: String): Boolean = synchronized(todoLock) {
         val type = object : TypeToken<List<String>>() {}.type
@@ -447,6 +452,8 @@ class Repository(context: Context) {
     val store = Store(context)
     private val api = GdustApi()
     private val teachingSso = TeachingSsoClient()
+    /** 学习通只读接口（当前只有探活；作业清单等抓到 HAR 再补）。 */
+    private val chxApi = ChxApi()
     /** 登录后教务会话 Cookie 持久化在这里；后续同步、续租、定时任务共用。 */
     val teachingCookies = PersistentCookieJar(context)
 
@@ -602,6 +609,14 @@ class Repository(context: Context) {
     }
 
     suspend fun notices() = api.notices(store.portalToken, store.jobNumber)
+
+    /** 学习通会话探活：true 有效 / false 失效 / null 网络原因未知（不清 Cookie）。 */
+    suspend fun chxSessionAlive(): Boolean? {
+        if (store.chxCookie.isBlank()) return false
+        val alive = chxApi.probe(store.chxCookie)
+        if (alive == false) store.clearChxCookie()
+        return alive
+    }
 
     suspend fun summarize() = api.summarize(
         store.llmBase, store.llmKey, store.llmModel, notices(),
