@@ -52,6 +52,8 @@ import com.menglimi.gdust.v2.ui.screens.ProfileScreen
 import com.menglimi.gdust.v2.ui.screens.AboutScreen
 import com.menglimi.gdust.v2.ui.screens.NoticeScreen
 import com.menglimi.gdust.v2.ui.screens.ReminderScreen
+import com.menglimi.gdust.v2.ui.screens.ChxNotificationScreen
+import com.menglimi.gdust.v2.ui.screens.ChxEntryScreen
 import com.menglimi.gdust.v2.data.Notice
 import kotlinx.coroutines.launch
 
@@ -82,6 +84,8 @@ fun AppRoot(
     var showProfile by remember { mutableStateOf(false) }
     var showNotices by remember { mutableStateOf(false) }
     var showReminder by remember { mutableStateOf(false) }
+    var showChxNotifications by remember { mutableStateOf(false) }
+    var showChxEntry by remember { mutableStateOf(false) }
     var notices by remember { mutableStateOf<List<Notice>>(emptyList()) }
     var noticesLoading by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
@@ -182,6 +186,8 @@ fun AppRoot(
             showWebImport -> "web_import"
             showNotices -> "notices"
             showReminder -> "reminder"
+            showChxNotifications -> "chx_notifications"
+            showChxEntry -> "chx_entry"
             showProfile -> "profile"
             showAbout -> "about"
             showSettings.value -> "settings"
@@ -211,6 +217,14 @@ fun AppRoot(
             "reminder" -> {
                 androidx.activity.compose.BackHandler { showReminder = false }
                 ReminderScreen(repo = repo, onBack = { showReminder = false })
+            }
+            "chx_notifications" -> {
+                androidx.activity.compose.BackHandler { showChxNotifications = false }
+                ChxNotificationScreen(repo = repo, onBack = { showChxNotifications = false })
+            }
+            "chx_entry" -> {
+                androidx.activity.compose.BackHandler { showChxEntry = false }
+                ChxEntryScreen(repo = repo, onBack = { showChxEntry = false })
             }
             "notices" -> {
                 androidx.activity.compose.BackHandler { showNotices = false }
@@ -247,6 +261,8 @@ fun AppRoot(
                 onSync = { sync() },
                 onWebImport = { showWebImport = true },
                 onReminder = { showReminder = true },
+                onChxNotifications = { showChxNotifications = true },
+                onChxEntry = { showChxEntry = true },
                 onWallpaperChanged = { wallpaperTick++ },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },

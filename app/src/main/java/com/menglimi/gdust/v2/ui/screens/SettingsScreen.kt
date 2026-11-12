@@ -49,6 +49,8 @@ fun SettingsScreen(
     onSync: () -> Unit,
     onWebImport: () -> Unit,
     onReminder: () -> Unit,
+    onChxNotifications: () -> Unit,
+    onChxEntry: () -> Unit,
     onWallpaperChanged: () -> Unit,
     onProfile: () -> Unit,
     onAbout: () -> Unit,
@@ -77,6 +79,11 @@ fun SettingsScreen(
     var thresholdSaved by remember { mutableStateOf(false) }
     var synced by remember { mutableStateOf(false) }
     var termStart by remember { mutableStateOf(store.termStartDate) }
+    // 下面三项直接读写普通 prefs，不是 Composition 状态：必须本地镜像，否则点了界面不刷新（看起来"点不动"）
+    var startTabLocal by remember { mutableStateOf(store.startTab) }
+    var sampleIntervalLocal by remember { mutableStateOf(store.sampleIntervalMinutes) }
+    var smartWeekendLocal by remember { mutableStateOf(store.smartHideWeekend) }
+    var autoSyncLocal by remember { mutableStateOf(store.autoSyncEnabled) }
     var termWeeksText by remember { mutableStateOf(store.termWeeks.takeIf { it > 0 }?.toString() ?: "") }
     var termWeekText by remember { mutableStateOf(store.termCurrentWeek.takeIf { it > 0 }?.toString() ?: "") }
     var termSaved by remember { mutableStateOf(false) }
@@ -174,7 +181,7 @@ fun SettingsScreen(
             SettingOption(
                 title = "启动页",
                 subtitle = "打开 App 默认进入的页面",
-                detail = when (store.startTab) {
+                detail = when (startTabLocal) {
                     0 -> "今日"; 2 -> "电费"; 3 -> "待办"; else -> "课表"
                 },
                 onClick = { toggle("startTab") },
@@ -184,9 +191,13 @@ fun SettingsScreen(
                 SettingEditor {
                     SegmentedChoice(
                         options = listOf(0 to "今日", 1 to "课表", 2 to "电费", 3 to "待办"),
-                        selected = store.startTab,
-                        onSelect = { store.startTab = it },
+                        selected = startTabLocal,
+                        onSelect = {
+                            startTabLocal = it
+                            store.startTab = it
+                        },
                     )
+                    Text("下次启动 App 生效（当前已在某个 tab 时不会立即跳）", fontSize = 11.sp, color = ds.sub)
                 }
             }
             SettingDivider()
@@ -277,8 +288,11 @@ fun SettingsScreen(
             SettingOption(
                 title = "智能显示周末",
                 subtitle = "开启后隐藏无课的周六日；关闭则始终显示 7 天",
-                switch = store.smartHideWeekend,
-                onSwitch = { store.smartHideWeekend = it },
+                switch = smartWeekendLocal,
+                onSwitch = {
+                    smartWeekendLocal = it
+                    store.smartHideWeekend = it
+                },
             )
         }
 
@@ -290,6 +304,13 @@ fun SettingsScreen(
                 subtitle = "课前 / 次日 / 课中提醒，可尝试上超级岛",
                 detail = if (store.reminderEnabled) "已开启" else "未开启",
                 onClick = onReminder,
+            )
+            SettingDivider()
+            SettingOption(
+                title = "学习通通知待办",
+                subtitle = "从学习通推送识别作业和考试，需手动授权通知使用权",
+                detail = if (store.chxNotificationsEnabled) "已开启" else "未开启",
+                onClick = onChxNotifications,
             )
             SettingDivider()
             SettingOption(
@@ -376,7 +397,7 @@ fun SettingsScreen(
             SettingOption(
                 title = "采样间隔",
                 subtitle = "记录电量走势的时间间隔",
-                detail = "${store.sampleIntervalMinutes} 分钟",
+                detail = "$sampleIntervalLocal 分钟",
                 onClick = { toggle("interval") },
             )
             if (openSection.value == "interval") {
@@ -384,8 +405,11 @@ fun SettingsScreen(
                 SettingEditor {
                     SegmentedChoice(
                         options = intervalOptions.map { it to "${it}分" },
-                        selected = store.sampleIntervalMinutes,
-                        onSelect = { store.sampleIntervalMinutes = it },
+                        selected = sampleIntervalLocal,
+                        onSelect = {
+                            sampleIntervalLocal = it
+                            store.sampleIntervalMinutes = it
+                        },
                     )
                     Text("间隔越密，走势越细；后台仍按 15 分钟巡检", fontSize = 11.sp, color = ds.sub)
                 }
@@ -421,6 +445,13 @@ fun SettingsScreen(
                 subtitle = "拾光式：网页中登录教务后读取原始周次；网页登录会话单独保留",
                 detail = if (store.loadWebImportPage().isNotBlank()) "已保存会话" else null,
                 onClick = onWebImport,
+            )
+            SettingDivider()
+            SettingOption(
+                title = "学习通联动",
+                subtitle = "复用学校统一身份认证：同一会话下学习通与教务网页都不用再输密码",
+                detail = if (store.hasChxSession) "已联动" else null,
+                onClick = onChxEntry,
             )
 
             SettingDivider()

@@ -5,5 +5,7 @@
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">172.16.254.1</domain>
         <domain includeSubdomains="false">gkjx.gdust.edu.cn</domain>
+        <!-- 超星泛雅加速域只有 HTTP（443 无响应，实测），CAS 单点会跳到这里 -->
+        <domain includeSubdomains="false">gdkjxy.fysso.chaoxing.com</domain>
     </domain-config>
 </network-security-config>

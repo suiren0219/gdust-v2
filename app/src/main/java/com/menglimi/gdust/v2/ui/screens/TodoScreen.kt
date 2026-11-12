@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,7 +41,11 @@ fun TodoScreen(repo: Repository) {
     var items by remember { mutableStateOf(repo.store.loadTodos()) }
     var draft by remember { mutableStateOf("") }
     var hint by remember { mutableStateOf("") }
-    var seq by remember { mutableStateOf(System.currentTimeMillis()) }
+    DisposableEffect(repo) {
+        val stop = repo.store.observeTodos { items = repo.store.loadTodos() }
+        items = repo.store.loadTodos()
+        onDispose { stop() }
+    }
 
     Column(
         Modifier
@@ -82,9 +87,7 @@ fun TodoScreen(repo: Repository) {
                             if (draft.isBlank()) {
                                 hint = "先在上面写点什么，再点添加"
                             } else {
-                                val item = com.menglimi.gdust.v2.data.Store.Todo(seq++, draft.trim(), false)
-                                items = listOf(item) + items
-                                repo.store.saveTodos(items)
+                                items = repo.store.addTodo(draft.trim())
                                 draft = ""
                                 hint = ""
                             }
@@ -110,8 +113,9 @@ fun TodoScreen(repo: Repository) {
                             Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    items = items.map { if (it.id == item.id) it.copy(done = !it.done) else it }
-                                    repo.store.saveTodos(items)
+                                    items = repo.store.updateTodos { current ->
+                                        current.map { if (it.id == item.id) it.copy(done = !it.done) else it }
+                                    }
                                 }
                                 .padding(vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -136,8 +140,7 @@ fun TodoScreen(repo: Repository) {
                                 fontSize = 12.sp,
                                 color = ds.danger,
                                 modifier = Modifier.clickable {
-                                    items = items.filter { it.id != item.id }
-                                    repo.store.saveTodos(items)
+                                    items = repo.store.updateTodos { current -> current.filter { it.id != item.id } }
                                 },
                             )
                         }
@@ -151,8 +154,7 @@ fun TodoScreen(repo: Repository) {
                     color = ds.accent,
                     modifier = Modifier
                         .clickable {
-                            items = items.filter { !it.done }
-                            repo.store.saveTodos(items)
+                            items = repo.store.updateTodos { current -> current.filter { !it.done } }
                         }
                         .padding(vertical = 10.dp),
                 )

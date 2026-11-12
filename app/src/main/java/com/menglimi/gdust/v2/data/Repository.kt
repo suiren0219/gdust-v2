@@ -100,13 +100,73 @@ class Store(context: Context) {
     // ── 待办 ──
     data class Todo(val id: Long, val text: String, val done: Boolean)
 
+    companion object {
+        private val todoLock = Any()
+    }
+
     fun loadTodos(): List<Todo> {
         val t = object : TypeToken<List<Todo>>() {}.type
         return runCatching { gson.fromJson<List<Todo>>(plain.getString("todos", "[]"), t) }
-            .getOrDefault(emptyList())
+            .getOrNull().orEmpty()
     }
 
-    fun saveTodos(items: List<Todo>) = plain.edit().putString("todos", gson.toJson(items)).apply()
+    fun updateTodos(transform: (List<Todo>) -> List<Todo>): List<Todo> = synchronized(todoLock) {
+        transform(loadTodos()).also { plain.edit().putString("todos", gson.toJson(it)).commit() }
+    }
+
+    fun addTodo(text: String): List<Todo> = updateTodos { items ->
+        val id = generateSequence(System.currentTimeMillis()) { it + 1 }
+            .first { candidate -> items.none { it.id == candidate } }
+        listOf(Todo(id, text, false)) + items
+    }
+
+    var chxNotificationsEnabled: Boolean
+        get() = plain.getBoolean("chx_notifications_enabled", false)
+        set(value) = plain.edit().putBoolean("chx_notifications_enabled", value).apply()
+
+    // ── 学习通联动：只存 CAS 单点后拿到的超星 Cookie，不存密码 ──
+    var chxCookie: String
+        get() = "chx_cookie".s
+        set(v) { "chx_cookie".s = v }
+
+    var chxCookieAt: Long
+        get() = plain.getLong("chx_cookie_at", 0L)
+        set(v) = plain.edit().putLong("chx_cookie_at", v).apply()
+
+    fun saveChxCookie(cookie: String) {
+        chxCookie = cookie
+        chxCookieAt = System.currentTimeMillis()
+    }
+
+    val hasChxSession: Boolean get() = chxCookie.isNotEmpty()
+
+    fun addChxNotification(key: String, text: String): Boolean = synchronized(todoLock) {
+        val type = object : TypeToken<List<String>>() {}.type
+        val seen = runCatching {
+            gson.fromJson<List<String>>(plain.getString("chx_seen_notifications", "[]"), type)
+        }.getOrNull().orEmpty()
+        if (key in seen) return@synchronized false
+        val items = loadTodos()
+        val id = generateSequence(System.currentTimeMillis()) { it + 1 }
+            .first { candidate -> items.none { it.id == candidate } }
+        plain.edit()
+            .putString("todos", gson.toJson(listOf(Todo(id, text, false)) + items))
+            .putString("chx_seen_notifications", gson.toJson((seen + key).takeLast(500)))
+            .commit()
+    }
+
+    fun observeTodos(listener: () -> Unit): () -> Unit {
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val refresh = Runnable { listener() }
+        val observer = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "todos") handler.post(refresh)
+        }
+        plain.registerOnSharedPreferenceChangeListener(observer)
+        return {
+            plain.unregisterOnSharedPreferenceChangeListener(observer)
+            handler.removeCallbacks(refresh)
+        }
+    }
 
     data class Sample(val time: Long, val odd: Double)
 
@@ -307,8 +367,9 @@ class Store(context: Context) {
 
     fun logout() {
         clearPortalSession()
-        secure.edit().remove("ticket").remove("job").remove("name").apply()
-        plain.edit().remove("blocks").remove("calendar").remove("schedule_source").remove("web_import_page").apply()
+        secure.edit().remove("ticket").remove("job").remove("name").remove("chx_cookie").apply()
+        plain.edit().remove("blocks").remove("calendar").remove("schedule_source")
+            .remove("web_import_page").remove("chx_cookie_at").apply()
         android.webkit.CookieManager.getInstance().removeAllCookies {
             android.webkit.CookieManager.getInstance().flush()
         }

@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -28,6 +30,12 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
     val ds = LocalDs.current
     val store = repo.store
     val ctx = LocalContext.current
+    // 普通 prefs 不是 Composition 状态：用 revision 触发整页重读，否则点了界面不刷新
+    val revision = androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    fun save(block: () -> Unit) {
+        block()
+        revision.intValue++
+    }
 
     fun openSystem(action: String, data: Uri? = null) {
         runCatching {
@@ -39,6 +47,7 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
     }
 
     SettingSubPage("课程提醒", "课前 · 次日 · 课中，通知可尝试上岛", onBack) {
+        androidx.compose.runtime.key(revision.intValue) {
         // ── 总开关 ──
         SettingGroup {
             SettingOption(
@@ -46,8 +55,10 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 subtitle = "总开关；关闭后所有课程提醒都不发",
                 switch = store.reminderEnabled,
                 onSwitch = { on ->
-                    store.reminderEnabled = on
-                    if (on) LessonReminderWorker.schedule(ctx) else LessonReminderWorker.cancel(ctx)
+                    save {
+                        store.reminderEnabled = on
+                        if (on) LessonReminderWorker.schedule(ctx) else LessonReminderWorker.cancel(ctx)
+                    }
                 },
             )
         }
@@ -61,13 +72,15 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 subtitle = "距上课还有一段时间时提醒时间、地点",
                 switch = store.reminderEnabled && store.reminderLead > 0,
                 onSwitch = { on ->
-                    if (on) {
-                        store.reminderLead = 20
-                        store.reminderEnabled = true
-                        LessonReminderWorker.schedule(ctx)
-                    } else {
-                        store.reminderEnabled = false
-                        LessonReminderWorker.cancel(ctx)
+                    save {
+                        if (on) {
+                            store.reminderLead = 20
+                            store.reminderEnabled = true
+                            LessonReminderWorker.schedule(ctx)
+                        } else {
+                            store.reminderEnabled = false
+                            LessonReminderWorker.cancel(ctx)
+                        }
                     }
                 },
             )
@@ -81,7 +94,7 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 SegmentedChoice(
                     options = listOf(5 to "5 分", 10 to "10 分", 20 to "20 分", 30 to "30 分"),
                     selected = listOf(5, 10, 20, 30).minBy { kotlin.math.abs(it - store.reminderLead) },
-                    onSelect = { store.reminderLead = it },
+                    onSelect = { save { store.reminderLead = it } },
                 )
             }
         }
@@ -94,11 +107,13 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 title = "次日课程提醒",
                 subtitle = "每晚汇总明天的课程、节次、地点",
                 switch = store.nextDayReminder,
-                onSwitch = {
-                    store.nextDayReminder = it
-                    if (it && !store.reminderEnabled) {
-                        store.reminderEnabled = true
-                        LessonReminderWorker.schedule(ctx)
+                onSwitch = { on ->
+                    save {
+                        store.nextDayReminder = on
+                        if (on && !store.reminderEnabled) {
+                            store.reminderEnabled = true
+                            LessonReminderWorker.schedule(ctx)
+                        }
                     }
                 },
             )
@@ -108,7 +123,7 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 SegmentedChoice(
                     options = listOf(20 to "20:00", 21 to "21:00", 22 to "22:00", 23 to "23:00"),
                     selected = listOf(20, 21, 22, 23).minBy { kotlin.math.abs(it - store.nextDayHour) },
-                    onSelect = { store.nextDayHour = it },
+                    onSelect = { save { store.nextDayHour = it } },
                 )
             }
         }
@@ -121,11 +136,13 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 title = "课中提醒",
                 subtitle = "快下课时提示剩余时间",
                 switch = store.inClassReminder,
-                onSwitch = {
-                    store.inClassReminder = it
-                    if (it && !store.reminderEnabled) {
-                        store.reminderEnabled = true
-                        LessonReminderWorker.schedule(ctx)
+                onSwitch = { on ->
+                    save {
+                        store.inClassReminder = on
+                        if (on && !store.reminderEnabled) {
+                            store.reminderEnabled = true
+                            LessonReminderWorker.schedule(ctx)
+                        }
                     }
                 },
             )
@@ -135,7 +152,7 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 SegmentedChoice(
                     options = listOf(5 to "5 分", 10 to "10 分", 15 to "15 分"),
                     selected = listOf(5, 10, 15).minBy { kotlin.math.abs(it - store.inClassLead) },
-                    onSelect = { store.inClassLead = it },
+                    onSelect = { save { store.inClassLead = it } },
                 )
             }
         }
@@ -148,7 +165,7 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 title = "超级岛样式提醒",
                 subtitle = "通知附带 HyperOS 焦点通知字段；是否上岛取决于系统版本与通知权限",
                 switch = store.islandEnabled,
-                onSwitch = { store.islandEnabled = it },
+                onSwitch = { on -> save { store.islandEnabled = on } },
             )
             SettingDivider()
             SettingOption(
@@ -201,5 +218,6 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
             fontSize = 11.sp, lineHeight = 16.sp, color = ds.sub,
             modifier = Modifier,
         )
+        }
     }
 }

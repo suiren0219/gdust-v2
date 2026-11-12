@@ -85,7 +85,7 @@ ui/screens/*  ──(只调)──▶  data/Repository  ──(只调)──▶ 
 | 已有 HAR `D:\ai\mooc2-ans.chaoxing.com.har` | ✅ 85 请求，但**只有** `stu-job-info`（每班作业完成率：jobCount/jobFinishCount） |
 | 作业列表（名称/截止时间） | ❌ 缺接口，需补 HAR |
 | 考试列表 | ❌ 缺接口 |
-| 学习通通知 | ❌ 缺接口 |
+| 学习通通知 | ⚠️ 走系统通知监听（见 3.2 ②），不是接口 |
 
 ### 3.2 三条可行路线
 
@@ -105,12 +105,13 @@ ui/screens/*  ──(只调)──▶  data/Repository  ──(只调)──▶ 
 - `ui/screens/ChxLoginScreen.kt`（WebView 登录页，可参考 `TermImportScreen`）
 - 结果写入待办：`Store.saveTodos()` 追加（待办页已有 UI）
 
-**② 通知监听（最快，不碰账号）**
+**② 通知监听（已落地，不碰账号）**
 
-- 新建 `service/ChxNotificationListener.kt : NotificationListenerService`
-- 用户在系统设置授予「通知使用权」
-- 学习通推送作业提醒时解析标题 → 写待办
-- 需在 `AndroidManifest.xml` 注册 `<service android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">`
+- `service/ChxNotificationListener.kt`（`NotificationListenerService`，只认 `com.chaoxing.mobile`）
+- `data/ChxNotification.kt`：文本过滤（作业/考试 + 待提交/截止等信号，排除「已提交/已批阅」），有单测
+- `Store.addChxNotification()`：按「通知 key + 内容摘要」去重，写 `todos`
+- `ui/screens/ChxNotificationScreen.kt`：设置 → 特色功能 → 学习通通知待办（总开关 + 通知使用权授权）
+- 限制：只处理**新收到**的推送；推送不含具体事项则不生成待办；不覆盖未推送的作业
 
 **③ 手机端 API 逆向（不建议）**：`mooc1-api.chaoxing.com` 有设备指纹/`_enc` 风控，易被判异常登录。
 
