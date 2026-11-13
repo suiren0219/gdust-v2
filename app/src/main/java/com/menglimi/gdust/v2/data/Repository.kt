@@ -768,9 +768,10 @@ class Repository(context: Context) {
                 if (item.workId <= 0) continue
                 val isPending = item.status == "未交"
                 if (isPending) pending++
-                val due = if (isPending) {
-                    System.currentTimeMillis() + ChxWorkParser.remainingMillis(item.remainingText)
-                } else 0L
+                // 列表页只有相对剩余时间；解析不出（如列表显示「已过期」）就记 0=无截止信息，
+                // 不能写成 now（否则刚同步完就显示「今天已过期」的假过期）
+                val remaining = ChxWorkParser.remainingMillis(item.remainingText)
+                val due = if (isPending && remaining > 0) System.currentTimeMillis() + remaining else 0L
                 updates[item.workId] = Store.Todo(
                     item.workId, item.title, done = !isPending, due = due, tag = course.name,
                 )
