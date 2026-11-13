@@ -52,6 +52,7 @@ import com.menglimi.gdust.v2.data.Store
 import com.menglimi.gdust.v2.data.isNetworkDown
 import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.pageBackground
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
@@ -125,7 +126,7 @@ fun PowerScreen(repo: Repository) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(ds.bg)
+            .background(pageBackground())
             .statusBarsPadding()
             .imePadding()
             .verticalScroll(rememberScrollState())
