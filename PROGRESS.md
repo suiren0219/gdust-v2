@@ -1,6 +1,17 @@
 # gdust-v2 — 进度卡
 
-> 最后更新：2026-11-13（双线分工定稿）。下次开工先读这张卡。
+> 最后更新：2026-11-13（P1 落地）。下次开工先读这张卡。
+
+## 耗电优化 P1 已落地（2026-11-13，versionCode 8）
+
+- **课程提醒 96 唤醒/天 → 精确闹钟**：新增 `LessonReminderPlanner.kt`（纯函数算今天+明天所有提醒时刻：课前=上课-lead、课中=下课-inClassLead、次日汇总=当日 nextDayHour 整点）+ `LessonReminderAlarms.kt`（`setExactAndAllowWhileIdle` 定一个闹钟，触发后 Receiver 发通知并顺带排下一个）
+- 原 15 分钟周期 Worker 降级为 **6h 兜底**（`LessonReminderFallbackWorker`：补发到期提醒 + 重排闹钟链）；启动时 cancel 掉旧 `gdust_lesson_reminder` 轮询
+- 去重键 `lastReminderKey` 不变；通知文案与超级岛 V3 extras 原样复用（`LessonReminderWorker` 改为 object 执行器，`emit()`）
+- Manifest 补 `SCHEDULE_EXACT_ALARM`/`RECEIVE_BOOT_COMPLETED` + 静态 Receiver（开机/时间变更/升级重排）；设置页加「闹钟和提醒权限」诊断行（显示下次提醒时刻、一键授权）
+- 权限撤销时自动退化 `setAndAllowWhileIdle`（非精确，6h 兜底补漏）；HyperOS 仍需自启动授权
+- 单测：新增 9 项 `LessonReminderPlannerTest`（时刻/周次 floorDiv/日期优先/无效节次/窗口契约），**51/51 全绿**
+- `.debug` 包实测：`dumpsys alarm` 出现 `RTC_WAKEUP ... LESSON_REMINDER_FIRE`（11/13 23:00 次日汇总）；WorkSpec = 电费心跳6h + 电费链OneTime + 课程提醒兜底6h 三行，旧 15min 轮询消失
+- **测试环境注意**：验证时把模拟器时钟拨到 2026-11-13 09:50，随后模拟器进程被中断带走，设备时钟未能恢复；下次连接请先 `date -s "$(date -u '+%Y-%m-%d %H:%M:%S')"` 恢复（宿主 UTC，设备时区 GMT）
 
 ## 双线分工（2026-11-13 定稿）
 

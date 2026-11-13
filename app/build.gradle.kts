@@ -19,7 +19,7 @@ android {
         applicationId = "com.menglimi.gdust.v2"
         minSdk = 33  // 双风格共存：Glasmio 要求 33+，softglass 本身支持 26+
         targetSdk = 35
-        versionCode = 7
+        versionCode = 8
         versionName = "2.0.0-alpha"
     }
 

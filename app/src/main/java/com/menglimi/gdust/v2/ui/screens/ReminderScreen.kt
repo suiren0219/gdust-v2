@@ -34,6 +34,8 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
     val revision = androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
     fun save(block: () -> Unit) {
         block()
+        // 任何开关/参数变化都重算未来 48h 的提醒并重置闹钟
+        com.menglimi.gdust.v2.work.LessonReminderAlarms.reschedule(ctx, store)
         revision.intValue++
     }
 
@@ -48,6 +50,18 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
 
     SettingSubPage("课程提醒", "课前 · 次日 · 课中，通知可尝试上岛", onBack) {
         androidx.compose.runtime.key(revision.intValue) {
+        // ── 精确定时诊断 ──
+        SectionHeader("精确定时")
+        SettingGroup {
+            SettingOption(
+                title = "闹钟和提醒权限",
+                subtitle = com.menglimi.gdust.v2.work.LessonReminderAlarms.status(ctx, store),
+                detail = if (com.menglimi.gdust.v2.work.LessonReminderAlarms.canScheduleExact(ctx)) "已授权" else "去授权",
+                onClick = { com.menglimi.gdust.v2.work.LessonReminderAlarms.openExactAlarmSettings(ctx) },
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+
         // ── 总开关 ──
         SettingGroup {
             SettingOption(
@@ -239,8 +253,8 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            "后台每 15 分钟巡检本机课表；同一节课只提醒一次。\n" +
-                "超级岛是小米 HyperOS 的焦点通知能力，第三方 App 只能「请求」上岛，是否显示由系统决定。",
+            "提醒按本机课表算出精确时刻，用系统闹钟触发（不再 15 分钟轮询）；另有 6 小时兜底补漏，同一节课只提醒一次。\n" +
+                "HyperOS 需允许自启动与精确定时；超级岛由系统按白名单决定是否显示。",
             fontSize = 11.sp, lineHeight = 16.sp, color = ds.sub,
             modifier = Modifier,
         )
