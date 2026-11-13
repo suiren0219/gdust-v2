@@ -6,8 +6,11 @@
 package com.menglimi.gdust.v2.ui.schedule
 
 import android.content.Context
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +31,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,6 +43,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -79,13 +84,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Backup
-import top.yukonga.miuix.kmp.utils.PressFeedbackType
+import top.yukonga.miuix.kmp.utils.SinkFeedback
+import top.yukonga.miuix.kmp.utils.pressable
 
 /** Nexio「效果」页六项卡片材质参数（从 Store 直读，回设置页即生效）。 */
 internal data class GlassSpec(
@@ -556,12 +560,17 @@ private fun LessonCard(
     }
     val density = LocalDensity.current
     val maxLines = with(density) { ((cardHeight - 16.dp).value / nameLine.toDp().value).toInt().coerceAtLeast(1) }
-    Card(
+    // 表面、边光与点击裁剪共用圆角，避免 Card 内部 squircle 再叠一层轮廓。
+    val cardShape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressFeedback = remember { SinkFeedback() }
+    Box(
         modifier = modifier.fillMaxWidth().height(cardHeight).padding(ScheduleLayout.CardGap)
+            .pressable(interactionSource = interactionSource, indication = pressFeedback, delay = null)
             .then(
                 if (onWallpaper) Modifier.drawBackdrop(
                     backdrop = pageGlass!!,
-                    shape = { ContinuousRoundedRectangle(cornerRadius) },
+                    shape = { cardShape },
                     effects = {
                         blur(glass.blurPx.dp.toPx(), TileMode.Mirror)
                         if (glass.refraction > 0f) {
@@ -577,6 +586,8 @@ private fun LessonCard(
                                     ),
                                     width = size.width,
                                     height = size.height,
+                                    // 默认半径是短边的一半，会画出与课程卡不符的胶囊高光。
+                                    radiusPx = cornerRadius.toPx(),
                                 )
                             }
                         }
@@ -587,30 +598,23 @@ private fun LessonCard(
                         when (glass.edge) {
                             0 -> Modifier
                             2 -> Modifier.edgeLight(
-                                shape = ContinuousRoundedRectangle(cornerRadius),
+                                shape = cardShape,
                                 edgeLight = rememberCardEdgeLight(glassColor).copy(width = 0.18.dp, blurRadius = 0.8.dp, intensity = 0.4f),
                             )
                             3 -> Modifier.edgeLight(
-                                shape = ContinuousRoundedRectangle(cornerRadius),
+                                shape = cardShape,
                                 edgeLight = rememberCardEdgeLight(glassColor).copy(width = 0.9.dp, blurRadius = 2.4.dp, intensity = 0.9f),
                             )
                             else -> Modifier.edgeLight(
-                                shape = ContinuousRoundedRectangle(cornerRadius),
+                                shape = cardShape,
                                 edgeLight = rememberCardEdgeLight(glassColor),
                             )
                         }
-                    ) else Modifier
+                    ) else Modifier.background(cardColor, cardShape)
             )
-            .then(if (isOngoing) Modifier.border(1.5.dp, ds.accent, ContinuousRoundedRectangle(cornerRadius)) else Modifier),
-        cornerRadius = cornerRadius,
-        insideMargin = PaddingValues(0.dp),
-        colors = CardDefaults.defaultColors(
-            color = if (onWallpaper) Color.Transparent else cardColor,
-            contentColor = foreground,
-        ),
-        pressFeedbackType = PressFeedbackType.Sink,
-        showIndication = true,
-        onClick = onClick,
+            .then(if (isOngoing) Modifier.border(1.5.dp, ds.accent, cardShape) else Modifier)
+            .clip(cardShape)
+            .clickable(interactionSource = interactionSource, indication = LocalIndication.current, onClick = onClick),
     ) {
         Box(Modifier.fillMaxSize().clipToBounds()) {
             Text(
