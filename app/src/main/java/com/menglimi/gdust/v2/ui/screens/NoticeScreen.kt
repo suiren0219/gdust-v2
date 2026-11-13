@@ -33,7 +33,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Notice
+import com.menglimi.gdust.v2.data.NoticeCategory
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.data.matches
 import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.ui.pageBackground
@@ -51,6 +53,7 @@ fun NoticeScreen(
     repo: Repository,
     notices: List<Notice>,
     loading: Boolean,
+    error: String?,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
 ) {
@@ -62,6 +65,8 @@ fun NoticeScreen(
     var summarizing by remember { mutableStateOf(false) }
     var summary by remember { mutableStateOf<String?>(null) }
     var summaryError by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf(NoticeCategory.ALL) }
+    val visibleNotices = notices.filter { it.matches(category) }
 
     val timeFmt = remember { SimpleDateFormat("MM-dd HH:mm", Locale.CHINA) }
 
@@ -74,7 +79,34 @@ fun NoticeScreen(
             .padding(horizontal = 16.dp),
     ) {
         Spacer(Modifier.height(24.dp))
-        PageTitle(title = "学校通知", subtitle = "门户公告 · 点击查看原文", onBack = onBack)
+        PageTitle(title = "学校通知", subtitle = "门户公告 · 考试与教务通知筛选", onBack = onBack)
+        SegmentedChoice(
+            options = listOf(
+                NoticeCategory.ALL to "全部",
+                NoticeCategory.ACADEMIC to "教务",
+                NoticeCategory.EXAM to "考试",
+            ),
+            selected = category,
+            onSelect = { category = it },
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                when {
+                    loading -> "正在更新门户公告…"
+                    error != null -> error
+                    notices.isNotEmpty() -> "共 ${visibleNotices.size} 条相关公告"
+                    else -> "门户公告尚未加载"
+                },
+                fontSize = 12.sp,
+                color = if (error != null) ds.danger else ds.sub,
+                modifier = Modifier.weight(1f),
+                maxLines = 2,
+            )
+            Button(text = if (loading) "更新中…" else "刷新", enabled = !loading) {
+                onRefresh()
+            }
+        }
 
         // ── AI 总结 ──
         GlassCard {
@@ -115,14 +147,19 @@ fun NoticeScreen(
         Spacer(Modifier.height(12.dp))
 
         // ── 公告列表 ──
-        if (loading) {
+        if (loading && notices.isEmpty()) {
             GlassCard { Text("正在拉取公告…", fontSize = 13.sp, color = ds.sub) }
         } else if (notices.isEmpty()) {
             GlassCard {
                 Text(
-                    "还没有公告数据。登录后在设置里同步一次，或下拉刷新。",
-                    fontSize = 13.sp, color = ds.sub,
+                    error ?: "暂无门户公告。登录学校门户后刷新即可获取。",
+                    fontSize = 13.sp,
+                    color = if (error != null) ds.danger else ds.sub,
                 )
+            }
+        } else if (visibleNotices.isEmpty()) {
+            GlassCard {
+                Text("当前没有匹配的${if (category == NoticeCategory.EXAM) "考试" else "教务"}公告。", fontSize = 13.sp, color = ds.sub)
             }
         } else {
             // 打开页面即把最新公告时间记为已读水位
@@ -130,7 +167,7 @@ fun NoticeScreen(
                 val maxTime = notices.maxOf { it.time }
                 if (maxTime > store.lastNoticeReadAt) store.lastNoticeReadAt = maxTime
             }
-            notices.forEach { n ->
+            visibleNotices.forEach { n ->
                 val unread = n.time > store.lastNoticeReadAt
                 GlassCard(
                     modifier = Modifier.padding(bottom = 10.dp),

@@ -632,8 +632,14 @@ class Repository(context: Context) {
         applySessions(account, ticket)
     }
 
-    /** 扫码拿 ticket 后的收尾。 */
-    suspend fun finishSso(ticket: String) {
+    /** 扫码拿 ticket 后的收尾。同一 clientId 的 SSE 重复投递不能把一张一次性票再换一次。 */
+    private var lastSsoTicket: String? = null
+
+    suspend fun finishSso(rawTicket: String) {
+        val ticket = rawTicket.trim()
+        require(ticket.isNotBlank()) { "登录票据为空，请重新扫码" }
+        if (ticket == lastSsoTicket) return
+        lastSsoTicket = ticket
         store.casTicket = ticket
         // 钉钉票是移动端 SSO 体系：先换门户（必须成功），教务拿不到不算登录失败
         applySessions("", ticket, portalFirst = true)
@@ -643,25 +649,58 @@ class Repository(context: Context) {
      * 票据一次性，不同来源票的适用范围不同：
      * - 账号密码（CAS 网页登录）：先给教务，再换门户；
      * - 钉钉扫码：先换门户（钉钉票本就为门户签发），再试教务，失败只提示不阻断登录。
+     *
+     * 每次换票对网络类失败重试一次（学校网关偶发超时）；失败原因不再吞掉，
+     * 两个渠道都失败时把真实原因拼进提示，便于定位。
      */
     private suspend fun applySessions(fallbackJob: String, ticket: String, portalFirst: Boolean = false) {
         var teachingOk = false
         var token = ""
-        if (portalFirst) {
-            token = runCatching { api.exchangeToken(ticket) }.getOrElse { "" }
-            teachingOk = runCatching { teachingSso.openSession(ticket, teachingCookies) }.getOrNull() != null
-        } else {
-            teachingOk = runCatching { teachingSso.openSession(ticket, teachingCookies) }.getOrNull() != null
-            token = runCatching { api.exchangeToken(ticket) }.getOrElse { "" }
+        var portalError: Throwable? = null
+        var teachingError: Throwable? = null
+
+        // 一次性票：门户与教务共用，重试只针对「网络没发出去」的情形，不重放已成功换到的会话
+        suspend fun exchangePortal() {
+            runCatching { api.exchangeToken(ticket) }
+                .onSuccess { token = it }
+                .onFailure { e ->
+                    if (e.isNetworkDown() && token.isBlank()) {
+                        runCatching { api.exchangeToken(ticket) }
+                            .onSuccess { token = it }
+                            .onFailure { portalError = it }
+                    } else portalError = e
+                }
         }
+        suspend fun openTeaching() {
+            runCatching { teachingSso.openSession(ticket, teachingCookies) }
+                .onSuccess { teachingOk = it != null }
+                .onFailure { teachingError = it }
+            if (!teachingOk && teachingError == null) teachingError = IllegalStateException("教务未接受票据")
+        }
+
+        if (portalFirst) {
+            exchangePortal()
+            // 票据已被门户消费，教务大概率拒绝：只在门户成功且教务明确是网络失败时不再重试
+            openTeaching()
+        } else {
+            openTeaching()
+            exchangePortal()
+        }
+
         if (token.isNotBlank()) {
             val (job, name) = runCatching { api.userInfo(token) }.getOrDefault(fallbackJob to "")
             store.portalToken = token
             store.jobNumber = job.ifBlank { fallbackJob }
             store.realName = name
+            if (!teachingOk) {
+                // 门户会话有效即可进入课表（整学期导入可走网页路线）；教务失败降级为提示
+                android.util.Log.i("gdust-sso", "教务会话未建立：${teachingError?.message ?: "票据已被门户使用"}")
+            }
         }
         if (!teachingOk && token.isBlank()) {
-            error("登录票据未能换取任何会话（教务与门户都被拒绝），请稍后重试或改用网页登录导入。")
+            val portal = portalError?.message?.take(60) ?: "门户未返回 TOKEN"
+            val teaching = teachingError?.message?.take(60) ?: "教务未接受"
+            error("登录票据未能换取任何会话（门户：$portal；教务：$teaching）。请重新扫码，或改用网页登录导入。")
         }
     }
 
@@ -694,6 +733,34 @@ class Repository(context: Context) {
         val alive = chxApi.probe(store.chxCookie)
         if (alive == false) store.clearChxCookie()
         return alive
+    }
+
+    /** 清理学习通与学校 CAS 的 WebView 会话，不影响教务站点自己的 Cookie。 */
+    fun clearChxSession() {
+        store.clearChxCookie()
+        val cookieManager = android.webkit.CookieManager.getInstance()
+        listOf(
+            "https://chaoxing.com",
+            "https://passport2.chaoxing.com",
+            "https://passport.chaoxing.com",
+            "https://i.chaoxing.com",
+            "https://mooc2-ans.chaoxing.com",
+            "http://gdkjxy.fysso.chaoxing.com",
+            "http://gdkjxy.fanya.chaoxing.com",
+            "https://cas.gdust.edu.cn",
+        ).forEach { url ->
+            cookieManager.getCookie(url).orEmpty()
+                .split(';')
+                .map { it.trim().substringBefore('=') }
+                .filter(String::isNotBlank)
+                .forEach { name ->
+                    cookieManager.setCookie(url, "$name=; Max-Age=0; Path=/")
+                    if (url.contains("chaoxing.com")) {
+                        cookieManager.setCookie(url, "$name=; Max-Age=0; Path=/; Domain=.chaoxing.com")
+                    }
+                }
+        }
+        cookieManager.flush()
     }
 
     suspend fun summarize() = api.summarize(

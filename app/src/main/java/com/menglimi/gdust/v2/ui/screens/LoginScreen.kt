@@ -262,8 +262,11 @@ private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (
                             runCatching { repo.finishSso(ev.ticket) }
                                 .onSuccess { onLoggedIn() }
                                 .onFailure {
+                                    // 失败后清掉旧二维码：同一张一次性票据不能重扫
+                                    clientId = null
+                                    status = ""
                                     if (it.isNetworkDown()) netDown = true
-                                    onError("票据换取失败：${it.message}")
+                                    onError("票据换取失败：${it.message}\n请点下方按钮重新生成二维码再扫一次。")
                                 }
                         }
                         is com.menglimi.gdust.v2.data.SseEvent.NeedBind ->

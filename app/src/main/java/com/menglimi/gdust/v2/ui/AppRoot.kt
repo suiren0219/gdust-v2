@@ -89,6 +89,7 @@ fun AppRoot(
     var showGlassEffect by remember { mutableStateOf(false) }
     var notices by remember { mutableStateOf<List<Notice>>(emptyList()) }
     var noticesLoading by remember { mutableStateOf(false) }
+    var noticesError by remember { mutableStateOf<String?>(null) }
     var showAbout by remember { mutableStateOf(false) }
     // 备份导出：SAF 建文档，写入后提示
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -151,11 +152,16 @@ fun AppRoot(
     }
 
     fun loadNotices() {
-        if (!repo.store.hasSession) return
+        if (!repo.store.hasSession) {
+            noticesError = "请先登录学校门户后再获取教务通知。"
+            return
+        }
         noticesLoading = true
+        noticesError = null
         scope.launch {
             runCatching { repo.notices() }
                 .onSuccess { notices = it }
+                .onFailure { noticesError = it.message ?: "公告加载失败，请检查网络后重试。" }
             noticesLoading = false
         }
     }
@@ -243,6 +249,7 @@ fun AppRoot(
                     repo = repo,
                     notices = notices,
                     loading = noticesLoading,
+                    error = noticesError,
                     onBack = { showNotices = false },
                     onRefresh = { loadNotices() },
                 )
