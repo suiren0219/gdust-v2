@@ -4,198 +4,301 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import androidx.core.app.NotificationCompat
-import androidx.work.CoroutineWorker
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
-import androidx.work.WorkerParameters
-import com.menglimi.gdust.v2.App
 import com.menglimi.gdust.v2.MainActivity
-import com.menglimi.gdust.v2.data.CourseBlock
+import com.menglimi.gdust.v2.data.Store
 import com.menglimi.gdust.v2.ui.schedule.ScheduleTimes
+import org.json.JSONObject
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.temporal.ChronoUnit
-import java.util.concurrent.TimeUnit
 
 /**
- * 课程提醒（每 15 分钟巡检一次本机课表缓存）：
- * - 课前提醒：距上课 ≤ reminderLead 分钟时发通知（同一节课只提醒一次）
- * - 次日提醒：每天 nextDayHour 点汇总明天的课
- * 通知附带 HyperOS 焦点通知（超级岛）字段，系统支持时会以岛样式展示，否则退化为普通通知。
+ * 课程提醒通知（v9 起对齐 Nexio 课程提醒卡的字段结构）：
+ * - 状态栏岛：`博 A201 | 01:00 上课`（左：地点，右：系统 Chronometer 倒计时）
+ * - 锁屏/息屏卡：课程名 / 第 N-M 节｜地点 / 即将上课 · 倒计时 / 地点 / 「上课勿扰」
+ * - 普通通知栏：课程名 + 节次｜地点，系统不支持焦点通知时仍可读
+ *
+ * 字段名与官方 V3 协议一致，参照 NexioSchedule 28a99a3 的
+ * IslandNotificationHelper.buildFocusJson() 与 HyperNotification 的 FocusTemplateV3。
  */
-class LessonReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
+object LessonReminderWorker {
 
-    override suspend fun doWork(): Result {
-        val repo = (applicationContext as App).repo
-        val store = repo.store
-        if (!store.reminderEnabled) return Result.success()
-        val blocks = store.loadBlocks()
-        val cal = store.loadCalendar() ?: return Result.success()
-        if (blocks.isEmpty()) return Result.success()
+    const val CHANNEL = "gdust_lesson_reminder"
+    private const val BUSINESS_TAG = "course_reminder"
 
-        val today = LocalDate.now()
-        val now = LocalTime.now()
-
-        // 学期第一周周一（优先用户设置的开学日期）
-        val termStart = store.termStartDate.takeIf { it.isNotBlank() }
-            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-            ?: runCatching { LocalDate.parse(cal.startDate) }.getOrNull()
-        fun weekOf(date: LocalDate): Int = termStart?.let {
-            (ChronoUnit.DAYS.between(it, date) / 7 + 1).toInt()
-        } ?: cal.week
-
-        // ① 课前提醒
-        val todayBlocks = blocks.filter { it.week == weekOf(today) && it.day == today.dayOfWeek.value }
-        val lead = store.reminderLead
-        todayBlocks.forEach { b ->
-            val startStr = ScheduleTimes.start(b.startSection)
-            if (startStr.isEmpty()) return@forEach
-            val start = runCatching { LocalTime.parse(startStr) }.getOrNull() ?: return@forEach
-            val minutes = ChronoUnit.MINUTES.between(now, start)
-            val key = "lesson-${today}-${b.startSection}-${b.name}"
-            if (minutes in 0..lead.toLong() && store.lastReminderKey != key) {
-                notify(
-                    id = 21,
-                    title = "${minutes} 分钟后上课 · ${b.name}",
-                    text = buildString {
-                        append("$startStr 第 ${b.startSection} 节")
-                        if (b.room.isNotBlank()) append(" · ${b.room}")
-                        if (b.teacher.isNotBlank()) append(" · ${b.teacher}")
-                    },
-                    ticker = "${b.name} $startStr",
-                    island = store.islandEnabled,
-                )
-                store.lastReminderKey = key
-                return Result.success()
-            }
-        }
-
-        // ② 课中提醒：正在上课且距下课 ≤ inClassLead 分钟
-        if (store.inClassReminder) {
-            todayBlocks.forEach { b ->
-                val startStr = ScheduleTimes.start(b.startSection)
-                val endStr = ScheduleTimes.end(b.endSection)
-                if (startStr.isEmpty() || endStr.isEmpty()) return@forEach
-                val start = runCatching { LocalTime.parse(startStr) }.getOrNull() ?: return@forEach
-                val end = runCatching { LocalTime.parse(endStr) }.getOrNull() ?: return@forEach
-                if (now.isBefore(start) || now.isAfter(end)) return@forEach
-                val left = ChronoUnit.MINUTES.between(now, end)
-                val key = "inclass-${today}-${b.startSection}-${b.name}"
-                if (left in 0..store.inClassLead.toLong() && store.lastReminderKey != key) {
-                    notify(
-                        id = 23,
-                        title = "${left} 分钟后下课 · ${b.name}",
-                        text = "第 ${b.startSection} 节 $endStr 结束" +
-                            if (b.room.isNotBlank()) " · ${b.room}" else "",
-                        ticker = "${b.name} 还有 ${left} 分钟下课",
-                        island = store.islandEnabled,
-                    )
-                    store.lastReminderKey = key
-                    return Result.success()
-                }
-            }
-        }
-
-        // ③ 次日课程提醒（每天指定小时的第一轮巡检触发）
-        if (store.nextDayReminder && now.hour == store.nextDayHour && now.minute < 15) {
-            val key = "nextday-$today"
-            if (store.lastReminderKey != key) {
-                val tomorrow = today.plusDays(1)
-                val tomorrowBlocks = blocks
-                    .filter { it.week == weekOf(tomorrow) && it.day == tomorrow.dayOfWeek.value }
-                    .sortedBy { it.startSection }
-                if (tomorrowBlocks.isNotEmpty()) {
-                    val summary = tomorrowBlocks.joinToString("\n") { b ->
-                        "${ScheduleTimes.start(b.startSection).ifEmpty { "${b.startSection}节" }} ${b.name}" +
-                            if (b.room.isNotBlank()) " @${b.room}" else ""
-                    }
-                    notify(
-                        id = 22,
-                        title = "明天 ${tomorrowBlocks.size} 节课",
-                        text = summary,
-                        ticker = "明天 ${tomorrowBlocks.first().name} 等 ${tomorrowBlocks.size} 节课",
-                        island = store.islandEnabled,
-                    )
-                    store.lastReminderKey = key
-                }
-            }
-        }
-        return Result.success()
-    }
-
-    private fun notify(id: Int, title: String, text: String, ticker: String, island: Boolean = true) =
-        post(applicationContext, id, title, text, ticker, island)
-
-    private object IntentFactory {
-        fun main(ctx: Context) = android.content.Intent(ctx, MainActivity::class.java)
-    }
-
-    companion object {
-        const val CHANNEL = "gdust_lesson_reminder"
-
-        /** 发一条提醒（课前/课中/次日/测试共用）。 */
-        internal fun post(
-            ctx: Context,
-            id: Int,
-            title: String,
-            text: String,
-            ticker: String,
-            island: Boolean = true,
-        ) {
-            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.createNotificationChannel(
-                NotificationChannel(CHANNEL, "课程提醒", NotificationManager.IMPORTANCE_HIGH).apply {
-                    description = "课前提醒与次日课程汇总"
-                },
-            )
-            val pi = PendingIntent.getActivity(
-                ctx, id, IntentFactory.main(ctx),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-            val builder = NotificationCompat.Builder(ctx, CHANNEL)
-                .setSmallIcon(android.R.drawable.ic_popup_reminder)
-                .setContentTitle(title)
-                .setContentText(text)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setCategory(NotificationCompat.CATEGORY_REMINDER)
-                .setContentIntent(pi)
-                .setAutoCancel(true)
-            // HyperOS 焦点通知（超级岛）：系统支持时上岛，不支持则忽略这些 extras
-            if (island) {
-                builder.addExtras(Bundle().apply {
-                    putString(
-                        "miui.focus.param",
-                        """{"param_v2":{"ticker":"${ticker.replace("\"", "")}","isShowNotification":true},"protocol":1}""",
-                    )
-                    putInt("miui.focus.priority", 1)
-                })
-            }
-            nm.notify(id, builder.build())
-        }
-
-        /** 设置页「测试提醒」按钮。 */
-        fun sendTest(ctx: Context, island: Boolean) = post(
-            ctx, 29,
-            "测试提醒 · 高等数学",
-            "还有 20 分钟上课 · 松 5-308 · 张老师",
-            "高等数学 20 分钟后上课",
-            island,
+    /** 发提醒前恢复渠道重要性（「上课勿扰」按钮会把它降到 LOW）。 */
+    private fun ensureAudibleChannel(ctx: Context, nm: NotificationManager) {
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL, "课程提醒", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "课前提醒与次日课程汇总"
+            },
         )
+    }
 
-        fun schedule(ctx: Context) {
-            WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
-                "gdust_lesson_reminder",
-                ExistingPeriodicWorkPolicy.KEEP,
-                PeriodicWorkRequestBuilder<LessonReminderWorker>(15, TimeUnit.MINUTES).build(),
-            )
+    /** 按 [ReminderEvent] 发一条提醒，写去重键，刷新桌面小组件。 */
+    internal fun emit(ctx: Context, store: Store, event: ReminderEvent) {
+        val now = LocalTime.now()
+        when (event.kind) {
+            ReminderKind.BEFORE_CLASS -> {
+                val b = event.block ?: return
+                val start = LocalTime.parse(event.startText)
+                val minutes = ChronoUnit.MINUTES.between(now, start).coerceAtLeast(0)
+                val startMillis = event.date.atTime(start).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val content = "第 ${b.startSection}-${b.endSection} 节 | ${b.room}"
+                post(
+                    ctx, 21,
+                    title = b.name,
+                    text = content,
+                    ticker = "${store.shortClassroom(b.room)}  ${minutes}分钟后上课",
+                    island = store.islandEnabled,
+                    islandExtras = focusJson(
+                        ctx = ctx, store = store,
+                        courseName = b.name, content = content, classroom = b.room,
+                        startMillis = startMillis, endMillis = null,
+                        timeoutSec = (minutes + 5).toInt() * 60,
+                        inClass = false,
+                    ),
+                )
+            }
+            ReminderKind.IN_CLASS -> {
+                val b = event.block ?: return
+                val end = LocalTime.parse(event.endText)
+                val left = ChronoUnit.MINUTES.between(now, end).coerceAtLeast(0)
+                val endMillis = event.date.atTime(end).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val content = "第 ${b.startSection}-${b.endSection} 节 | ${b.room}"
+                post(
+                    ctx, 23,
+                    title = b.name,
+                    text = "$content · 还有 $left 分钟下课",
+                    ticker = "${store.shortClassroom(b.room)}  ${left}分钟后下课",
+                    island = store.islandEnabled,
+                    islandExtras = focusJson(
+                        ctx = ctx, store = store,
+                        courseName = b.name, content = content, classroom = b.room,
+                        startMillis = null, endMillis = endMillis,
+                        timeoutSec = (left + 5).toInt() * 60,
+                        inClass = true,
+                    ),
+                )
+            }
+            ReminderKind.NEXT_DAY -> {
+                val lessons = event.nextDayBlocks
+                if (lessons.isEmpty()) return
+                val summary = lessons.joinToString("\n") { b ->
+                    "${ScheduleTimes.start(b.startSection).ifEmpty { "${b.startSection}节" }} ${b.name}" +
+                        if (b.room.isNotBlank()) " @${b.room}" else ""
+                }
+                post(
+                    ctx, 22,
+                    title = "明天 ${lessons.size} 节课",
+                    text = summary,
+                    ticker = "明天 ${lessons.first().name} 等 ${lessons.size} 节课",
+                    island = store.islandEnabled,
+                    islandExtras = focusJson(
+                        ctx = ctx, store = store,
+                        courseName = "明天 ${lessons.size} 节课",
+                        content = lessons.first().name + " 等 ${lessons.size} 门课",
+                        classroom = lessons.first().room,
+                        startMillis = null, endMillis = null,
+                        timeoutSec = 12 * 3600,
+                        inClass = false,
+                    ),
+                )
+            }
+        }
+        store.lastReminderKey = event.key
+        runCatching { com.menglimi.gdust.v2.widget.TodayWidget().refreshAll(ctx) }
+    }
+
+    /** 发一条提醒（课前/课中/次日/测试共用）。 */
+    internal fun post(
+        ctx: Context,
+        id: Int,
+        title: String,
+        text: String,
+        ticker: String,
+        island: Boolean = true,
+        islandExtras: Bundle? = null,
+    ) {
+        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        ensureAudibleChannel(ctx, nm)
+        val pi = PendingIntent.getActivity(
+            ctx, id, Intent(ctx, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val builder = NotificationCompat.Builder(ctx, CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setTicker(ticker)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+        if (island && islandExtras != null) builder.addExtras(islandExtras)
+        nm.notify(id, builder.build())
+    }
+
+    /**
+     * 组装焦点通知/超级岛 V3 JSON（Nexio 同款字段）：
+     * baseInfo{type:2,title,content} + hintInfo{timerInfo,subTitle,subContent,actionInfo}
+     * + param_island{bigIslandArea{imageTextInfoLeft, sameWidthDigitInfo/timerInfo}, smallIslandArea}。
+     */
+    private fun focusJson(
+        ctx: Context,
+        store: Store,
+        courseName: String,
+        content: String,
+        classroom: String,
+        startMillis: Long?,
+        endMillis: Long?,
+        timeoutSec: Int,
+        inClass: Boolean,
+    ): Bundle {
+        val now = System.currentTimeMillis()
+        val shortRoom = store.shortClassroom(classroom)
+        val shortName = store.shortCourse(courseName)
+        val counting = (if (inClass) endMillis else startMillis)?.let { it > now } == true
+        val timerTarget = if (inClass) endMillis else startMillis
+        val leftMode = store.islandLeftMode
+        val rightMode = if (inClass) store.islandInClassRightMode else store.islandRightMode
+        val minutesShort = timerTarget?.let { ((it - now + 59_999L) / 60_000L).toString().padStart(2, '0') + "分钟" } ?: "--"
+
+        fun modeText(mode: Int) = when (mode) {
+            0 -> shortName
+            1 -> shortRoom
+            else -> minutesShort
         }
 
-        fun cancel(ctx: Context) {
-            WorkManager.getInstance(ctx).cancelUniqueWork("gdust_lesson_reminder")
+        fun timerInfo() = JSONObject().apply {
+            put("timerType", if (counting) -1 else 0)
+            put("timerWhen", timerTarget ?: 0L)
+            put("timerTotal", 0L)
+            put("timerSystemCurrent", now)
         }
+
+        val actionIntent = "intent:#Intent;action=${ClassDndToggleReceiver.ACTION};" +
+            "component=${ctx.packageName}/.work.ClassDndToggleReceiver;end"
+
+        val paramV2 = JSONObject().apply {
+            put("protocol", 1)
+            put("business", BUSINESS_TAG)
+            put("enableFloat", true)
+            put("updatable", true)
+            put("reopen", "reopen")
+            put("sequence", now / 1000L)
+            put("isShowNotification", true)
+            put("aodTitle", if (store.islandAodMode == 1) shortRoom.ifEmpty { shortName } else shortName)
+            put("ticker", "$shortRoom  ${if (inClass) "下课" else "上课"}")
+
+            put("baseInfo", JSONObject().apply {
+                put("type", 2)
+                put("title", courseName)
+                put("content", content)
+                put("showDivider", true)
+                put("showContentDivider", false)
+                put("colorTitle", "#111111")
+                put("colorTitleDark", "#ffffff")
+                put("colorContent", "#333333")
+                put("colorContentDark", "#cccccc")
+            })
+
+            put("hintInfo", JSONObject().apply {
+                put("type", 2)
+                put("content", if (inClass) "距下课" else "即将上课")
+                put("title", "")
+                put("timerInfo", timerInfo())
+                put("subContent", "地点")
+                put("subTitle", classroom)
+                put("colorContent", "#666666")
+                put("colorContentDark", "#aaaaaa")
+                put("colorSubTitle", "#222222")
+                put("colorSubTitleDark", "#eeeeee")
+                put("actionInfo", JSONObject().apply {
+                    put("actionTitle", "上课勿扰")
+                    put("actionIntentType", 2)
+                    put("actionIntent", actionIntent)
+                })
+            })
+
+            put("param_island", JSONObject().apply {
+                put("islandProperty", 1)
+                put("islandTimeout", timeoutSec)
+                put("bigIslandArea", JSONObject().apply {
+                    put("templateNo", 2)
+                    put("imageTextInfoLeft", JSONObject().apply {
+                        put("type", 1)
+                        put("textInfo", JSONObject().apply {
+                            put("title", modeText(leftMode))
+                            put("content", "")
+                            put("showHighlightColor", false)
+                            put("narrowFont", false)
+                        })
+                    })
+                    if (rightMode == 2 && counting) {
+                        put("sameWidthDigitInfo", JSONObject().apply {
+                            put("content", if (inClass) "下课" else "上课")
+                            put("showHighlightColor", false)
+                            put("timerInfo", timerInfo())
+                        })
+                    } else {
+                        put("textInfo", JSONObject().apply {
+                            put("title", modeText(rightMode))
+                            put("content", "")
+                            put("showHighlightColor", false)
+                            put("narrowFont", false)
+                        })
+                    }
+                })
+                put("smallIslandArea", JSONObject().apply {
+                    put("picInfo", JSONObject().apply {
+                        put("type", 1)
+                        put("pic", "miui.focus.pic_small")
+                        put("picDark", "miui.focus.pic_small_dark")
+                    })
+                })
+            })
+        }
+        return Bundle().apply {
+            putString("miui.focus.param", JSONObject().put("param_v2", paramV2).toString())
+        }
+    }
+
+    /** 设置页「测试提醒」按钮：20 分钟后上课的大学英语 II。 */
+    fun sendTest(ctx: Context, island: Boolean) {
+        val store = Store(ctx)
+        val startMillis = System.currentTimeMillis() + 20 * 60_000L
+        post(
+            ctx, 29,
+            "大学英语II",
+            "第 3-4 节 | 博 A201",
+            "博 A201  20分钟后上课",
+            island,
+            focusJson(
+                ctx = ctx, store = store,
+                courseName = "大学英语II", content = "第 3-4 节 | 博 A201", classroom = "博 A201",
+                startMillis = startMillis, endMillis = null,
+                timeoutSec = 25 * 60,
+                inClass = false,
+            ),
+        )
+    }
+
+    /** 兼容旧调用：重排精确闹钟 + 6h 兜底。 */
+    fun schedule(ctx: Context) {
+        val store = Store(ctx)
+        LessonReminderAlarms.reschedule(ctx, store)
+        LessonReminderAlarms.scheduleFallback(ctx)
+    }
+
+    fun cancel(ctx: Context) {
+        val store = Store(ctx)
+        LessonReminderAlarms.reschedule(ctx, store)
+        LessonReminderAlarms.cancelFallback(ctx)
     }
 }

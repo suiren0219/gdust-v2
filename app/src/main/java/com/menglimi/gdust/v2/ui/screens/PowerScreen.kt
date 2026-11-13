@@ -14,8 +14,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -36,6 +40,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.PowerDetail
@@ -45,14 +52,25 @@ import com.menglimi.gdust.v2.data.Store
 import com.menglimi.gdust.v2.data.isNetworkDown
 import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Refresh
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 
+/**
+ * Layout adapted from NexioSchedule, revision 28a99a3:
+ * ui-shared/.../ui/screens/SettingsScreen.kt and ui/activities/PreferenceSettingsScreen.kt.
+ * Uses the same large-title, grouped-card and Miuix preference rhythm with real power data.
+ */
 @Composable
 fun PowerScreen(repo: Repository) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val ds = LocalDs.current
     val scope = rememberCoroutineScope()
     val store = repo.store
-    val context = androidx.compose.ui.platform.LocalContext.current
 
     var account by remember { mutableStateOf(store.powerAccount) }
     var code by remember { mutableStateOf(store.powerCode.takeIf { it > 0 }?.toString() ?: "") }
@@ -62,140 +80,145 @@ fun PowerScreen(repo: Repository) {
     var msg by remember { mutableStateOf("") }
     var netDown by remember { mutableStateOf(false) }
     var intervalSaved by remember { mutableStateOf(false) }
+    var sampleIntervalLocal by remember { mutableStateOf(store.sampleIntervalMinutes) }
+    var hasBinding by remember { mutableStateOf(store.hasPowerBinding) }
+    var editingBinding by remember { mutableStateOf(false) }
+    var roomName by remember { mutableStateOf(store.powerRoomName) }
+    var roomQueryAccount by remember { mutableStateOf("") }
+    var roomQueryCode by remember { mutableStateOf(0) }
+    var updatedAt by remember { mutableStateOf<Long?>(null) }
 
     fun refresh() {
-        if (!store.hasPowerBinding || busy) return
+        if (!hasBinding || busy) return
         busy = true
+        msg = ""
+        netDown = false
         scope.launch {
-            runCatching { repo.powerDetail() }
-                .onSuccess { d ->
-                    detail = d
-                    d.odd?.let { store.addSample(it) }
-                    msg = ""
-                }
-                .onFailure {
-                    netDown = it.isNetworkDown()
-                    msg = it.message ?: "查询失败"
-                }
-            busy = false
+            try {
+                val result = repo.powerDetail()
+                detail = result
+                result.odd?.let { store.addSample(it) }
+                updatedAt = System.currentTimeMillis()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                netDown = error.isNetworkDown()
+                msg = error.message ?: "查询失败"
+            } finally {
+                busy = false
+            }
         }
     }
 
     LaunchedEffect(Unit) { refresh() }
-    val samples = remember(detail, busy) { store.loadSamples() }
+    val samples = remember(detail, busy, roomName) { store.loadSamples().sortedBy { it.time } }
     // 走势图展示跨度（天）：1/3/7/30，实际点数=天数×每天采样数
     var chartDays by remember { mutableStateOf(1) }
-    val pullState = androidx.compose.material3.pulltorefresh.PullToRefreshState()
+    val pullState = remember { androidx.compose.material3.pulltorefresh.PullToRefreshState() }
 
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
-        isRefreshing = busy && store.hasPowerBinding,
-        onRefresh = { refresh() },
+        isRefreshing = busy && hasBinding && !editingBinding,
+        onRefresh = { if (!editingBinding) refresh() },
         state = pullState,
         modifier = Modifier.fillMaxSize(),
     ) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(com.menglimi.gdust.v2.ui.pageBackground())
+            .background(ds.bg)
             .statusBarsPadding()
+            .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 24.dp),
     ) {
         Spacer(Modifier.height(24.dp))
-        PageTitle(title = "宿舍电费", subtitle = "完美校园智能水电 · 本机直连查询")
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("宿舍电费", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = ds.text, modifier = Modifier.weight(1f))
+            if (hasBinding && !editingBinding) {
+                IconButton(onClick = { refresh() }, enabled = !busy, modifier = Modifier.size(48.dp)) {
+                    Icon(MiuixIcons.Refresh, contentDescription = "刷新电量", tint = ds.accent, modifier = Modifier.size(24.dp))
+                }
+            }
+        }
+        Text(
+            if (hasBinding) roomName.ifBlank { "已绑定宿舍" } else "绑定宿舍，查看电量与用电趋势",
+            fontSize = 14.sp, color = ds.sub, modifier = Modifier.padding(top = 6.dp, bottom = 24.dp),
+        )
 
-        if (store.hasPowerBinding) {
+        if (msg.isNotEmpty()) {
+            GlassCard {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("查询未完成", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.danger)
+                    Text(msg, fontSize = 14.sp, color = ds.sub)
+                    if (hasBinding && !editingBinding) Button("重新查询", enabled = !busy) { refresh() }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        if (hasBinding && !editingBinding) {
             val weekUse = detail?.weekUse.orEmpty()
             // 预计可用天数：近 7 日平均日耗为 0 时（如刚充值）不显示估算，避免误导
             val avgDaily = weekUse.map { it.second }.takeIf { it.isNotEmpty() }?.average()?.takeIf { it > 0.01 }
             val daysLeft = avgDaily?.let { detail?.odd?.div(it) }
             GlassCard {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // 左：大数字
-                    Column(Modifier.weight(1f)) {
-                        Text(store.powerRoomName, fontSize = 12.sp, color = ds.sub, maxLines = 1)
-                        Row(verticalAlignment = Alignment.Bottom) {
-                            Text(
-                                detail?.odd?.let { "%.1f".format(it) } ?: if (busy) "…" else "--",
-                                fontSize = 44.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = ds.accent,
-                            )
-                            Text(
-                                " 度",
-                                fontSize = 13.sp,
-                                color = ds.sub,
-                                modifier = Modifier.padding(bottom = 8.dp, start = 2.dp),
-                            )
-                        }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("剩余电量", fontSize = 14.sp, color = ds.sub)
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(
+                            detail?.odd?.let { "%.1f".format(it) } ?: if (busy) "查询中" else "--",
+                            fontSize = if (detail?.odd == null && busy) 32.sp else 56.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (detail?.odd?.let { it < store.warnThreshold } == true) ds.danger else ds.text,
+                        )
+                        Text("度", fontSize = 17.sp, color = ds.sub, modifier = Modifier.padding(start = 8.dp, bottom = 10.dp))
                     }
-                    Spacer(Modifier.width(12.dp))
-                    // 右：三个关键信息竖排，省高度
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        detail?.todayUse?.let {
-                            InfoPill("今日", "%.1f 度".format(it), ds)
-                        }
-                        daysLeft?.let {
-                            InfoPill("可用", "约 %.0f 天".format(it), ds, warn = it < 3)
-                        }
-                        InfoPill("预警", "%.0f 度".format(store.warnThreshold), ds)
-                    }
+                    Text(
+                        when {
+                            busy -> "正在更新电量"
+                            msg.isNotEmpty() && detail != null -> "更新失败，保留上次查询结果"
+                            updatedAt != null -> "更新于 " + java.text.SimpleDateFormat("HH:mm", java.util.Locale.CHINA)
+                                .format(java.util.Date(updatedAt!!))
+                            else -> "等待查询"
+                        },
+                        fontSize = 13.sp, color = ds.sub,
+                    )
                 }
             }
             Spacer(Modifier.height(12.dp))
+            GlassCard {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PowerMetric("今日用电", detail?.todayUse?.let { "%.1f 度".format(it) } ?: "--", Modifier.weight(1f))
+                    PowerMetric("预计可用", daysLeft?.let { "约 %.0f 天".format(it) } ?: "--", Modifier.weight(1f), warn = daysLeft?.let { it < 3 } == true)
+                    PowerMetric("预警电量", "%.0f 度".format(store.warnThreshold), Modifier.weight(1f))
+                }
+            }
+            Spacer(Modifier.height(20.dp))
 
-            // 最近电量走势：1/30 天用本机剩余电量采样；3/7 天用服务端 weekuselist 的每日用电量
-            // （本机采样装了才几天，覆盖不了多天窗口——那是修数据源而不是修切换）
+            // 最近几小时折线（App 自采样序列）
             GlassCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("电量走势", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
-                    com.menglimi.gdust.v2.ui.screens.SegmentedChoice(
-                        options = listOf(1 to "近 1 天", 3 to "近 3 天", 7 to "近 7 天", 30 to "近 30 天"),
+                    Text("电量走势", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                    SegmentedChoice(
+                        options = listOf(1 to "1 天", 3 to "3 天", 7 to "7 天", 30 to "30 天"),
                         selected = chartDays,
                         onSelect = { chartDays = it },
-                        modifier = Modifier.fillMaxWidth(),
                     )
-                    Spacer(Modifier.height(6.dp))
-                    if (chartDays == 3 || chartDays == 7) {
-                        if (weekUse.isEmpty()) {
-                            Text(
-                                "服务端没有返回每日用量（weekuselist 为空），暂无法显示近 $chartDays 天视图；可切回「近 1 天」看本机采样。",
-                                fontSize = 12.sp, lineHeight = 16.sp, color = ds.sub,
-                            )
-                        } else {
-                            val points = weekUse.takeLast(chartDays)
-                            DailyUsageChart(points)
-                            Text(
-                                "近 $chartDays 天 · 每日用电量（数据来自完美校园接口，按天）· 点柱查看数值",
-                                fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub,
-                            )
-                        }
-                    } else {
-                        if (samples.size < 2) {
-                            Text("采样点还不够，等下一个间隔自动记点（或点下方刷新）；采样最长保留 30 天", fontSize = 12.sp, color = ds.sub)
-                        } else {
-                            val cutoff = System.currentTimeMillis() - chartDays * 24L * 3600 * 1000
-                            val ranged = samples.filter { it.time >= cutoff }
-                            val coveredHours = if (ranged.size >= 2) {
-                                ((ranged.last().time - ranged.first().time) / 3600000.0).coerceAtLeast(0.0)
-                            } else 0.0
-                            UsageChart(ranged.takeLast(240), store.warnThreshold)
-                            Text(
-                                "已选近 $chartDays 天 · 实际覆盖 %.1f 小时 · ${ranged.size} 个采样点（每 ${store.sampleIntervalMinutes} 分钟）· 虚线=预警线（${store.warnThreshold.toInt()} 度）"
-                                    .format(coveredHours),
-                                fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub,
-                            )
-                            if (chartDays > 1 && coveredHours < chartDays * 24 * 0.6) {
-                                Text(
-                                    "多天视图需要 App 在后台持续采样积累；当前只有 %.1f 小时数据，所以曲线看起来变化不大。".format(coveredHours),
-                                    fontSize = 10.sp, color = ds.accent,
-                                )
-                            }
-                        }
-                    }
+                    // 先按时间窗口过滤，再检查空态，不能对空集合调用 min/max。
+                    val cutoff = System.currentTimeMillis() - chartDays * 24L * 3600 * 1000
+                    val ranged = samples.filter { it.time >= cutoff }.takeLast(240)
+                    val coveredHours = if (ranged.size >= 2) {
+                        ((ranged.last().time - ranged.first().time) / 3600000.0).coerceAtLeast(0.0)
+                    } else 0.0
+                    UsageChart(ranged, store.warnThreshold)
+                    Text(
+                        "近 $chartDays 天 · ${ranged.size} 个采样点 · 覆盖 %.1f 小时".format(coveredHours),
+                        fontSize = 13.sp, color = ds.sub,
+                    )
+                    Text(
+                        "采样间隔 $sampleIntervalLocal 分钟，保留最近 30 天；预警线 ${store.warnThreshold.toInt()} 度。",
+                        fontSize = 12.sp, lineHeight = 17.sp, color = ds.sub,
+                    )
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -231,15 +254,14 @@ fun PowerScreen(repo: Repository) {
                 GlassCard {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("近 7 日每天用电", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
-                            Spacer(Modifier.weight(1f))
-                            Text("峰值 %.1f 度".format(maxUse), fontSize = 11.sp, color = ds.sub)
+                            Text("近 7 日用电", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text, modifier = Modifier.weight(1f))
+                            Text("峰值 %.1f 度".format(maxUse), fontSize = 12.sp, color = ds.sub)
                         }
                         Text(
-                            "从左到右：最近 7 天（最右是今天）· 柱高=当天用电量 · 单位：度",
-                            fontSize = 10.sp, color = ds.sub, lineHeight = 14.sp,
+                            "每日用电量（度）",
+                            fontSize = 13.sp, color = ds.sub,
                         )
-                        // 7 根等宽柱：高度按比例，宽度固定
+                        // 7 根等宽柱随可用宽度分配空间，兼容窄屏与24dp页面边距。
                         Row(
                             Modifier.fillMaxWidth().height(112.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -252,7 +274,7 @@ fun PowerScreen(repo: Repository) {
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Bottom,
                                     modifier = Modifier
-                                        .width(42.dp)
+                                        .weight(1f)
                                         .fillMaxHeight()
                                         .then(
                                             // 今天整列加淡色带，一眼定位
@@ -316,164 +338,116 @@ fun PowerScreen(repo: Repository) {
                 Spacer(Modifier.height(12.dp))
             }
 
-            // 采样间隔设置
-            GlassCard {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("采样间隔", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
-                    Text("15 / 30 / 60 / 120 分钟，后台按此间隔自动采样并画走势；下限 15 分钟", fontSize = 12.sp, color = ds.sub)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(15, 30, 60, 120).forEach { m ->
-                            val picked = store.sampleIntervalMinutes == m
-                            Box(
-                                Modifier
-                                    .weight(1f)
-                                    .background(
-                                        if (picked) ds.accent else ds.card,
-                                        androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
-                                    )
-                                    .clickable {
-                                        store.sampleIntervalMinutes = m
-                                        // 周期=采样间隔（UPDATE 重排）：改动立即生效，不再等下次启动
-                                        com.menglimi.gdust.v2.work.PowerWorker.schedule(context)
-                                        intervalSaved = true
-                                    }
-                                    .padding(vertical = 10.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text("${m}m", fontSize = 13.sp, color = if (picked) androidx.compose.ui.graphics.Color.White else ds.text)
-                            }
-                        }
-                    }
-                    if (intervalSaved) Text("已保存 ✓", fontSize = 12.sp, color = ds.accent)
-                }
+            SectionHeader("查询与采样")
+            SettingGroup {
+                ArrowPreference(
+                    title = if (busy) "正在刷新" else "立即刷新",
+                    summary = "从完美校园更新电量", onClick = { refresh() }, enabled = !busy,
+                )
+                ArrowPreference(
+                    title = "重新绑定宿舍", summary = roomName, enabled = !busy,
+                    onClick = { editingBinding = true; rooms = emptyList(); msg = "" },
+                )
             }
-            Spacer(Modifier.height(12.dp))
-            GlassCard(Modifier.clickable { refresh() }) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(if (busy) "查询中…" else "立即刷新", fontSize = 16.sp, color = ds.text)
-                    Text("›", fontSize = 18.sp, color = ds.sub)
+            GlassCard {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("采样间隔", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                    Text("每 $sampleIntervalLocal 分钟记录电量，后台最低 15 分钟巡检。", fontSize = 14.sp, color = ds.sub)
+                    SegmentedChoice(
+                        options = listOf(15, 30, 60, 120).map { it to "${it}分" },
+                        selected = sampleIntervalLocal,
+                        onSelect = {
+                            sampleIntervalLocal = it
+                            store.sampleIntervalMinutes = it
+                            // 链式调度按新间隔立即重排，不用等下次启动
+                            runCatching {
+                                com.menglimi.gdust.v2.work.PowerWorker.schedule(
+                                    ctx,
+                                )
+                            }
+                            intervalSaved = true
+                        },
+                    )
+                    if (intervalSaved) Text("已保存", fontSize = 13.sp, color = ds.accent)
                 }
             }
         } else {
             GlassCard {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("绑定宿舍（一次即可）", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
-                    InputField(account, { account = it }, "水电账号（完美校园 outid，一般是身份证号）")
-                    InputField(code, { code = it }, "学校代码（广科 1000145）", KeyboardType.Number)
-                    Button("查询我的房间", enabled = !busy && account.isNotBlank() && code.toIntOrNull() != null) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(if (hasBinding) "重新绑定宿舍" else "绑定宿舍", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                    Text("使用完美校园水电账号查询，选定房间后保存到本机。", fontSize = 14.sp, color = ds.sub)
+                    InputField(account, { account = it; rooms = emptyList() }, "水电账号（完美校园 outid）")
+                    InputField(code, { code = it; rooms = emptyList() }, "学校代码（广科 1000145）", KeyboardType.Number)
+                    Button(
+                        if (busy) "正在查询房间" else "查询我的房间",
+                        enabled = !busy && account.isNotBlank() && (code.toIntOrNull() ?: 0) > 0,
+                    ) {
+                        // 保留本次查询参数，避免输入变更后把房间绑定到另一个账号。
+                        val requestedAccount = account.trim()
+                        val requestedCode = code.toIntOrNull() ?: return@Button
                         busy = true
-                        msg = "查询房间中…"
+                        rooms = emptyList()
+                        msg = ""
+                        netDown = false
                         scope.launch {
-                            runCatching { repo.powerRooms(account.trim(), code.toInt()) }
-                                .onSuccess {
-                                    rooms = it
-                                    msg = if (it.isEmpty()) "该账号名下没有房间，检查账号与学校代码" else ""
+                            try {
+                                val result = repo.powerRooms(requestedAccount, requestedCode)
+                                if (account.trim() == requestedAccount && code.toIntOrNull() == requestedCode) {
+                                    roomQueryAccount = requestedAccount
+                                    roomQueryCode = requestedCode
+                                    rooms = result
+                                    if (result.isEmpty()) msg = "该账号名下没有房间，请检查账号与学校代码。"
                                 }
-                                .onFailure {
-                                    netDown = it.isNetworkDown()
-                                    msg = it.message ?: "查询失败"
-                                }
-                            busy = false
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (error: Exception) {
+                                netDown = error.isNetworkDown()
+                                msg = error.message ?: "查询失败"
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    }
+                    if (hasBinding) {
+                        Button("保留当前绑定", enabled = !busy) {
+                            editingBinding = false
+                            account = store.powerAccount
+                            code = store.powerCode.toString()
+                            rooms = emptyList()
+                            msg = ""
                         }
                     }
                 }
             }
-            rooms.forEach { room ->
-                GlassCard(
-                    Modifier
-                        .padding(top = 10.dp)
-                        .clickable {
-                            repo.savePowerBinding(account.trim(), code.toInt(), room)
-                            // 绑定成功才开启水电后台巡检；解绑走设置的退出清理
-                            com.menglimi.gdust.v2.work.PowerWorker.schedule(context)
-                            rooms = emptyList()
-                            refresh()
-                        },
-                ) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(room.name, fontSize = 14.sp, color = ds.text, modifier = Modifier.weight(1f))
-                        Text("点击绑定", fontSize = 12.sp, color = ds.accent)
+            if (rooms.isNotEmpty()) {
+                SectionHeader("选择房间")
+                SettingGroup {
+                    rooms.forEach { room ->
+                        ArrowPreference(
+                            title = room.name, summary = "绑定此房间", enabled = !busy,
+                            onClick = {
+                                repo.savePowerBinding(roomQueryAccount, roomQueryCode, room)
+                                account = roomQueryAccount
+                                code = roomQueryCode.toString()
+                                roomName = room.name
+                                hasBinding = true
+                                editingBinding = false
+                                detail = null
+                                updatedAt = null
+                                rooms = emptyList()
+                                refresh()
+                            },
+                        )
                     }
                 }
             }
         }
 
-        if (msg.isNotEmpty()) {
-            Text(msg, fontSize = 12.sp, color = ds.sub, modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp))
-        }
-        Spacer(Modifier.height(110.dp))
+        Spacer(Modifier.navigationBarsPadding().height(110.dp))
     }
     } // PullToRefreshBox
 
     NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
-}
-
-/** 近 N 天的每日用电量（柱状；数据来自完美校园 weekuselist，按天聚合）。 */
-@Composable
-private fun DailyUsageChart(points: List<Pair<String, Double>>) {
-    val ds = LocalDs.current
-    if (points.isEmpty()) {
-        Text("暂无数据", fontSize = 12.sp, color = ds.sub)
-        return
-    }
-    var selected by remember(points) { mutableStateOf(points.size - 1) }
-    val shown = if (selected in points.indices) selected else points.size - 1
-    val maxV = points.maxOf { it.second }.coerceAtLeast(0.1)
-
-    Column {
-        Text(
-            "${points[shown].first} 用电 %.2f 度".format(points[shown].second),
-            fontSize = 12.sp, color = ds.text,
-            modifier = Modifier.padding(bottom = 6.dp),
-        )
-        Row(Modifier.fillMaxWidth().height(150.dp)) {
-            Column(
-                Modifier.width(34.dp).fillMaxHeight(),
-                verticalArrangement = Arrangement.SpaceBetween,
-                horizontalAlignment = Alignment.End,
-            ) {
-                Text("%.1f".format(maxV), fontSize = 10.sp, color = ds.sub)
-                Text("%.1f".format(maxV / 2), fontSize = 10.sp, color = ds.sub)
-                Text("0", fontSize = 10.sp, color = ds.sub)
-            }
-            Canvas(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .pointerInput(points) {
-                        detectTapGestures { pos ->
-                            selected = (pos.x / (size.width / points.size)).toInt()
-                                .coerceIn(0, points.size - 1)
-                        }
-                    },
-            ) {
-                val n = points.size
-                val slot = size.width / n
-                val barW = slot * 0.5f
-                points.forEachIndexed { i, (_, use) ->
-                    val h = ((use / maxV).toFloat().coerceIn(0f, 1f)) * size.height * 0.92f
-                    drawRoundRect(
-                        color = if (i == selected) ds.accent else ds.accent.copy(alpha = 0.5f),
-                        topLeft = Offset(i * slot + (slot - barW) / 2, size.height - h),
-                        size = androidx.compose.ui.geometry.Size(barW, h),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(6f, 6f),
-                    )
-                }
-            }
-        }
-        Row(Modifier.fillMaxWidth()) {
-            points.forEachIndexed { i, (label, _) ->
-                val day = if (label.startsWith("周")) label else "周$label"
-                Text(
-                    day,
-                    fontSize = 10.sp,
-                    color = if (i == selected) ds.accent else ds.sub,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-    }
 }
 
 /**
@@ -484,6 +458,14 @@ private fun DailyUsageChart(points: List<Pair<String, Double>>) {
 @Composable
 private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
     val ds = LocalDs.current
+    if (samples.size < 2) {
+        Text(
+            "这个时间范围内的采样还不足，稍后刷新或选择更长时间查看。",
+            fontSize = 14.sp, lineHeight = 20.sp, color = ds.sub,
+            modifier = Modifier.padding(vertical = 20.dp),
+        )
+        return
+    }
     val values = samples.map { it.odd.toFloat() }
     val minV = values.min()
     val maxV = values.max()
@@ -524,13 +506,14 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
                     .weight(1f)
                     .fillMaxHeight()
                     .padding(start = 6.dp)
-                    .pointerInput(values) {
+                    .semantics { contentDescription = "电量折线图，共 ${samples.size} 个采样点，最新 %.1f 度".format(values.last()) }
+                    .pointerInput(samples) {
                         detectTapGestures { tap ->
-                            // 吸附到最近的采样点（横向距离归一化）
-                            val n = values.size
-                            val plotW = size.width - 8f
+                            // 再点同一采样点恢复最新值；数据更新时重启手势，避免保留旧列表索引。
+                            val plotW = (size.width - 8f).coerceAtLeast(1f)
                             val rel = ((tap.x - 8f) / plotW).coerceIn(0f, 1f)
-                            selectedIndex = (rel * (n - 1)).toInt().coerceIn(0, n - 1)
+                            val index = (rel * (values.size - 1)).toInt().coerceIn(values.indices)
+                            selectedIndex = if (selectedIndex == index) -1 else index
                         }
                     },
             ) {
@@ -602,47 +585,36 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
             }
         }
         // 最新值 / 选中点详情
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .background(ds.accent.copy(alpha = 0.14f), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-            ) {
+        Column(Modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                "${fmtFull.format(java.util.Date(samples[shownIndex].time))} · %.1f 度".format(values[shownIndex]),
+                fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ds.accent,
+            )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "${fmtFull.format(java.util.Date(samples[shownIndex].time))} · %.1f 度".format(values[shownIndex]),
-                    fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ds.accent,
+                    "平均变化 %.1f 度/小时".format(kotlin.math.abs(values.last() - values.first()) /
+                        ((samples.last().time - samples.first().time) / 3600000f).coerceAtLeast(0.25f)),
+                    fontSize = 12.sp, color = ds.sub, modifier = Modifier.weight(1f),
                 )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (selectedIndex in values.indices) {
-                    Text("点空白回最新", fontSize = 10.sp, color = ds.sub)
+                    Box(
+                        Modifier.heightIn(min = 44.dp)
+                            .clickable(role = Role.Button) { selectedIndex = -1 }
+                            .padding(horizontal = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("回到最新", fontSize = 12.sp, color = ds.accent) }
                 }
-                Text(
-                    "%.1f 度/小时".format(if (values.size > 1) kotlin.math.abs(values.last() - values.first()) / ((samples.last().time - samples.first().time) / 3600000f).coerceAtLeast(0.25f) else 0f),
-                    fontSize = 11.sp, color = ds.sub,
-                )
             }
         }
     }
 }
 
-/** 右侧信息小胶囊：标签 + 值。 */
+/** 页面专用信息列，与余额卡分离，窄屏也能保留完整标签。 */
 @Composable
-private fun InfoPill(label: String, value: String, ds: com.menglimi.gdust.v2.ui.Ds, warn: Boolean = false) {
-    Row(
-        Modifier
-            .background(ds.accent.copy(alpha = 0.10f), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, fontSize = 10.sp, color = ds.sub)
-        Text(
-            value,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            color = if (warn) ds.danger else ds.text,
-            maxLines = 1,
-        )
+private fun PowerMetric(label: String, value: String, modifier: Modifier = Modifier, warn: Boolean = false) {
+    val ds = LocalDs.current
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, fontSize = 12.sp, color = ds.sub)
+        Text(value, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = if (warn) ds.danger else ds.text)
     }
 }

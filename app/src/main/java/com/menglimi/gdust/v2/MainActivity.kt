@@ -31,6 +31,12 @@ class MainActivity : ComponentActivity() {
             notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
         val app = application as App
+        // WorkManager 首启迁移数据库与 App.onCreate 的入队存在竞态（入队可能被迁移覆盖清空）：
+        // 在 Activity 建立后再幂等补排一次（心跳 KEEP / 链 REPLACE，重复调用无副作用）
+        com.menglimi.gdust.v2.work.PowerWorker.schedule(app)
+        // 精确闹钟链与 6h 兜底同样做一次幂等补排（防 WorkManager 迁移竞态 / 系统清闹钟）
+        if (app.repo.store.reminderEnabled) com.menglimi.gdust.v2.work.LessonReminderWorker.schedule(app)
+        if (app.repo.store.todoReminderEnabled) com.menglimi.gdust.v2.work.LessonReminderAlarms.rescheduleTodo(app, app.repo.store)
         setContent {
             val style = rememberUiStyle(app.repo.store)
             // 风格切换持久化：值变了就写本机

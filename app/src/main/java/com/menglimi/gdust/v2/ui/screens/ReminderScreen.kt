@@ -37,6 +37,8 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
 
     fun save(block: () -> Unit) {
         block()
+        // 任何开关/参数变化都重算未来 48h 的提醒并重置闹钟
+        com.menglimi.gdust.v2.work.LessonReminderAlarms.reschedule(ctx, store)
         revision.intValue++
     }
 
@@ -51,6 +53,18 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
 
     SettingSubPage("课程提醒", "课前 · 次日 · 课中，通知可尝试上岛", onBack) {
         androidx.compose.runtime.key(revision.intValue) {
+        // ── 精确定时诊断 ──
+        SectionHeader("精确定时")
+        SettingGroup {
+            SettingOption(
+                title = "闹钟和提醒权限",
+                subtitle = com.menglimi.gdust.v2.work.LessonReminderAlarms.status(ctx, store),
+                detail = if (com.menglimi.gdust.v2.work.LessonReminderAlarms.canScheduleExact(ctx)) "已授权" else "去授权",
+                onClick = { com.menglimi.gdust.v2.work.LessonReminderAlarms.openExactAlarmSettings(ctx) },
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+
         // ── 总开关 ──
         SettingGroup {
             SettingOption(
@@ -163,13 +177,69 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
 
         // ── 超级岛 ──
         SectionHeader("小米超级岛")
+        val focusProtocol = androidx.compose.runtime.remember {
+            runCatching { Settings.System.getInt(ctx.contentResolver, "notification_focus_protocol", 0) }.getOrDefault(0)
+        }
+        val islandFeature = androidx.compose.runtime.remember {
+            runCatching {
+                Class.forName("android.os.SystemProperties")
+                    .getMethod("get", String::class.java, String::class.java)
+                    .invoke(null, "persist.sys.feature.island", "") as String
+            }.getOrDefault("")
+        }
         SettingGroup {
             SettingOption(
                 title = "超级岛样式提醒",
-                subtitle = "通知附带 HyperOS 焦点通知字段；是否上岛取决于系统版本与通知权限",
+                subtitle = "按 HyperOS 标准 V3 岛协议发通知；是否上岛取决于系统版本与白名单",
                 switch = store.islandEnabled,
                 onSwitch = { on -> save { store.islandEnabled = on } },
             )
+            SettingDivider()
+            SettingOption(
+                title = "系统支持",
+                subtitle = buildString {
+                    append("焦点协议 v$focusProtocol")
+                    append(" · 超级岛特性 ${if (islandFeature == "1") "已开启" else "未检测到"}")
+                    if (focusProtocol < 3) append("（v3 才有岛）")
+                },
+                detail = "诊断",
+            )
+            SettingDivider()
+            SettingOption(
+                title = "白名单",
+                subtitle = "HyperOS 只允许白名单 App 上岛；用 HyperCeiler 等模块加白时，注意其若进入安全模式会整组失效",
+                detail = "说明",
+            )
+            SettingDivider()
+            // 岛显示选项（Nexio 课程提醒同款）：改动写 prefs 后由下一条提醒生效
+            val islandModes = listOf(0 to "课程名称", 1 to "上课地点", 2 to "倒计时")
+            SettingOption(title = "超级岛左侧", detail = islandModes.first { it.first == store.islandLeftMode }.second, onClick = { })
+            SettingEditor {
+                SegmentedChoice(islandModes, store.islandLeftMode, onSelect = { save { store.islandLeftMode = it } })
+            }
+            SettingDivider()
+            SettingOption(title = "超级岛右侧", detail = islandModes.first { it.first == store.islandRightMode }.second, onClick = { })
+            SettingEditor {
+                SegmentedChoice(islandModes, store.islandRightMode, onSelect = { save { store.islandRightMode = it } })
+            }
+            SettingDivider()
+            SettingOption(title = "课中岛右侧", detail = islandModes.first { it.first == store.islandInClassRightMode }.second, onClick = { })
+            SettingEditor {
+                SegmentedChoice(islandModes, store.islandInClassRightMode, onSelect = { save { store.islandInClassRightMode = it } })
+            }
+            SettingDivider()
+            SettingOption(
+                title = "息屏显示",
+                detail = if (store.islandAodMode == 1) "上课地点" else "课程名称",
+                onClick = { },
+            )
+            SettingEditor {
+                SegmentedChoice(
+                    options = listOf(0 to "课程名称", 1 to "上课地点"),
+                    selected = store.islandAodMode,
+                    onSelect = { save { store.islandAodMode = it } },
+                )
+            }
             SettingDivider()
             SettingOption(
                 title = "测试提醒",
@@ -243,8 +313,8 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            "后台每 15 分钟巡检本机课表；同一节课只提醒一次。\n" +
-                "超级岛是小米 HyperOS 的焦点通知能力，第三方 App 只能「请求」上岛，是否显示由系统决定。",
+            "提醒按本机课表算出精确时刻，用系统闹钟触发（不再 15 分钟轮询）；另有 6 小时兜底补漏，同一节课只提醒一次。\n" +
+                "HyperOS 需允许自启动与精确定时；超级岛由系统按白名单决定是否显示。",
             fontSize = 11.sp, lineHeight = 16.sp, color = ds.sub,
             modifier = Modifier,
         )

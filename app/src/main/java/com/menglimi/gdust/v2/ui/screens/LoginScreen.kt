@@ -195,17 +195,6 @@ fun InputField(
     visual: VisualTransformation = VisualTransformation.None,
 ) {
     val ds = LocalDs.current
-    if (LocalUiStyle.current.value == UiStyle.LIQUID) {
-        io.github.neoruaa.glasmio.ui.GlasmioTextField(
-            value = value,
-            onValueChange = onChange,
-            modifier = modifier,
-            placeholder = placeholder,
-            visualTransformation = visual,
-            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-        )
-        return
-    }
     BasicTextField(
         value = value,
         onValueChange = onChange,
@@ -230,29 +219,17 @@ fun InputField(
 @Composable
 fun Button(text: String, enabled: Boolean = true, onClick: () -> Unit) {
     val ds = LocalDs.current
-    if (LocalUiStyle.current.value == UiStyle.LIQUID) {
-        io.github.neoruaa.glasmio.ui.GlasmioButton(
-            onClick = onClick,
-            enabled = enabled,
-            modifier = Modifier.fillMaxWidth(),
-            emphasis = io.github.neoruaa.glasmio.glass.GlassEmphasis.Prominent,
-        ) {
-            Text(text, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-        }
-        return
-    }
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .background(
-                if (enabled) ds.accent else ds.sub.copy(alpha = 0.3f),
-                androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-            )
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 14.dp),
-        contentAlignment = Alignment.Center,
+    top.yukonga.miuix.kmp.basic.Button(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = enabled,
+        colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
     ) {
-        Text(text, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.White)
+        top.yukonga.miuix.kmp.basic.Text(
+            text,
+            fontSize = 16.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+        )
     }
 }
 

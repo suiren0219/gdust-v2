@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import com.haooz.softglass.backdrop.backdrops.layerBackdrop
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -57,8 +58,6 @@ import com.menglimi.gdust.v2.ui.screens.ChxEntryScreen
 import com.menglimi.gdust.v2.data.Notice
 import kotlinx.coroutines.launch
 
-private val TABS = listOf("今日", "课表", "电费", "待办")
-
 @Composable
 fun AppRoot(
     repo: Repository,
@@ -84,8 +83,10 @@ fun AppRoot(
     var showProfile by remember { mutableStateOf(false) }
     var showNotices by remember { mutableStateOf(false) }
     var showReminder by remember { mutableStateOf(false) }
+    var showTodoReminder by remember { mutableStateOf(false) }
     var showChxNotifications by remember { mutableStateOf(false) }
     var showChxEntry by remember { mutableStateOf(false) }
+    var showGlassEffect by remember { mutableStateOf(false) }
     var notices by remember { mutableStateOf<List<Notice>>(emptyList()) }
     var noticesLoading by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
@@ -186,8 +187,10 @@ fun AppRoot(
             showWebImport -> "web_import"
             showNotices -> "notices"
             showReminder -> "reminder"
+            showTodoReminder -> "todo_reminder"
             showChxNotifications -> "chx_notifications"
             showChxEntry -> "chx_entry"
+            showGlassEffect -> "glass_effect"
             showProfile -> "profile"
             showAbout -> "about"
             showSettings.value -> "settings"
@@ -218,6 +221,10 @@ fun AppRoot(
                 androidx.activity.compose.BackHandler { showReminder = false }
                 ReminderScreen(repo = repo, onBack = { showReminder = false })
             }
+            "todo_reminder" -> {
+                androidx.activity.compose.BackHandler { showTodoReminder = false }
+                com.menglimi.gdust.v2.ui.screens.TodoReminderScreen(repo = repo, onBack = { showTodoReminder = false })
+            }
             "chx_notifications" -> {
                 androidx.activity.compose.BackHandler { showChxNotifications = false }
                 ChxNotificationScreen(repo = repo, onBack = { showChxNotifications = false })
@@ -225,6 +232,10 @@ fun AppRoot(
             "chx_entry" -> {
                 androidx.activity.compose.BackHandler { showChxEntry = false }
                 ChxEntryScreen(repo = repo, onBack = { showChxEntry = false })
+            }
+            "glass_effect" -> {
+                androidx.activity.compose.BackHandler { showGlassEffect = false }
+                com.menglimi.gdust.v2.ui.screens.GlassEffectScreen(repo = repo, onBack = { showGlassEffect = false })
             }
             "notices" -> {
                 androidx.activity.compose.BackHandler { showNotices = false }
@@ -261,6 +272,7 @@ fun AppRoot(
                 onSync = { sync() },
                 onWebImport = { showWebImport = true },
                 onReminder = { showReminder = true },
+                onTodoReminder = { showTodoReminder = true },
                 onChxNotifications = { showChxNotifications = true },
                 onChxEntry = { showChxEntry = true },
                 onWallpaperChanged = { wallpaperTick++ },
@@ -274,6 +286,8 @@ fun AppRoot(
                         .onSuccess { result ->
                             calendar = repo.store.loadCalendar()
                             blocks = repo.store.loadBlocks()
+                            monetEnabled.value = repo.store.monetEnabled
+                            wallpaperTick++
                             syncError = null
                             importReport = "备份已恢复：$result"
                         }
@@ -299,6 +313,9 @@ fun AppRoot(
                 onTab = { tab.intValue = it },
                 onSettings = { showSettings.value = true },
                 onOpenNotices = { showNotices = true; loadNotices() },
+                notices = notices,
+                onImport = { showWebImport = true },
+                onGlassEffect = { showGlassEffect = true },
                 calendar = calendar,
                 blocks = blocks,
                 syncError = syncError,
@@ -371,29 +388,49 @@ private fun MainScaffold(
     syncError: String?,
     onSwitchTerm: (String) -> Unit = {},
     wallpaperTick: Int = 0,
+    onImport: () -> Unit = {},
+    onGlassEffect: () -> Unit = {},
 ) {
     val ds = LocalDs.current
     // 壁纸：路径非空即启用；页面底色转透明，让壁纸透出来（tick 变化时重读）
     val wallpaperPath = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperPath }
     val wallpaperOn = wallpaperPath.isNotBlank()
     androidx.compose.runtime.CompositionLocalProvider(LocalWallpaperActive provides wallpaperOn) {
+        // 新底栏是液态玻璃：内容层要先录进 layer backdrop，玻璃才有东西可采样
+        val glassBackdrop = com.haooz.softglass.backdrop.backdrops.rememberLayerBackdrop()
+        // 课程卡/顶栏的玻璃都采样这一层（单层，避免双录制把 RenderThread 干崩）
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.menglimi.gdust.v2.ui.nexio.LocalPageLayerBackdrop provides glassBackdrop,
+        ) {
         Box(Modifier.fillMaxSize()) {
+            // 采样层只录壁纸（卡片/顶栏在页面里采样它；录页面会形成 GPU 自采样反馈回路 → RenderThread SIGSEGV）
             if (wallpaperOn) {
-                WallpaperBackdrop(
-                    path = wallpaperPath,
-                    blurDp = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperBlur },
-                    dim = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperDim },
-                )
+                Box(Modifier.fillMaxSize().layerBackdrop(glassBackdrop)) {
+                    WallpaperBackdrop(
+                        path = wallpaperPath,
+                        blurDp = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperBlur },
+                        dim = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperDim },
+                    )
+                }
             } else {
                 Box(Modifier.fillMaxSize().background(ds.bg))
             }
-            Crossfade(targetState = tab, animationSpec = tween(220), label = "tabs") { page ->
+            Box(Modifier.fillMaxSize()) {
+            Crossfade(
+                targetState = tab,
+                animationSpec = tween(220),
+                label = "tabs",
+                modifier = Modifier.fillMaxSize(),
+            ) { page ->
                 when (page) {
                     0 -> TodayScreen(
                         calendar = calendar,
                         blocks = blocks,
                         onOpenNotices = onOpenNotices,
                         unreadCount = notices.count { it.time > repo.store.lastNoticeReadAt },
+                        onOpenSchedule = { onTab(1) },
+                        onImport = onImport,
+                        hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
                     )
                     1 -> ScheduleScreen(
                         repo = repo,
@@ -404,113 +441,24 @@ private fun MainScaffold(
                         onNextWeek = {},
                         onSwitchTerm = onSwitchTerm,
                         fullTermImported = repo.store.scheduleSource == "zf_term",
+                        onImport = onImport,
+                        onGlassEffect = onGlassEffect,
                     )
                     2 -> PowerScreen(repo)
                     else -> TodoScreen(repo)
                 }
             }
-
-        // 底栏两套风格共用同一套点击热区实现（不受 Glasmio 内部动画/compaction 影响）
-            UnifiedBottomBar(tab = tab, onTab = onTab, onSettings = onSettings, ds = ds)
-        }
-    }
-}
-
-/** 统一底栏：四个 tab + 设置钮，两套玻璃风格只在外观上分派，点击逻辑只有一份。 */
-@Composable
-private fun BoxScope.UnifiedBottomBar(
-    tab: Int, onTab: (Int) -> Unit, onSettings: () -> Unit, ds: Ds,
-) {
-    val liquid = LocalUiStyle.current.value == UiStyle.LIQUID
-    val backdrop = if (liquid) null else LocalBackdrop.current
-    val pillShape = com.haooz.softglass.shape.ContinuousCapsule()
-    val wallpaper = LocalWallpaperActive.current
-    fun Modifier.pill(): Modifier = when {
-        // 壁纸下也分风格：SOFT=白色磨砂胶囊；LIQUID=通透胶囊 + accent 细描边
-        wallpaper && liquid -> this
-            .background(
-                if (ds.isDark) Color.Black.copy(alpha = 0.30f) else Color.White.copy(alpha = 0.30f),
-                RoundedCornerShape(28.dp),
-            )
-            .border(1.dp, ds.accent.copy(alpha = 0.30f), RoundedCornerShape(28.dp))
-        wallpaper -> this
-            .background(
-                if (ds.isDark) Color(0xFF1C1C21).copy(alpha = 0.62f) else Color.White.copy(alpha = 0.72f),
-                RoundedCornerShape(28.dp),
-            )
-            .border(1.dp, Color.White.copy(alpha = if (ds.isDark) 0.12f else 0.7f), RoundedCornerShape(28.dp))
-        backdrop != null -> this.drawBackdrop(backdrop = backdrop, shape = { pillShape }, effects = { blur(20f) })
-        else -> this.background(ds.card, RoundedCornerShape(28.dp))
-            .border(1.dp, ds.sub.copy(alpha = 0.16f), RoundedCornerShape(28.dp))
-    }
-
-    Row(
-        Modifier
-            .align(Alignment.BottomCenter)
-            .navigationBarsPadding()
-            .padding(bottom = 14.dp)
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        // tab 胶囊：等宽 + 统一 46dp 高（原来按文字宽度加 padding，显得矮胖）
-        Row(
-            Modifier.weight(1f).pill().padding(horizontal = 6.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TABS.forEachIndexed { i, label ->
-                val selected = tab == i
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .height(46.dp)
-                        .background(
-                            if (selected) ds.accentSoft else Color.Transparent,
-                            RoundedCornerShape(20.dp),
-                        )
-                        .clickable { onTab(i) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    // 两套风格都带图标，避免只靠文字看不出指代
-                    val symbol = when (i) {
-                        0 -> io.github.neoruaa.glasmio.icons.SfSymbol.House
-                        1 -> io.github.neoruaa.glasmio.icons.SfSymbol.Clock
-                        2 -> io.github.neoruaa.glasmio.icons.SfSymbol.Sparkles
-                        else -> io.github.neoruaa.glasmio.icons.SfSymbol.Star
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        io.github.neoruaa.glasmio.icons.SfIcon(
-                            symbol = symbol,
-                            contentDescription = label,
-                            size = if (liquid) 19.dp else 18.dp,
-                            tint = if (selected) ds.accent else ds.sub,
-                        )
-                        Text(
-                            label,
-                            fontSize = if (liquid) 10.sp else 10.sp,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selected) ds.accent else ds.sub,
-                        )
-                    }
-                }
             }
-        }
-        // 设置钮：独立圆钮 + 齿轮图标 + 强调色描边，和四个 tab 明确区分
-        Box(
-            Modifier
-                .pill()
-                .size(46.dp)
-                .border(1.dp, ds.accent.copy(alpha = 0.35f), CircleShape)
-                .clickable { onSettings() },
-            contentAlignment = Alignment.Center,
-        ) {
-            io.github.neoruaa.glasmio.icons.SfIcon(
-                symbol = io.github.neoruaa.glasmio.icons.SfSymbol.Gearshape,
-                contentDescription = "设置",
-                size = 21.dp,
-                tint = ds.accent,
+
+        // 新 UI：Nexio 式浮动液态玻璃底栏（四个 tab + 设置）
+            com.menglimi.gdust.v2.ui.nexio.NexioBottomBar(
+                selectedTab = tab,
+                onTabSelected = onTab,
+                onSettings = onSettings,
+                backdrop = glassBackdrop,
+                modifier = Modifier.align(Alignment.BottomCenter),
             )
+        }
         }
     }
 }

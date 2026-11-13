@@ -1,46 +1,99 @@
 package com.menglimi.gdust.v2.ui.screens
 
 import android.net.Uri
-
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.ManagedActivityResultLauncher
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.ui.LocalUiStyle
 import com.menglimi.gdust.v2.ui.UiStyle
+import com.menglimi.gdust.v2.ui.importWallpaper
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Alarm
+import top.yukonga.miuix.kmp.icon.extended.Background
+import top.yukonga.miuix.kmp.icon.extended.Backup
+import top.yukonga.miuix.kmp.icon.extended.BankCards
+import top.yukonga.miuix.kmp.icon.extended.Close
+import top.yukonga.miuix.kmp.icon.extended.ContactsCircle
+import top.yukonga.miuix.kmp.icon.extended.ConvertFile
+import top.yukonga.miuix.kmp.icon.extended.Home
+import top.yukonga.miuix.kmp.icon.extended.Import
+import top.yukonga.miuix.kmp.icon.extended.Info
+import top.yukonga.miuix.kmp.icon.extended.Link
+import top.yukonga.miuix.kmp.icon.extended.Messages
+import top.yukonga.miuix.kmp.icon.extended.MindMap
+import top.yukonga.miuix.kmp.icon.extended.Months
+import top.yukonga.miuix.kmp.icon.extended.Notes
+import top.yukonga.miuix.kmp.icon.extended.Refresh
+import top.yukonga.miuix.kmp.icon.extended.Search
+import top.yukonga.miuix.kmp.icon.extended.Theme
+import top.yukonga.miuix.kmp.icon.extended.Timer
+import top.yukonga.miuix.kmp.icon.extended.Unlock
+import top.yukonga.miuix.kmp.icon.extended.Weeks
+import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.preference.SwitchPreference
 
 /**
- * 设置：分组行式选项，编辑区点开才展开（不再一页平铺一堆输入框和大卡）。
- * openSection 由 AppRoot（主题树内）持有，切风格收起编辑区即可，不丢页面栈。
+ * Adapted from NexioSchedule, revision 28a99a3:
+ * ui-shared/.../ui/screens/SettingsScreen.kt (SettingsEntryRow / SettingsEntryIcon),
+ * SettingsSearch.kt and ui/activities/PreferenceSettingsScreen.kt.
+ * Retains the grouped Miuix layout and icon geometry; actions use GDUST's local repository.
  */
 @Composable
 fun SettingsScreen(
@@ -49,27 +102,33 @@ fun SettingsScreen(
     onSync: () -> Unit,
     onWebImport: () -> Unit,
     onReminder: () -> Unit,
+    onTodoReminder: () -> Unit = {},
     onChxNotifications: () -> Unit,
     onChxEntry: () -> Unit,
     onWallpaperChanged: () -> Unit,
     onProfile: () -> Unit,
     onAbout: () -> Unit,
-    onExportBackup: androidx.activity.compose.ManagedActivityResultLauncher<String, Uri?>,
+    onExportBackup: ManagedActivityResultLauncher<String, Uri?>,
     onImportBackup: (Uri) -> Unit,
     onLogout: () -> Unit,
     onBack: () -> Unit,
     loggedIn: Boolean = true,
-    monetEnabled: androidx.compose.runtime.MutableState<Boolean>,
-    openSection: androidx.compose.runtime.MutableState<String?>,
+    monetEnabled: MutableState<Boolean>,
+    openSection: MutableState<String?>,
     syncing: Boolean = false,
 ) {
     val ds = LocalDs.current
     val store = repo.store
     val scope = rememberCoroutineScope()
+    val styleState = LocalUiStyle.current
+    val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    var query by rememberSaveable { mutableStateOf("") }
 
     var base by remember { mutableStateOf(store.llmBase) }
-    var key by remember { mutableStateOf(store.llmKey) }
+    var apiKey by remember { mutableStateOf(store.llmKey) }
     var model by remember { mutableStateOf(store.llmModel) }
+    var llmConfigured by remember { mutableStateOf(store.hasLlm) }
     var saved by remember { mutableStateOf(false) }
     var summary by remember { mutableStateOf<String?>(null) }
     var summarizing by remember { mutableStateOf(false) }
@@ -77,9 +136,10 @@ fun SettingsScreen(
     var thresholdText by remember { mutableStateOf(store.warnThreshold.toInt().toString()) }
     var dropText by remember { mutableStateOf(store.warnDropRate.toInt().toString()) }
     var thresholdSaved by remember { mutableStateOf(false) }
-    var synced by remember { mutableStateOf(false) }
+    var warnThresholdLocal by remember { mutableStateOf(store.warnThreshold) }
     var termStart by remember { mutableStateOf(store.termStartDate) }
-    // 下面三项直接读写普通 prefs，不是 Composition 状态：必须本地镜像，否则点了界面不刷新（看起来"点不动"）
+    var termStartLocal by remember { mutableStateOf(store.termStartDate) }
+    // 普通 prefs 不会触发重组，选中态必须用本地镜像并同步写回。
     var startTabLocal by remember { mutableStateOf(store.startTab) }
     var sampleIntervalLocal by remember { mutableStateOf(store.sampleIntervalMinutes) }
     var smartWeekendLocal by remember { mutableStateOf(store.smartHideWeekend) }
@@ -87,16 +147,13 @@ fun SettingsScreen(
     var termWeeksText by remember { mutableStateOf(store.termWeeks.takeIf { it > 0 }?.toString() ?: "") }
     var termWeekText by remember { mutableStateOf(store.termCurrentWeek.takeIf { it > 0 }?.toString() ?: "") }
     var termSaved by remember { mutableStateOf(false) }
-    var backupMsg by remember { mutableStateOf<String?>(null) }
-    val hostContext = androidx.compose.ui.platform.LocalContext.current
     var wallpaperPath by remember { mutableStateOf(store.wallpaperPath) }
     var wallpaperBlur by remember { mutableStateOf(store.wallpaperBlur) }
     var wallpaperDim by remember { mutableStateOf(store.wallpaperDim) }
-    val wallpaperLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
-    ) { uri ->
+
+    val wallpaperLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
-            val path = com.menglimi.gdust.v2.ui.importWallpaper(hostContext, uri)
+            val path = importWallpaper(context, uri)
             if (path.isNotBlank()) {
                 store.wallpaperPath = path
                 wallpaperPath = path
@@ -104,409 +161,415 @@ fun SettingsScreen(
             }
         }
     }
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        runCatching {
-            context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText().orEmpty()
-        }.map { repo.store.importBackup(it) }
-            .onSuccess { backupMsg = "已恢复：$it" }
-            .onFailure { backupMsg = "导入失败：${it.message}" }
+    // 导入与恢复后的状态重载统一由宿主处理，不能在本页直接写 Store。
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(onImportBackup)
     }
-    val intervalOptions = listOf(15, 30, 60, 120)
 
     fun toggle(section: String) {
+        focusManager.clearFocus()
         openSection.value = if (openSection.value == section) null else section
     }
 
-    // 系统返回（含左缘手势）只关设置页，不再直接退出 App
-    androidx.activity.compose.BackHandler { onBack() }
-    // 页内左滑返回：挂在外层容器上，避免和纵向滚动手势竞争
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val backThreshold = with(density) { 96.dp.toPx() }
-    var backPx by remember { mutableStateOf(0f) }
-
-    Box(
-        Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragStart = { start -> backPx = if (start.x < 120f) 0f else Float.NaN },
-                    onDragEnd = {
-                        if (!backPx.isNaN() && backPx >= backThreshold) onBack()
-                        backPx = 0f
-                    },
-                    onDragCancel = { backPx = 0f },
-                ) { change, dragAmount ->
-                    if (!backPx.isNaN()) backPx += dragAmount
-                    change.consume()
-                }
-            },
-    ) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(ds.bg)
-            .statusBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
-    ) {
-        Spacer(Modifier.height(24.dp))
-        PageTitle(title = "设置", subtitle = "外观 · 数据 · 账号 · 关于", onBack = onBack)
-
-        // ── 外观 ──
-        SectionHeader("外观")
-        SettingGroup {
-            val styleState = LocalUiStyle.current
-            SettingOption(
-                title = "界面风格",
-                subtitle = "整套主题、卡片、输入框、按钮、底栏都跟着换",
-                detail = styleState.value.label,
-                onClick = { toggle("style") },
-            )
-            if (openSection.value == "style") {
-                SettingDivider()
-                SettingEditor {
+    val accountEntry = SettingsEntry(
+        id = "profile",
+        title = store.realName.ifBlank { if (loggedIn) "个人信息" else "未登录" },
+        summary = if (store.jobNumber.isNotBlank()) "广东科技学院 · ${store.jobNumber}" else "广东科技学院 · 本机数据与偏好",
+        keywords = "账户 账号 学校 学号 个人信息 隐私",
+        icon = MiuixIcons.ContactsCircle,
+        onClick = onProfile,
+    )
+    val groups = listOf(
+        SettingsSection("外观", listOf(
+            SettingsEntry(
+                id = "style", title = "界面风格", summary = "选择应用的整体外观", icon = MiuixIcons.Theme,
+                detail = styleState.value.label, onClick = { toggle("style") },
+                editor = {
                     SegmentedChoice(
-                        options = UiStyle.entries.map { it to it.label },
-                        selected = styleState.value,
+                        options = UiStyle.entries.map { it to it.label }, selected = styleState.value,
                         onSelect = { styleState.value = it },
                     )
-                    Text(styleState.value.desc, fontSize = 11.sp, color = ds.sub)
-                }
-            }
-            SettingDivider()
-            SettingOption(
-                title = "启动页",
-                subtitle = "打开 App 默认进入的页面",
-                detail = when (startTabLocal) {
-                    0 -> "今日"; 2 -> "电费"; 3 -> "待办"; else -> "课表"
+                    Text(styleState.value.desc, fontSize = 13.sp, color = ds.sub)
                 },
+            ),
+            SettingsEntry(
+                id = "startTab", title = "启动页", summary = "下次打开时默认显示", icon = MiuixIcons.Home,
+                detail = when (startTabLocal) { 0 -> "今日"; 2 -> "电费"; 3 -> "待办"; else -> "课表" },
                 onClick = { toggle("startTab") },
-            )
-            if (openSection.value == "startTab") {
-                SettingDivider()
-                SettingEditor {
+                editor = {
                     SegmentedChoice(
+                        // 持久化索引与原有四个业务页保持一致。
                         options = listOf(0 to "今日", 1 to "课表", 2 to "电费", 3 to "待办"),
                         selected = startTabLocal,
-                        onSelect = {
-                            startTabLocal = it
-                            store.startTab = it
-                        },
+                        onSelect = { startTabLocal = it; store.startTab = it },
                     )
-                    Text("下次启动 App 生效（当前已在某个 tab 时不会立即跳）", fontSize = 11.sp, color = ds.sub)
-                }
-            }
-            SettingDivider()
-            SettingOption(
-                title = "莫奈取色",
-                subtitle = "跟随系统壁纸配色；关闭则用默认蓝",
-                switch = monetEnabled.value,
-                onSwitch = {
-                    monetEnabled.value = it
-                    store.monetEnabled = it
                 },
-            )
-            SettingDivider()
-            SettingOption(
-                title = "课表壁纸",
-                subtitle = "从相册选图作为页面背景；模糊与压暗可调",
+            ),
+            SettingsEntry(
+                id = "monet", title = "莫奈取色", summary = "跟随系统壁纸配色", icon = MiuixIcons.Theme,
+                checked = monetEnabled.value,
+                onCheckedChange = { monetEnabled.value = it; store.monetEnabled = it },
+            ),
+            SettingsEntry(
+                id = "wallpaper", title = "课表壁纸", summary = "相册图片、模糊与压暗", icon = MiuixIcons.Background,
                 detail = if (wallpaperPath.isBlank()) "未设置" else "已设置",
-                onClick = {
-                    wallpaperLauncher.launch(
-                        androidx.activity.result.PickVisualMediaRequest(
-                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
-                        )
-                    )
-                },
-            )
-            if (wallpaperPath.isNotBlank()) {
-                SettingDivider()
-                SettingEditor {
-                    Text("模糊 ${wallpaperBlur.toInt()} dp", fontSize = 12.sp, color = ds.sub)
-                    androidx.compose.material3.Slider(
-                        value = wallpaperBlur,
-                        onValueChange = {
-                            wallpaperBlur = it
-                            store.wallpaperBlur = it
-                            onWallpaperChanged()
-                        },
-                        valueRange = 0f..40f,
-                        steps = 19,
-                    )
-                    Text("压暗 ${(wallpaperDim * 100).toInt()}%", fontSize = 12.sp, color = ds.sub)
-                    androidx.compose.material3.Slider(
-                        value = wallpaperDim,
-                        onValueChange = {
-                            wallpaperDim = it
-                            store.wallpaperDim = it
-                            onWallpaperChanged()
-                        },
-                        valueRange = 0f..0.85f,
-                        steps = 16,
-                    )
-                    Button("清除壁纸") {
-                        store.wallpaperPath = ""
-                        wallpaperPath = ""
-                        onWallpaperChanged()
+                onClick = { toggle("wallpaper") },
+                editor = {
+                    Button(if (wallpaperPath.isBlank()) "选择壁纸" else "更换壁纸") {
+                        wallpaperLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     }
-                }
-            }
-        }
-
-        // ── 基本设置（拾光式：开学日期 / 总周数 / 当前周）──
-        SectionHeader("基本设置")
-        SettingGroup {
-            SettingOption(
-                title = "开学日期",
-                subtitle = "学期第一周周一，YYYY-MM-DD；留空则用校历",
-                detail = store.termStartDate.ifBlank { "跟随校历" },
+                    if (wallpaperPath.isNotBlank()) {
+                        Text("模糊 ${wallpaperBlur.toInt()} dp", fontSize = 13.sp, color = ds.sub)
+                        androidx.compose.material3.Slider(
+                            value = wallpaperBlur,
+                            onValueChange = { wallpaperBlur = it; store.wallpaperBlur = it; onWallpaperChanged() },
+                            valueRange = 0f..40f, steps = 19,
+                        )
+                        Text("压暗 ${(wallpaperDim * 100).toInt()}%", fontSize = 13.sp, color = ds.sub)
+                        androidx.compose.material3.Slider(
+                            value = wallpaperDim,
+                            onValueChange = { wallpaperDim = it; store.wallpaperDim = it; onWallpaperChanged() },
+                            valueRange = 0f..0.85f, steps = 16,
+                        )
+                        Button("清除壁纸") {
+                            store.wallpaperPath = ""
+                            wallpaperPath = ""
+                            onWallpaperChanged()
+                        }
+                    }
+                },
+            ),
+        )),
+        SettingsSection("课表", listOf(
+            SettingsEntry(
+                id = "term", title = "学期设置", summary = "开学日期、总周数与当前周", icon = MiuixIcons.Months,
+                keywords = "校历 开学日期 总周数 当前周", detail = termStartLocal.ifBlank { "跟随校历" },
                 onClick = { toggle("term") },
-            )
-            if (openSection.value == "term") {
-                SettingDivider()
-                SettingEditor {
-                    InputField(termStart, { termStart = it; termSaved = false }, "开学日期，如 2026-09-07")
-                    InputField(termWeeksText, { termWeeksText = it; termSaved = false }, "学期总周数，如 20", KeyboardType.Number)
-                    InputField(termWeekText, { termWeekText = it; termSaved = false }, "当前第几周，如 10", KeyboardType.Number)
-                    Button(if (termSaved) "已保存 ✓ 重新同步生效" else "保存学期设置") {
+                editor = {
+                    InputField(termStart, { termStart = it; termSaved = false }, "第一周周一，YYYY-MM-DD")
+                    InputField(termWeeksText, { termWeeksText = it; termSaved = false }, "学期总周数", KeyboardType.Number)
+                    InputField(termWeekText, { termWeekText = it; termSaved = false }, "当前第几周", KeyboardType.Number)
+                    Button(if (termSaved) "已保存，重新同步生效" else "保存学期设置") {
                         store.termStartDate = termStart.trim()
+                        termStartLocal = store.termStartDate
                         store.termWeeks = termWeeksText.toIntOrNull() ?: 0
                         store.termCurrentWeek = termWeekText.toIntOrNull() ?: 0
                         termSaved = true
                     }
-                    Text(
-                        "这里只调整周次与日期的对应关系，不会新增课程。学期课程请使用「教务学期导入」；未取得的周次不能视为无课。",
-                        fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub,
-                    )
-                }
-            }
-            SettingDivider()
-            SettingOption(
-                title = "智能显示周末",
-                subtitle = "开启后隐藏无课的周六日；关闭则始终显示 7 天",
-                switch = smartWeekendLocal,
-                onSwitch = {
-                    smartWeekendLocal = it
-                    store.smartHideWeekend = it
+                    Text("留空则跟随校历。这里只调整日期与周次；学期课程请从教务导入，未取得的周次不能视为无课。", fontSize = 13.sp, color = ds.sub)
                 },
-            )
-        }
-
-        // ── 特色功能 ──
-        SectionHeader("特色功能")
-        SettingGroup {
-            SettingOption(
-                title = "课程提醒",
-                subtitle = "课前 / 次日 / 课中提醒，可尝试上超级岛",
-                detail = if (store.reminderEnabled) "已开启" else "未开启",
-                onClick = onReminder,
-            )
-            SettingDivider()
-            SettingOption(
-                title = "学习通通知待办",
-                subtitle = "从学习通推送识别作业和考试，需手动授权通知使用权",
-                detail = if (store.chxNotificationsEnabled) "已开启" else "未开启",
-                onClick = onChxNotifications,
-            )
-            SettingDivider()
-            SettingOption(
-                title = "中转站配置",
-                subtitle = "自填 OpenAI 兼容端点，密钥只存本机",
-                detail = if (store.hasLlm) "已配置" else "未配置",
-                onClick = { toggle("llm") },
-            )
-            if (openSection.value == "llm") {
-                SettingDivider()
-                SettingEditor {
-                    InputField(base, { base = it; saved = false }, "API Base，如 https://…/v1")
-                    InputField(key, { key = it; saved = false }, "API Key", visual = PasswordVisualTransformation())
+            ),
+            SettingsEntry(
+                id = "weekend", title = "智能显示周末", summary = "隐藏没有课程的周六、周日", icon = MiuixIcons.Weeks,
+                checked = smartWeekendLocal,
+                onCheckedChange = { smartWeekendLocal = it; store.smartHideWeekend = it },
+            ),
+            SettingsEntry(
+                id = "reminder", title = "课程提醒", summary = "课前、次日与课中提醒", icon = MiuixIcons.Alarm,
+                detail = if (store.reminderEnabled) "已开启" else "未开启", onClick = onReminder,
+            ),
+            SettingsEntry(
+                id = "todoReminder", title = "待办提醒", summary = "作业、考试与自定义事项的到期提醒", icon = MiuixIcons.Alarm,
+                detail = if (store.todoReminderEnabled) "已开启" else "未开启", onClick = onTodoReminder,
+            ),
+            SettingsEntry(
+                id = "autoSync", title = "自动同步课表", summary = "保持已登录账号的课表更新", icon = MiuixIcons.Refresh,
+                checked = autoSyncLocal,
+                onCheckedChange = { autoSyncLocal = it; store.autoSyncEnabled = it },
+            ),
+        )),
+        SettingsSection("服务", listOf(
+            SettingsEntry(
+                id = "chx", title = "学习通联动", summary = "通过学校统一身份认证连接", icon = MiuixIcons.Link,
+                detail = if (store.hasChxSession) "已联动" else "未联动", onClick = onChxEntry,
+            ),
+            SettingsEntry(
+                id = "chxNotifications", title = "学习通通知待办", summary = "从推送识别作业与考试", icon = MiuixIcons.Messages,
+                detail = if (store.chxNotificationsEnabled) "已开启" else "未开启", onClick = onChxNotifications,
+            ),
+            SettingsEntry(
+                id = "warn", title = "低电量预警", summary = "剩余电量阈值与掉电速率", icon = MiuixIcons.BankCards,
+                detail = "${warnThresholdLocal.toInt()} 度", onClick = { toggle("warn") },
+                editor = {
+                    InputField(thresholdText, { thresholdText = it; thresholdSaved = false }, "低电量阈值（度）", KeyboardType.Decimal)
+                    InputField(dropText, { dropText = it; thresholdSaved = false }, "掉电速率（度/小时）", KeyboardType.Decimal)
+                    Button(if (thresholdSaved) "已保存" else "保存阈值") {
+                        thresholdText.toFloatOrNull()?.let { store.warnThreshold = it; warnThresholdLocal = it }
+                        dropText.toFloatOrNull()?.let { store.warnDropRate = it }
+                        thresholdSaved = true
+                    }
+                    Text("后台每 15 分钟巡检，同类预警间隔 12 小时。", fontSize = 13.sp, color = ds.sub)
+                },
+            ),
+            SettingsEntry(
+                id = "interval", title = "电量采样间隔", summary = "记录宿舍电量走势", icon = MiuixIcons.Timer,
+                detail = "$sampleIntervalLocal 分钟", onClick = { toggle("interval") },
+                editor = {
+                    SegmentedChoice(
+                        options = listOf(15, 30, 60, 120).map { it to "${it}分" },
+                        selected = sampleIntervalLocal,
+                        onSelect = { sampleIntervalLocal = it; store.sampleIntervalMinutes = it },
+                    )
+                    Text("间隔越短，走势越细；后台仍按 15 分钟巡检。", fontSize = 13.sp, color = ds.sub)
+                },
+            ),
+            SettingsEntry(
+                id = "llm", title = "AI 中转站配置", summary = "OpenAI 兼容服务，密钥仅存本机", icon = MiuixIcons.MindMap,
+                detail = if (llmConfigured) "已配置" else "未配置", onClick = { toggle("llm") },
+                editor = {
+                    InputField(base, { base = it; saved = false }, "API Base")
+                    InputField(apiKey, { apiKey = it; saved = false }, "API Key", visual = PasswordVisualTransformation())
                     InputField(model, { model = it; saved = false }, "模型名")
                     Button(
-                        text = if (saved) "已保存 ✓" else "保存配置",
-                        enabled = base.isNotBlank() && key.isNotBlank() && model.isNotBlank(),
+                        text = if (saved) "已保存" else "保存配置",
+                        enabled = base.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank(),
                         onClick = {
                             store.llmBase = base.trim()
-                            store.llmKey = key.trim()
+                            store.llmKey = apiKey.trim()
                             store.llmModel = model.trim()
+                            llmConfigured = store.hasLlm
                             saved = true
                         },
                     )
-                }
-            }
-            SettingDivider()
-            SettingOption(
-                title = "生成总结",
-                subtitle = if (store.hasLlm) "把最近的学校公告交给你的模型提炼要点" else "先填好上面的中转站配置",
-                detail = if (summary != null) "查看" else null,
-                onClick = { toggle("summary") },
-            )
-            if (openSection.value == "summary") {
-                SettingDivider()
-                SettingEditor {
-                    summary?.let { Text(it, fontSize = 13.sp, lineHeight = 18.sp, color = ds.text) }
-                        ?: Text(
-                            if (store.hasLlm) "点下方按钮生成" else "中转站还没配置好",
-                            fontSize = 12.sp, color = ds.sub,
-                        )
+                },
+            ),
+            SettingsEntry(
+                id = "summary", title = "生成公告总结",
+                summary = if (llmConfigured) "用已配置的模型提炼学校公告" else "请先配置 AI 中转站",
+                keywords = "AI 生成总结", icon = MiuixIcons.Notes,
+                detail = if (summary != null) "查看" else null, onClick = { toggle("summary") },
+                editor = {
+                    summary?.let { Text(it, fontSize = 14.sp, lineHeight = 21.sp, color = ds.text) }
                     Button(
-                        text = if (summarizing) "思考中…" else if (summary == null) "生成总结" else "重新总结",
-                        enabled = store.hasLlm && !summarizing,
+                        text = if (summarizing) "正在总结" else if (summary == null) "生成总结" else "重新总结",
+                        enabled = llmConfigured && !summarizing,
                         onClick = {
                             summarizing = true
                             summaryError = ""
                             scope.launch {
-                                runCatching { repo.summarize() }
-                                    .onSuccess { summary = it }
-                                    .onFailure { summaryError = it.message ?: "总结失败" }
-                                summarizing = false
+                                try {
+                                    summary = repo.summarize()
+                                } catch (error: CancellationException) {
+                                    throw error
+                                } catch (error: Exception) {
+                                    summaryError = error.message ?: "总结失败"
+                                } finally {
+                                    summarizing = false
+                                }
                             }
                         },
                     )
-                    if (summaryError.isNotEmpty()) Text(summaryError, fontSize = 12.sp, color = ds.danger)
-                }
-            }
-        }
-
-        SettingGroup {
-            SettingOption(
-                title = "低电量阈值",
-                subtitle = "剩余电量低于此值时提醒",
-                detail = "${store.warnThreshold.toInt()} 度",
-                onClick = { toggle("warn") },
-            )
-            if (openSection.value == "warn") {
-                SettingDivider()
-                SettingEditor {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        InputField(thresholdText, { thresholdText = it; thresholdSaved = false }, "低电量阈值(度)", KeyboardType.Number, Modifier.weight(1f))
-                        InputField(dropText, { dropText = it; thresholdSaved = false }, "掉电速率(度/时)", KeyboardType.Number, Modifier.weight(1f))
-                    }
-                    Button(if (thresholdSaved) "已保存 ✓" else "保存阈值") {
-                        thresholdText.toFloatOrNull()?.let { store.warnThreshold = it }
-                        dropText.toFloatOrNull()?.let { store.warnDropRate = it }
-                        thresholdSaved = true
-                    }
-                    Text("后台每 15 分钟巡检，同类预警 12 小时冷却", fontSize = 11.sp, color = ds.sub)
-                }
-            }
-            SettingDivider()
-            SettingOption(
-                title = "采样间隔",
-                subtitle = "记录电量走势的时间间隔",
-                detail = "$sampleIntervalLocal 分钟",
-                onClick = { toggle("interval") },
-            )
-            if (openSection.value == "interval") {
-                SettingDivider()
-                SettingEditor {
-                    SegmentedChoice(
-                        options = intervalOptions.map { it to "${it}分" },
-                        selected = sampleIntervalLocal,
-                        onSelect = {
-                            sampleIntervalLocal = it
-                            store.sampleIntervalMinutes = it
-                        },
-                    )
-                    Text("间隔越密，走势越细；后台仍按 15 分钟巡检", fontSize = 11.sp, color = ds.sub)
-                }
-            }
-        }
-
-        // ── 数据管理 ──
-        SectionHeader("数据管理")
-        SettingGroup {
-            SettingOption(
-                title = store.realName.ifEmpty { "未登录" },
-                subtitle = if (store.jobNumber.isEmpty()) "查看本机数据快照" else "学号 ${store.jobNumber}",
-                onClick = onProfile,
-            )
-            SettingDivider()
-            SettingOption(
-                title = "账号密码直连同步",
-                subtitle = "推荐：用当前登录账号直接读取教务整学期课表，不打开网页",
+                    if (summaryError.isNotEmpty()) Text(summaryError, fontSize = 13.sp, color = ds.danger)
+                },
+            ),
+        )),
+        SettingsSection("数据", listOf(
+            SettingsEntry(
+                id = "sync", title = "账号直连同步", summary = "使用当前登录账号读取教务课表", icon = MiuixIcons.Refresh,
                 detail = when {
-                    syncing -> "同步中…"
+                    syncing -> "同步中"
                     syncError != null -> "失败"
-                    synced -> "已同步 ✓"
-                    else -> null
+                    store.lastSyncAt > 0 -> "已同步"
+                    else -> "未同步"
                 },
-                onClick = { onSync(); synced = true },
-            )
-            if (syncError != null) {
-                SettingEditor { Text("失败：$syncError", fontSize = 11.sp, color = ds.danger) }
-            }
-            SettingDivider()
-            SettingOption(
-                title = "网页登录导入（兼容备用）",
-                subtitle = "拾光式：网页中登录教务后读取原始周次；网页登录会话单独保留",
-                detail = if (store.loadWebImportPage().isNotBlank()) "已保存会话" else null,
+                enabled = !syncing, onClick = onSync,
+            ),
+            SettingsEntry(
+                id = "webImport", title = "网页登录导入", summary = "在教务网页导入学期课程", icon = MiuixIcons.Import,
+                keywords = "兼容备用 教务学期导入", detail = if (store.loadWebImportPage().isNotBlank()) "已保存会话" else null,
                 onClick = onWebImport,
-            )
-            SettingDivider()
-            SettingOption(
-                title = "学习通联动",
-                subtitle = "复用学校统一身份认证：同一会话下学习通与教务网页都不用再输密码",
-                detail = when {
-                    !store.hasChxSession -> null
-                    store.chxCookieAt > 0 -> "已联动 " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.CHINA)
-                        .format(java.util.Date(store.chxCookieAt))
-                    else -> "已联动"
-                },
-                onClick = onChxEntry,
-            )
-
-            SettingDivider()
-            SettingOption(title = "本地缓存课程", detail = "${store.loadBlocks().size} 张卡")
-            SettingDivider()
-            SettingOption(
-                title = "校历",
+            ),
+            SettingsEntry(
+                id = "cachedCourses", title = "本地缓存课程", icon = MiuixIcons.Months,
+                detail = "${store.loadBlocks().size} 张卡",
+            ),
+            SettingsEntry(
+                id = "calendar", title = "校历", icon = MiuixIcons.Weeks,
                 detail = store.loadCalendar()?.let { "第 ${it.week}/${it.allWeek} 周" } ?: "未同步",
-            )
-        }
-
-        SettingGroup {
-            SettingOption(
-                title = "导出备份",
-                subtitle = "课表/校历/待办/偏好/水电绑定存为 JSON（不含登录凭证与密码）",
+            ),
+            SettingsEntry(
+                id = "export", title = "导出备份", summary = "课表、待办、偏好与水电绑定", icon = MiuixIcons.Backup,
+                keywords = "JSON 不含登录凭证 密码",
                 onClick = { onExportBackup.launch("gdust-backup-${java.time.LocalDate.now()}.json") },
-            )
-            SettingDivider()
-            SettingOption(
-                title = "导入备份",
-                subtitle = "从 JSON 恢复；导入会覆盖现有课表与偏好",
+            ),
+            SettingsEntry(
+                id = "import", title = "导入备份", summary = "从 JSON 恢复，将覆盖现有数据与偏好", icon = MiuixIcons.ConvertFile,
                 onClick = { importLauncher.launch(arrayOf("application/json", "text/*")) },
-            )
-            if (backupMsg != null) {
-                SettingEditor { Text(backupMsg!!, fontSize = 12.sp, color = ds.sub) }
-            }
-        }
-
-        // ── 关于（二级页入口）──
-        SectionHeader("关于")
-        SettingGroup {
-            SettingOption(
-                title = "个人信息",
-                subtitle = "身份、数据快照与隐私说明",
-                onClick = onProfile,
-            )
-            SettingDivider()
-            SettingOption(
-                title = "关于与更新",
-                subtitle = "版本、本版更新说明、数据链路",
+            ),
+        )),
+        SettingsSection("关于", listOf(
+            SettingsEntry(
+                id = "about", title = "关于与更新", summary = "版本、更新说明与数据来源", icon = MiuixIcons.Info,
                 onClick = onAbout,
-            )
+            ),
+        )),
+    )
+    val search = query.trim()
+    val visibleGroups = groups.mapNotNull { group ->
+        group.copy(entries = group.entries.filter { it.matches(search, group.title) })
+            .takeIf { it.entries.isNotEmpty() }
+    }
+    val showAccount = accountEntry.matches(search, "账户")
+    val showLogout = loggedIn && (search.isBlank() || "退出登录 清除本机数据 账户".contains(search, ignoreCase = true))
+
+    BackHandler {
+        if (query.isNotEmpty()) { query = ""; focusManager.clearFocus() } else onBack()
+    }
+    val density = LocalDensity.current
+    val backThreshold = with(density) { 96.dp.toPx() }
+    val backEdge = with(density) { 32.dp.toPx() }
+    var backPx by remember { mutableStateOf(Float.NaN) }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(ds.bg)
+            .pointerInput(onBack, backThreshold, backEdge) {
+                detectHorizontalDragGestures(
+                    onDragStart = { backPx = if (it.x < backEdge) 0f else Float.NaN },
+                    onDragEnd = {
+                        if (!backPx.isNaN() && backPx >= backThreshold) onBack()
+                        backPx = Float.NaN
+                    },
+                    onDragCancel = { backPx = Float.NaN },
+                ) { change, amount ->
+                    if (!backPx.isNaN()) { backPx += amount; change.consume() }
+                }
+            }
+            .statusBarsPadding()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
+    ) {
+        Spacer(Modifier.height(24.dp))
+        PageTitle(title = "设置", onBack = onBack)
+        SettingsSearchField(query = query, onQueryChange = { query = it })
+        if (showAccount) {
+            SettingGroup { SettingsPreference(accountEntry) }
         }
-        if (loggedIn) {
-            SettingGroup {
-                SettingOption(title = "退出登录并清除本机数据", danger = true, onClick = onLogout)
+        visibleGroups.forEach { group ->
+            key(group.title) {
+                SectionHeader(group.title)
+                SettingGroup {
+                    group.entries.forEach { entry ->
+                        key(entry.id) {
+                            SettingsPreference(entry)
+                            if (openSection.value == entry.id && entry.editor != null) {
+                                SettingEditor { entry.editor.invoke() }
+                            }
+                            if (entry.id == "sync" && syncError != null) {
+                                SettingEditor { Text(syncError, fontSize = 13.sp, color = ds.danger) }
+                            }
+                        }
+                    }
+                }
             }
         }
-
-        Spacer(Modifier.height(110.dp))
+        if (showLogout) {
+            SettingGroup {
+                SettingsPreference(SettingsEntry(
+                    id = "logout", title = "退出登录", summary = "同时清除本机数据", icon = MiuixIcons.Unlock,
+                    danger = true, onClick = onLogout,
+                ))
+            }
+        }
+        if (!showAccount && visibleGroups.isEmpty() && !showLogout) {
+            Text("没有找到相关设置", fontSize = 14.sp, color = ds.sub, modifier = Modifier.padding(24.dp))
+        }
+        Spacer(Modifier.navigationBarsPadding().height(110.dp))
     }
+}
+
+private data class SettingsSection(val title: String, val entries: List<SettingsEntry>)
+
+private data class SettingsEntry(
+    val id: String,
+    val title: String,
+    val icon: ImageVector,
+    val summary: String? = null,
+    val detail: String? = null,
+    val keywords: String = "",
+    val danger: Boolean = false,
+    val enabled: Boolean = true,
+    val checked: Boolean? = null,
+    val onCheckedChange: ((Boolean) -> Unit)? = null,
+    val onClick: (() -> Unit)? = null,
+    val editor: (@Composable () -> Unit)? = null,
+) {
+    fun matches(query: String, group: String): Boolean = query.isBlank() ||
+        listOf(title, summary.orEmpty(), keywords, group).any { it.contains(query, ignoreCase = true) }
+}
+
+/** Nexio SettingsEntryIcon geometry, using Miuix vectors and the app's Monet-aware colors. */
+@Composable
+private fun SettingsPreference(entry: SettingsEntry) {
+    val ds = LocalDs.current
+    val accent = if (entry.danger) ds.danger else ds.accent
+    val leading: @Composable () -> Unit = {
+        Box(Modifier.padding(end = 8.dp)) {
+            Box(
+                Modifier.size(28.dp).background(accent.copy(alpha = 0.13f), RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(entry.icon, contentDescription = null, modifier = Modifier.size(22.dp), tint = accent)
+            }
+        }
+    }
+    val titleColors = BasicComponentDefaults.titleColor(color = if (entry.danger) ds.danger else ds.text)
+    val margins = PaddingValues(start = 16.dp, end = 13.dp, top = 14.dp, bottom = 14.dp)
+    when {
+        entry.checked != null && entry.onCheckedChange != null -> SwitchPreference(
+            title = entry.title, summary = entry.summary, titleColor = titleColors,
+            checked = entry.checked, onCheckedChange = entry.onCheckedChange,
+            startAction = leading, insideMargin = margins, enabled = entry.enabled,
+        )
+        entry.onClick != null -> ArrowPreference(
+            title = entry.title, summary = entry.summary, titleColor = titleColors,
+            startAction = leading, insideMargin = margins, onClick = entry.onClick, enabled = entry.enabled,
+            endActions = { entry.detail?.let { SettingsDetail(it) } },
+        )
+        else -> BasicComponent(
+            title = entry.title, summary = entry.summary, titleColor = titleColors,
+            startAction = leading, insideMargin = margins,
+            endActions = { entry.detail?.let { SettingsDetail(it) } },
+        )
+    }
+}
+
+@Composable
+private fun SettingsDetail(text: String) {
+    Text(text, fontSize = 14.sp, color = LocalDs.current.sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+}
+
+/** 59dp block from Nexio SettingsSearch.kt; filters only this page's real entries. */
+@Composable
+private fun SettingsSearchField(query: String, onQueryChange: (String) -> Unit) {
+    val ds = LocalDs.current
+    val focusManager = LocalFocusManager.current
+    Row(
+        Modifier.fillMaxWidth().height(59.dp).padding(bottom = 12.dp)
+            .background(ds.card, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(MiuixIcons.Search, contentDescription = null, modifier = Modifier.size(20.dp), tint = ds.sub)
+        Spacer(Modifier.width(10.dp))
+        BasicTextField(
+            value = query, onValueChange = onQueryChange, modifier = Modifier.weight(1f),
+            singleLine = true, textStyle = TextStyle(fontSize = 16.sp, color = ds.text),
+            cursorBrush = SolidColor(ds.accent),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
+            decorationBox = { input ->
+                Box {
+                    if (query.isEmpty()) Text("搜索设置", fontSize = 16.sp, color = ds.sub)
+                    input()
+                }
+            },
+        )
+        if (query.isNotEmpty()) {
+            IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(40.dp)) {
+                Icon(MiuixIcons.Close, contentDescription = "清除搜索", modifier = Modifier.size(18.dp), tint = ds.sub)
+            }
+        }
     }
 }

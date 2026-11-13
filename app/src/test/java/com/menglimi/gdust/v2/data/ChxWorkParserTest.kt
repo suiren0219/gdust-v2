@@ -156,14 +156,15 @@ class ChxWorkParserTest {
     }
 
     @Test fun oldTodoJsonWithoutDueFieldStaysCompatible() {
-        // 旧版本待办没有 due 字段：反序列化后 due=0，不丢数据不崩
-        val t = Gson().fromJson<Store.Todo>(
-            """{"id":123,"text":"手动待办","done":false}""",
-            object : TypeToken<Store.Todo>() {}.type,
-        )
+        // 旧版本待办只有 id/text/done：parseTodos 手工解析，缺字段用默认值，不丢数据不崩
+        val t = com.menglimi.gdust.v2.data.parseTodos(
+            """[{"id":123,"text":"手动待办","done":false}]""",
+            Gson(),
+        ).single()
         assertEquals(123L, t.id)
         assertEquals("手动待办", t.text)
         assertEquals(false, t.done)
-        assertEquals(0L, t.due)
+        assertEquals(0L, t.dueAt)
+        assertEquals(TodoKind.GENERAL, t.kind)
     }
 }

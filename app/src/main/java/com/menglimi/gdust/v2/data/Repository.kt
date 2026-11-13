@@ -125,43 +125,45 @@ class Store(context: Context) {
         plain.edit().putString("chx_tabs", gson.toJson(cache)).commit()
     }
 
-    // ── 待办 ──
-    // due = 截止时间毫秒（0 = 无）；tag = 来源课程名（学习通作业用，手动待办为空）。
-    // due/tag 为后加字段。注意：Gson 反序列化不执行 Kotlin 默认值——旧 JSON 缺字段时
-    // 反射会把非空的 tag/text 设成 null（release 已实测 NPE 闪退），所以：
-    // ① @Keep 固定字段名（R8 不改名）②loadTodos 手工解析并兜底默认值，不走 Gson 反射。
-    @androidx.annotation.Keep
-    data class Todo(val id: Long, val text: String, val done: Boolean, val due: Long = 0, val tag: String = "")
+    // ── 待办提醒 ──
+    /** 待办到期提醒总开关（独立于课程提醒）。 */
+    var todoReminderEnabled: Boolean
+        get() = plain.getBoolean("todo_reminder_enabled", false)
+        set(v) = plain.edit().putBoolean("todo_reminder_enabled", v).apply()
+    /** 提前提醒分钟数：0 / 10 / 30 / 60 / 1440。 */
+    var todoReminderLead: Int
+        get() = plain.getInt("todo_reminder_lead", 60)
+        set(v) = plain.edit().putInt("todo_reminder_lead", v).apply()
+    /** 只提醒作业/考试（关=所有带截止时间的待办都提醒）。 */
+    var todoReminderOnlyDatedTypes: Boolean
+        get() = plain.getBoolean("todo_reminder_types", true)
+        set(v) = plain.edit().putBoolean("todo_reminder_types", v).apply()
+    /** 已提醒过的待办 key，避免重复通知。 */
+    var lastTodoReminderKey: String
+        get() = plain.getString("todo_reminder_key", "") ?: ""
+        set(v) = plain.edit().putString("todo_reminder_key", v).apply()
+
+    // ── 待办（结构化模型见 TodoModel.kt，带旧 JSON 兼容默认值）──
 
     companion object {
         private val todoLock = Any()
     }
 
-    fun loadTodos(): List<Todo> {
-        // 手工解析 + 兜底：旧 JSON 缺 due/tag、甚至字段为 null 都不会把非空属性污染成 null
-        val raw = plain.getString("todos", "[]").orEmpty()
-        return runCatching {
-            com.google.gson.JsonParser.parseString(raw).asJsonArray.map { e ->
-                val o = e.asJsonObject
-                Todo(
-                    id = o.get("id")?.asLong ?: 0L,
-                    text = o.get("text")?.takeIf { !it.isJsonNull }?.asString.orEmpty(),
-                    done = o.get("done")?.takeIf { !it.isJsonNull }?.asBoolean ?: false,
-                    due = o.get("due")?.takeIf { !it.isJsonNull }?.asLong ?: 0L,
-                    tag = o.get("tag")?.takeIf { !it.isJsonNull }?.asString.orEmpty(),
-                )
-            }
-        }.getOrNull().orEmpty()
-    }
+    fun loadTodos(): List<Todo> = parseTodos(plain.getString("todos", "[]").orEmpty(), gson)
 
     fun updateTodos(transform: (List<Todo>) -> List<Todo>): List<Todo> = synchronized(todoLock) {
         transform(loadTodos()).also { plain.edit().putString("todos", gson.toJson(it)).commit() }
     }
 
-    fun addTodo(text: String): List<Todo> = updateTodos { items ->
+    fun addTodo(
+        text: String,
+        kind: TodoKind = TodoKind.GENERAL,
+        course: String = "",
+        dueAt: Long = 0L,
+    ): List<Todo> = updateTodos { items ->
         val id = generateSequence(System.currentTimeMillis()) { it + 1 }
             .first { candidate -> items.none { it.id == candidate } }
-        listOf(Todo(id, text, false)) + items
+        listOf(Todo(id, text, false, kind, course, dueAt, "manual")) + items
     }
 
     var chxNotificationsEnabled: Boolean
@@ -198,8 +200,10 @@ class Store(context: Context) {
         val items = loadTodos()
         val id = generateSequence(System.currentTimeMillis()) { it + 1 }
             .first { candidate -> items.none { it.id == candidate } }
+        val (kind, course) = classifyNotificationTodo(text)
+        val todo = Todo(id = id, text = text, done = false, kind = kind, course = course, source = "chaoxing")
         plain.edit()
-            .putString("todos", gson.toJson(listOf(Todo(id, text, false)) + items))
+            .putString("todos", gson.toJson(listOf(todo) + items))
             .putString("chx_seen_notifications", gson.toJson((seen + key).takeLast(500)))
             .commit()
     }
@@ -295,6 +299,32 @@ class Store(context: Context) {
         get() = plain.getInt("course_row_h", 56).coerceIn(44, 72)
         set(v) = plain.edit().putInt("course_row_h", v.coerceIn(44, 72)).apply()
 
+    // ── 课表卡片玻璃材质（Nexio「效果」页同款六项）──
+    /** 卡片着色程度（tint alpha，0~0.6，默认 0.12）。 */
+    var glassTint: Float
+        get() = plain.getFloat("glass_tint", 0.12f).coerceIn(0f, 0.6f)
+        set(v) = plain.edit().putFloat("glass_tint", v).apply()
+    /** 卡片不透明度（玻璃底色 alpha，0~1，默认 0.34）。 */
+    var glassOpacity: Float
+        get() = plain.getFloat("glass_opacity", 0.34f).coerceIn(0f, 1f)
+        set(v) = plain.edit().putFloat("glass_opacity", v).apply()
+    /** 卡片模糊（px，0~24，默认 1）。 */
+    var glassBlurPx: Int
+        get() = plain.getInt("glass_blur", 1).coerceIn(0, 24)
+        set(v) = plain.edit().putInt("glass_blur", v).apply()
+    /** 卡片折射强度（0=关闭，0~1）。 */
+    var glassRefraction: Float
+        get() = plain.getFloat("glass_refraction", 0f).coerceIn(0f, 1f)
+        set(v) = plain.edit().putFloat("glass_refraction", v).apply()
+    /** 边缘厚度：0 关闭 / 1 默认 / 2 细 / 3 厚。 */
+    var glassEdge: Int
+        get() = plain.getInt("glass_edge", 1).coerceIn(0, 3)
+        set(v) = plain.edit().putInt("glass_edge", v).apply()
+    /** 高光描边（折射着色器内的边缘高亮）。 */
+    var glassHighlightEdge: Boolean
+        get() = plain.getBoolean("glass_highlight", false)
+        set(v) = plain.edit().putBoolean("glass_highlight", v).apply()
+
     /** 课表格子圆角 dp。 */
     var courseCorner: Int
         get() = plain.getInt("course_corner", 10).coerceIn(4, 20)
@@ -345,6 +375,38 @@ class Store(context: Context) {
     var inClassLead: Int
         get() = plain.getInt("inclass_lead", 10).coerceIn(3, 30)
         set(v) = plain.edit().putInt("inclass_lead", v.coerceIn(3, 30)).apply()
+    // ── 超级岛显示（对齐 Nexio 课程提醒设置）──
+    /** 超级岛左侧：0 课程名 / 1 上课地点 / 2 倒计时。 */
+    var islandLeftMode: Int
+        get() = plain.getInt("island_left_mode", 1).coerceIn(0, 2)
+        set(v) = plain.edit().putInt("island_left_mode", v).apply()
+    /** 超级岛右侧：0 课程名 / 1 上课地点 / 2 倒计时。 */
+    var islandRightMode: Int
+        get() = plain.getInt("island_right_mode", 2).coerceIn(0, 2)
+        set(v) = plain.edit().putInt("island_right_mode", v).apply()
+    /** 课中岛右侧：0 课程名 / 1 上课地点 / 2 倒计时。 */
+    var islandInClassRightMode: Int
+        get() = plain.getInt("island_in_class_right_mode", 2).coerceIn(0, 2)
+        set(v) = plain.edit().putInt("island_in_class_right_mode", v).apply()
+    /** 息屏显示：0 课程名称 / 1 上课地点。 */
+    var islandAodMode: Int
+        get() = plain.getInt("island_aod_mode", 0).coerceIn(0, 1)
+        set(v) = plain.edit().putInt("island_aod_mode", v).apply()
+
+    /** 缩略态地点：去掉「教学楼/松/实验楼」等前缀，只保留能塞进岛里的短名。 */
+    fun shortClassroom(room: String): String {
+        val t = room.trim()
+        return t.replace(Regex("^(教学楼|实验楼|松山湖|博|松)"), "")
+            .replace(Regex("[（(].*?[)）]"), "")
+            .take(8).ifEmpty { t.take(8) }
+    }
+
+    /** 缩略态课程名：去掉罗马数字后缀与「基础与应用」等长尾。 */
+    fun shortCourse(name: String): String = name.trim()
+        .replace(Regex("[ⅠⅡⅢⅣⅤI I I I I I]+$", RegexOption.IGNORE_CASE), "")
+        .replace("基础与应用", "")
+        .take(8)
+
     /** 超级岛（HyperOS 焦点通知）开关。 */
     var islandEnabled: Boolean
         get() = plain.getBoolean("island_enabled", true)
@@ -700,7 +762,7 @@ class Repository(context: Context) {
         var scanned = 0
         var failed = 0
         var firstFail: String? = null
-        val updates = mutableMapOf<Long, Store.Todo>()
+        val updates = mutableMapOf<Long, Todo>()
         // tab 签名缓存：courseId → 课程页隐藏域。命中则省掉 138KB 课程页下载；
         // 签名疑似失效（作业列表页被踢回登录）时刷新一次再试。
         val tabCache = store.loadChxTabCache().toMutableMap()
@@ -772,8 +834,14 @@ class Repository(context: Context) {
                 // 不能写成 now（否则刚同步完就显示「今天已过期」的假过期）
                 val remaining = ChxWorkParser.remainingMillis(item.remainingText)
                 val due = if (isPending && remaining > 0) System.currentTimeMillis() + remaining else 0L
-                updates[item.workId] = Store.Todo(
-                    item.workId, item.title, done = !isPending, due = due, tag = course.name,
+                updates[item.workId] = Todo(
+                    id = item.workId,
+                    text = item.title,
+                    done = !isPending,
+                    kind = TodoKind.HOMEWORK,
+                    course = course.name,
+                    dueAt = due,
+                    source = "chaoxing",
                 )
             }
         }
@@ -791,12 +859,14 @@ class Repository(context: Context) {
                     byId[id] = todo
                 } else {
                     updated++
-                    // 完成态只置 true 不回退（手动勾选的保持勾选）
+                    // 完成态只置 true 不回退（手动勾选的保持勾选）；
+                    // 手动改过类型的保留手动分类，否则跟随同步结果
                     byId[id] = existing.copy(
                         text = todo.text,
                         done = existing.done || todo.done,
-                        due = todo.due,
-                        tag = todo.tag,
+                        kind = if (existing.source == "manual") existing.kind else todo.kind,
+                        course = todo.course,
+                        dueAt = todo.dueAt,
                     )
                 }
             }

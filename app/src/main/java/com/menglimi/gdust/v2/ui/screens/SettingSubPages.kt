@@ -196,7 +196,7 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            "广科课程表 · 由 $APP_AUTHOR 制作 · 闭源自用版",
+            "广科课程表 · 由 $APP_AUTHOR 制作 · 闭源自用\n界面移植自 HaoZai000/NexioSchedule 1.7.0-1113",
             fontSize = 11.sp, color = ds.sub,
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp).wrapContentSize(Alignment.Center),
         )

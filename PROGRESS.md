@@ -1,24 +1,34 @@
 # gdust-v2 — 进度卡
 
-> 最后更新：2026-11-13（双线分工定稿）。下次开工先读这张卡。
+# 进度卡
+
+> 最后更新：2026-11-13（通知改版 + 待办结构化 + 研究线合并 main）。下次开工先读这张卡。
+
+## 本轮新增（versionCode 11，研究线合并 main 后）
+
+- 课程提醒通知按 Nexio 卡片重排（岛左地点/岛右倒计时/锁屏卡/上课勿扰，见 main 6263b3d）
+- 课表红线按用户要求移除（节次高亮与三态保留）
+- **待办结构化**：`TodoModel.kt` 的 kind(作业/考试/普通)/course/dueAt/source + `parseTodos` 旧 JSON 兼容
+- 待办页按「考试优先 / 已逾期 / 今天 / 未来7天 / 以后 / 未设时间 / 已完成」+ 课程名分组，卡片带类型/时间/课程徽章
+- 独立「待办提醒」设置页（开关/提前量/类型范围/精确闹钟/通知权限/测试）
+- 研究线：学习通作业同步（53 门课实测）、enc 缓存、假过期修复、.research 包改名、B1 全量收口
 
 ## 双线分工（2026-11-13 定稿）
 
 两条任务线各管各的，开工先对号入座；**合并动作同一时刻只由一个会话执行**。
 
-### 板块一：课表 + 电费（功能已就绪，只做 UI）—— 在主仓 worktree 执行
-- 分支 `feat/nexio-ui-170`，**验收设备：真机 192.168.1.104:36125**
+### 板块一：课表 + 电费（功能已就绪，只做 UI）—— 本卡所在线
+- 分支 `feat/nexio-ui-170`（主仓 worktree），**验收设备：真机 192.168.1.104:36125**
 - A1 合并前验收：四个 tab 逐个点一遍（今日已实测，其余三页只做过单页渲染核对）
 - A2 快进合并 `feat/nexio-ui-170` → main，合并后 `testDebugUnitTest` 全绿
 - A3 release 包真机过时间线观感（1.5dp 红线粗细）
 - 纪律：只动 `ui/` 与外观资源，不碰 `data/` 业务逻辑
 
-### 板块二：学习通 × 教务互通（研究线）—— 本卡所在线
-- 分支 `feat/academic-chaoxing`，**验收设备：emulator-5554（debug 包将迁至 `com.menglimi.gdust.v2.research`，见协调规则）**
-- B0 **✅ 已落地（2026-11-13）**：applicationIdSuffix `.debug` → `.research`；已 `adb uninstall com.menglimi.gdust.v2.debug`、装上 `com.menglimi.gdust.v2.research`，POST_NOTIFICATIONS 与通知使用权（enabled_notification_listeners）均已重新授权；**重新扫码登录待学校网络恢复后做**（Cookie 不随包迁移）。**落地后不要再往模拟器装 `.debug` 包**
-- B1 **✅ 已全量收口（2026-11-13 学校 CAS 恢复后）**：真实账号扫码登录 → 学习通首页「我学的课」核对为本人课程（非校本公开目录）；
-  作业同步实测 **53 门课 / 66 条 / 未交 14**，第二次同步 ~10s（enc 缓存命中）；待办按课程分组+倒计时正常。
-  教务：同一 CAS 会话签发 ticket（免密双通成立），但 `gkjx.gdust.edu.cn` 从测试网络仍不可达（宿主机 curl 同样超时）——环境问题
+### 板块二：学习通 × 教务互通（研究线）—— 在 `../gdust-v2-academic` 执行
+- 分支 `feat/academic-chaoxing`，**验收设备：emulator-5554（研究线独占 `com.menglimi.gdust.v2.research`）**
+- B0 ✅ 已落地：suffix `.research`、旧 `.debug` 已卸载、通知权限与通知使用权已重授权；**不再往模拟器装 `.debug`**
+- B1 ✅ 全量收口：真实账号扫码登录 → 「我学的课」核对为本人课程；作业同步 53 门课/66 条/未交 14，二次同步 ~10s（缓存命中）；
+  教务 CAS 签发 ticket（免密双通），`gkjx` 入口仍网络不可达
 - B2 等用户抓包 `D:\ai\chaoxing-work.har` + `D:\ai\chaoxing-exam.har` → `ChxApi` Jsoup 解析（EXTENDING.md 3.2① 路线）
 - B3 待办模型扩 `due` 字段（兼容旧数据），作业/考试写入待办（去重、可更新）
 - B4 板块一合并 main 后，本线向 main 对齐（预计 AppRoot/Manifest/PROGRESS.md 冲突）
@@ -29,6 +39,64 @@
 - **设备分工**：UI 线验收优先真机 192.168.1.104:36125；研究线用 emulator-5554；自动化验收前仍要确认 `topResumedActivity` 是自己的包
 - **合并顺序**：板块一先合 main，板块二随后对齐；合并动作同一时刻只由一个会话执行；B4 合并时 suffix 是否回 `.debug` 由合并会话一行改动定夺
 - 用户侧唯一依赖：作业 HAR 已到位（阶段 2 代码完成）；还差**点击作业详情页的抓包**（绝对截止时间）与考试清单 HAR（清单见 `docs/EXTENDING.md` §3.4）
+- （板块一视角）- **包名分工（2026-11-13 补，修模拟器互覆盖）**：模拟器上两个 debug 包错开 applicationId——**本线独占 `com.menglimi.gdust.v2.debug`**；研究线下一次提交起改用 `com.menglimi.gdust.v2.research`，落地前研究线不往模拟器装包。设备上现存 `.debug` v8 是研究线早期构建，本线安装若遇 downgrade 拒绝，直接 `adb uninstall com.menglimi.gdust.v2.debug` 再装（WorkManager 会自行重建）
+- **设备分工**：本线验收优先真机 192.168.1.104:36125；自动化验收前仍要确认 `topResumedActivity` 是自己的包
+- **合并顺序**：板块一先合 main，板块二随后对齐；合并动作同一时刻只由一个会话执行
+- 用户侧唯一依赖：作业详情页抓包 + 考试清单 HAR（清单见 `docs/EXTENDING.md` §3.4）
+
+## 耗电优化 P0/P2 已落地（2026-11-13，versionCode 7）
+
+- **P0 采样跟作息**：PowerWorker 改链式调度——作息窗口（07:30–22:05 = 广科作息±1h）内按设定间隔联网；窗口外一次延迟睡到明早窗口。6h KEEP 心跳自愈（链被清则按当前作息重排，不联网）
+- **P2**：采样链加 NetworkType.CONNECTED（离线不唤醒）；故意不加电池约束（手机低电时更需宿舍预警）
+- **模拟器实测（.debug 包，协调规则生效后独占）**：WorkSpec 恰好两行——PowerHeartbeatWorker 6h 无网络 + PowerWorker OneTime CONNECTED；v6 的 15 分钟旧周期已消失
+- **P3**：卡片 blur 默认已是 1px（效果页可调），无需再动；仅剩两个静态玻璃圆钮用 16dp，静态不滚无感
+- 收益估算：默认 60min 间隔下唤醒 96→约16 次/天、联网 24→约15 次/天；interval=15 时联网 96→约58
+- **修复 WorkManager 首启竞态**：WM 数据库迁移（databases→no_backup）与 App.onCreate 入队互踩会把 WorkSpec 清空（实测 0 行）→ MainActivity.onCreate 幂等补排 schedule()
+
+## 现在做到哪：Nexio 1.7 全量页面移植已完成（分支待合并）
+
+分支 `feat/nexio-ui-170`，提交 `4b62167`（基于 `857e1fd`）。四页（今日/课表/电费/待办）+ 设置 + 登录已全部换成 Nexio `28a99a3` 版式；底栏重写为独立玻璃胶囊 + 56dp 设置圆钮；主题统一 Miuix（SOFT=磨砂/LIQUID=折射两种材质保留）。42/42 单测通过，debug+release 构建通过。
+
+**合并前建议**：在空场模拟器或真机把四个 tab 逐个点一遍（见下方坑——模拟器被研究线会话共用，批量点验被打断，今日 tab 已实测、其余三页只做了单页渲染核对）。合并命令：`git checkout main && git merge feat/nexio-ui-170`。
+
+## 模拟器共享冲突（重要坑，本次实测踩中）
+
+- **同一台 medium_phone 模拟器（emulator-5554）被本仓另一条「教务×学习通研究线」worktree 的会话共用**：它装的 debug 包（applicationId `com.menglimi.gdust.v2.debug`）来自含 `ChxWebActivity` 的分支（`e781091`/`7a5aa01`/`c0047e4`，这些提交不在 main 线上）
+- 实测它会在你测试中途把它的 Activity 拉到前台（ATM 日志可见 uid 10149 反复 START ChxWebActivity），还会让 System UI 弹 ANR、adb 掉 offline
+- 规约：**自动化 UI 验收前先 `dumpsys activity activities | grep topResumedActivity` 确认前台是自己刚 start 的那个包**；每次 `input tap` 前后都查；发现串台就停，别把别的会话的画面当成自己的验收结果
+- 之前进度卡里写的「模拟器会自己弹钱迹/haooz」大概率也是同类共享冲突
+- **→ 已定解决方案（2026-11-13，见上方「协调规则」）**：研究线 debug 包迁 `.research` 后缀后两包共存互不覆盖；落地前研究线不再往模拟器装 `.debug` 包；本线遇 downgrade 拒绝就先 `adb uninstall com.menglimi.gdust.v2.debug` 再装
+
+## 解包/研究资产
+
+- 精确版源码：`D:/projects/refs/NexioSchedule-28a99a3-source-nbhbV4`（=APK revision 28a99a3，**以此为准**）
+- 旧参考检出：`D:/projects/refs/NexioSchedule`（c540e9a，仅组件底座对照）
+- 反编译：`D:/projects/reverse/nexio-170-1113-session/`（input/nexio.apk、classes.txt、output2/）
+- 移植映射：今日/课表/待办/设置/底栏各自的来源文件写在对应 .kt 文件头注释里
+
+## 课表玻璃材质（2026-11-13 补）
+
+- 用户反馈「过于扁平、右上角不明显」：课程卡改走 Nexio 玻璃材质路径（着色 12% + 底色 34% + blur Mirror 透壁纸），顶栏两个圆钮改玻璃+描边光，右上菜单从 WindowListPopup（弹层锚点错位）换成原地玻璃 Popup
+- **大坑（实测两次 SIGSEGV）**：drawBackdrop 的采样节点**不能在被录制的层内部**——卡片在页面层里采样页面层 = GPU 自采样反馈回路，RenderThread 段错误（swiftshader/真机都有风险）。正确结构：**采样层只录壁纸 Box**，页面内容不录制；底栏在层外采样才安全
+- 判据：崩溃特征 = RenderThread SIGSEGV SEGV_ACCERR、同一 fault addr 段基址、launch 即崩
+- 模拟器共享冲突升级：对方会话在测试钱迹记账（com.xiaojinzi.tally），截图/点击随时被抢，交互验收只能抽空档做
+
+## 超级岛通知（2026-11-13 补）
+
+- 用户反馈无效。搜了官方文档（dev.mi.com pId=2131/2140/2146）+ HyperNotification 库源码（已克隆 D:/projects/refs/HyperNotification）：
+  - 旧实现 JSON 只有 ticker+isShowNotification，缺 **business/aodTitle/param_island 三个必填字段**，且 protocol:1 只是 OS1 焦点通知，不会上岛 → 系统直接忽略
+  - 新实现：手拼标准 V3 param_v2（enableFloat/ticker/aodTitle/business/baseInfo/hintInfo/param_island{islandProperty,islandTimeout,bigIslandArea{imageTextInfoLeft/Right{textInfo}}}}），字段名对齐 HyperNotification 的 @Serializable 模板
+  - 想引 HyperNotification 库（com.xzakota.hyper.notification:focus-api）但它 **Central/JitPack 都没发布**（403/空），只能 vendor；嫌重就手拼了（Gson 拼 LinkedHashMap）
+- **另一半原因在用户侧**：HyperOS 有焦点通知白名单；用户用 HyperCeiler 绕，但其截图显示 HyperCeiler 对 com.miui.securitycenter 已进安全模式（功能停用）→ 必须先解除安全模式并重新加白，通知发得再对也没用
+- 设置 → 课程提醒 → 超级岛 加了诊断行：焦点协议 v0-3（Settings.System notification_focus_protocol）+ persist.sys.feature.island；v3 且白名单通过才会上岛
+- 真机验证路径：修复 HyperCeiler → 设置里点「测试提醒」→ 看岛/
+
+## 许可状态（2026-11-13 更新）
+
+- 应作者与上游（Nexio 作者）的沟通结论，**项目先闭源自用**：LICENSE 换成闭源声明、README/关于页改回「闭源自用」
+- 代码文件头**保留**「Ported from NexioSchedule 28a99a3」出处注释（SPDX AGPL 标识行已删）；NOTICE.md 记录上游许可与授权状态
+- 若日后要对外分发：先拿上游书面豁免，或整体转回 AGPL-3.0 合规（NOTICE.md 里有现成说明）
+- 仓库远程仍是 PRIVATE
 
 ## 远程备份（已解决）
 
@@ -113,6 +181,7 @@
    - `TeachingSsoClient.probe()` 仍是 Boolean，网络故障与失效不可区分（要改三态）
    - `chxSessionAlive()` 探活=false 时直接清 Cookie，启发式误判会误删会话（收紧后再清）
    - 教务入口可达性：`gkjx.gdust.edu.cn` 公网超时，需校园网 / WebVPN 复测
+   > 板块一视角（原 main 进度卡）：本线只做 A3 真机观感验收；其余归研究线。
 1. **等用户给抓包**（清单已写进 `docs/EXTENDING.md` §3.4）：
    - `D:\ai\chaoxing-work.har` —— 作业清单（≥3 门课、含未交/已交/已过期各一条、点开一条详情）
    - `D:\ai\chaoxing-exam.har` —— 考试清单（Web 无入口则手机端 Reqable 抓）

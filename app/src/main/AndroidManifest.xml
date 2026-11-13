@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 网页登录页内的扫码需要摄像头；仅在网页真正申请时才向用户询问 -->
     <uses-permission android:name="android.permission.CAMERA" />
 
@@ -44,6 +46,27 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <receiver
+            android:name=".work.LessonReminderReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.menglimi.gdust.v2.LESSON_REMINDER_FIRE" />
+                <action android:name="com.menglimi.gdust.v2.TODO_REMINDER_FIRE" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".work.ClassDndToggleReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.menglimi.gdust.v2.CLASS_DND_TOGGLE" />
+            </intent-filter>
+        </receiver>
 
         <receiver
             android:name=".widget.TodayWidgetReceiver"
