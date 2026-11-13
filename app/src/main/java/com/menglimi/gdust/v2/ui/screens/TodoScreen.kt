@@ -132,7 +132,7 @@ fun TodoScreen(repo: Repository) {
                             .semantics { contentDescription = "${groups.pendingCount} 项待完成" })
                 }
                 Text("按时间 · 课程 · 类型分组；考试与作业自动标记",
-                    fontSize = 14.sp, color = colors.onSurfaceVariantSummary,
+                    fontSize = 14.sp, color = colors.onSurface.copy(alpha = 0.72f),
                     modifier = Modifier.padding(top = 6.dp))
             }
         }
@@ -253,27 +253,30 @@ private fun TodoGroupHeading(
     suffix: String = "",
 ) {
     val colors = MiuixTheme.colorScheme
+    // 次要信息用 72% 实色：Miuix 默认 summary（60% 黑/50% 白）在玻璃卡上偏淡。
+    val summary = colors.onSurface.copy(alpha = 0.72f)
     Text("$title  $count${suffix.replace("  ", " ")}", fontSize = 14.sp, fontWeight = FontWeight.Medium,
-        color = if (emphasize) colors.error else colors.onSurfaceVariantSummary,
+        color = if (emphasize) colors.error else summary,
         modifier = Modifier.padding(start = 4.dp, top = 8.dp).semantics { heading() })
 }
 
 @Composable
 private fun TodoItemCard(item: Todo, onToggle: () -> Unit, onDelete: () -> Unit) {
     val colors = MiuixTheme.colorScheme
+    val summary = colors.onSurface.copy(alpha = 0.72f)
     Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
         Column(Modifier.fillMaxWidth().padding(start = 4.dp, top = 6.dp, end = 6.dp, bottom = 6.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 val (label, tint) = when (item.kind) {
                     TodoKind.EXAM -> "考试" to colors.error
                     TodoKind.HOMEWORK -> "作业" to colors.primary
-                    TodoKind.GENERAL -> "事项" to colors.onSurfaceVariantSummary
+                    TodoKind.GENERAL -> "事项" to summary
                 }
                 Text(label, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = tint,
                     modifier = Modifier.background(tint.copy(alpha = 0.10f), RoundedCornerShape(6.dp))
                         .padding(horizontal = 6.dp, vertical = 2.dp))
-                if (item.dueAt > 0L) Text(dueFormat.format(Date(item.dueAt)), fontSize = 10.sp, color = colors.onSurfaceVariantSummary)
-                if (item.course.isNotBlank()) Text(item.course, fontSize = 10.sp, color = colors.onSurfaceVariantSummary, maxLines = 1)
+                if (item.dueAt > 0L) Text(dueFormat.format(Date(item.dueAt)), fontSize = 10.sp, color = summary)
+                if (item.course.isNotBlank()) Text(item.course, fontSize = 10.sp, color = summary, maxLines = 1)
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(
@@ -311,7 +314,7 @@ private fun TodoEmptyCard(title: String, message: String) {
             Icon(MiuixIcons.Tasks, contentDescription = null, tint = colors.primary, modifier = Modifier.size(36.dp))
             Text(title, fontSize = 17.sp, fontWeight = FontWeight.Medium, color = colors.onSurface)
             Text(message, fontSize = 14.sp, lineHeight = 21.sp, textAlign = TextAlign.Center,
-                color = colors.onSurfaceVariantSummary)
+                color = colors.onSurface.copy(alpha = 0.72f))
         }
     }
 }
