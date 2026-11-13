@@ -36,7 +36,8 @@ object TodoReminder {
         // 测试按钮走这里：没有可用的真实待办时用示例数据，保证「测试提醒」永远有反馈，
         // 不能因为列表为空/全部完成就静默 return（用户实测：点了没有任何反应）。
         val t = todo
-            ?: store.loadTodos().firstOrNull { !it.done && it.dueAt > 0L }
+            // 取「最早到期」那条，与 nextAt 的排程选择保持一致（原来取列表第一条，会提醒错条目）
+            ?: store.loadTodos().filter { !it.done && it.dueAt > 0L }.minByOrNull { it.dueAt }
             ?: Todo(
                 id = 0L,
                 text = "示例作业：点击查看待办列表",
