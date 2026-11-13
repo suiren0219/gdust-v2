@@ -16,7 +16,9 @@
 ### 板块二：学习通 × 教务互通（研究线）—— 本卡所在线
 - 分支 `feat/academic-chaoxing`，**验收设备：emulator-5554（debug 包将迁至 `com.menglimi.gdust.v2.research`，见协调规则）**
 - B0 **✅ 已落地（2026-11-13）**：applicationIdSuffix `.debug` → `.research`；已 `adb uninstall com.menglimi.gdust.v2.debug`、装上 `com.menglimi.gdust.v2.research`，POST_NOTIFICATIONS 与通知使用权（enabled_notification_listeners）均已重新授权；**重新扫码登录待学校网络恢复后做**（Cookie 不随包迁移）。**落地后不要再往模拟器装 `.debug` 包**
-- B1 登录互通已收口（真实账号验证通过，见下文「研究线」一节）；遗留：教务入口校园网/WebVPN 复测、学校服务恢复后核对学习通首页「我学的课」
+- B1 **✅ 已全量收口（2026-11-13 学校 CAS 恢复后）**：真实账号扫码登录 → 学习通首页「我学的课」核对为本人课程（非校本公开目录）；
+  作业同步实测 **53 门课 / 66 条 / 未交 14**，第二次同步 ~10s（enc 缓存命中）；待办按课程分组+倒计时正常。
+  教务：同一 CAS 会话签发 ticket（免密双通成立），但 `gkjx.gdust.edu.cn` 从测试网络仍不可达（宿主机 curl 同样超时）——环境问题
 - B2 等用户抓包 `D:\ai\chaoxing-work.har` + `D:\ai\chaoxing-exam.har` → `ChxApi` Jsoup 解析（EXTENDING.md 3.2① 路线）
 - B3 待办模型扩 `due` 字段（兼容旧数据），作业/考试写入待办（去重、可更新）
 - B4 板块一合并 main 后，本线向 main 对齐（预计 AppRoot/Manifest/PROGRESS.md 冲突）
