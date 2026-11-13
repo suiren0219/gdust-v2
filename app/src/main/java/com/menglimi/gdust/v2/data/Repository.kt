@@ -300,9 +300,9 @@ class Store(context: Context) {
         set(v) = plain.edit().putInt("course_row_h", v.coerceIn(44, 72)).apply()
 
     // ── 课表卡片玻璃材质（Nexio「效果」页同款六项）──
-    /** 卡片着色程度（tint alpha，0~0.6，默认 0.12）。 */
+    /** 卡片着色程度（tint alpha，0.18~0.6，默认 0.24；下限保证课程色可区分）。 */
     var glassTint: Float
-        get() = plain.getFloat("glass_tint", 0.12f).coerceIn(0f, 0.6f)
+        get() = plain.getFloat("glass_tint", 0.24f).coerceIn(0.18f, 0.6f)
         set(v) = plain.edit().putFloat("glass_tint", v).apply()
     /** 卡片不透明度（玻璃底色 alpha，0~1，默认 0.34）。 */
     var glassOpacity: Float

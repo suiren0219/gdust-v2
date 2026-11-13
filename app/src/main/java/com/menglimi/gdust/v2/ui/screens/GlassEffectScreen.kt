@@ -48,7 +48,7 @@ fun GlassEffectScreen(repo: Repository, onBack: () -> Unit) {
                 EffectSliderRow(
                     label = "卡片着色程度",
                     value = "${(tint * 100).toInt()} %",
-                    valueRange = 0f..0.5f,
+                    valueRange = 0.18f..0.5f,
                     current = tint,
                     onChange = { tint = it; store.glassTint = it },
                 )

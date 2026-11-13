@@ -132,13 +132,13 @@ object CourseColors {
         return Color(android.graphics.Color.HSVToColor(hsv))
     }
 
-    /** Nexio ScheduleColors.kt contrast fallback, including translucent preferred text. */
+    /** 保留高辨识度课程色；不足 6:1 时回退到黑/白高对比度文字。 */
     fun readableText(preferred: Color, background: Color): Color {
         val backgroundLuminance = background.luminance()
         val foregroundLuminance = preferred.compositeOver(background).luminance()
         val contrast = (maxOf(backgroundLuminance, foregroundLuminance) + 0.05f) /
             (minOf(backgroundLuminance, foregroundLuminance) + 0.05f)
-        if (contrast >= 4.5f) return preferred
+        if (contrast >= 6f) return preferred
         val blackContrast = (backgroundLuminance + 0.05f) / 0.05f
         val whiteContrast = 1.05f / (backgroundLuminance + 0.05f)
         return if (blackContrast >= whiteContrast) Color.Black else Color.White

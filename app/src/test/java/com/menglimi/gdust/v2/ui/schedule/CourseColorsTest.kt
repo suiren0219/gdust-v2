@@ -29,7 +29,7 @@ class CourseColorsTest {
     }
 
     @Test
-    fun transparencyIsIncludedWhenCheckingTextContrast() {
+    fun translucentPreferredColorKeepsColorWhenContrastIsSufficient() {
         val nearlyInvisibleBlack = Color.Black.copy(alpha = 0.05f)
         val nearlyInvisibleWhite = Color.White.copy(alpha = 0.05f)
         assertEquals(Color.Black, CourseColors.readableText(nearlyInvisibleBlack, Color.White))
@@ -49,7 +49,7 @@ class CourseColorsTest {
                 listOf(false, true).forEach { monochrome ->
                     val preferred = CourseColors.text(name, dark, onWallpaper = false, monochrome = monochrome)
                     val readable = CourseColors.readableText(preferred, card)
-                    assertTrue("$name dark=$dark monochrome=$monochrome", contrast(readable, card) >= 4.5f)
+                    assertTrue("$name dark=$dark monochrome=$monochrome", contrast(readable, card) >= 6f)
                 }
             }
         }
