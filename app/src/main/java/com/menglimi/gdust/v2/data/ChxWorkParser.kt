@@ -128,6 +128,43 @@ object ChxWorkParser {
         return out
     }
 
+    /**
+     * 作业详情页 → 绝对截止时间（epoch ms，0=解析不到）。
+     * 结构（实测）：`<div class="infoHead"><p>Time:<em>10-28 15:54</em>to<em>11-22 23:59</em></p>`
+     * 只有月-日 时:分，没有年份：按「离 now 最近」推断（跨年 ±1 年修正）。
+     */
+    fun parseDeadlineMillis(html: String, nowMillis: Long): Long {
+        val m = Regex("""Time:\s*<em>([^<]+)</em>\s*to\s*<em>([^<]+)</em>""", RegexOption.IGNORE_CASE)
+            .find(html)
+            ?: Regex("""时间[：:]\s*<em>([^<]+)</em>\s*(?:至|到)\s*<em>([^<]+)</em>""").find(html)
+            ?: return 0L
+        return parseMonthDayTime(m.groupValues[2].trim(), nowMillis)
+    }
+
+    /** 「11-22 23:59」/「2026-11-22 23:59」→ epoch ms；年份缺失时按 now 最近推断。 */
+    fun parseMonthDayTime(text: String, nowMillis: Long): Long {
+        val zone = java.time.ZoneId.systemDefault()
+        val now = java.time.Instant.ofEpochMilli(nowMillis).atZone(zone)
+        val full = Regex("""(\d{4})-(\d{1,2})-(\d{1,2})[ T］](\d{1,2}):(\d{2})""").find(text)
+        if (full != null) {
+            val (y, mo, d, h, mi) = full.destructured
+            return runCatching {
+                java.time.LocalDateTime.of(y.toInt(), mo.toInt(), d.toInt(), h.toInt(), mi.toInt())
+                    .atZone(zone).toInstant().toEpochMilli()
+            }.getOrDefault(0L)
+        }
+        val md = Regex("""(\d{1,2})-(\d{1,2})\s*(\d{1,2}):(\d{2})""").find(text) ?: return 0L
+        val (mo, d, h, mi) = md.destructured
+        return runCatching {
+            fun at(y: Int) = java.time.LocalDateTime.of(y, mo.toInt(), d.toInt(), h.toInt(), mi.toInt())
+                .atZone(zone).toInstant().toEpochMilli()
+            var ts = at(now.year)
+            if (ts - nowMillis > 180L * 24 * 3600 * 1000) ts = at(now.year - 1)
+            if (nowMillis - ts > 180L * 24 * 3600 * 1000) ts = at(now.year + 1)
+            ts
+        }.getOrDefault(0L)
+    }
+
     /** 「剩余1125小时55分钟」/「剩余2天3小时」→ 毫秒；解析不了返回 0（无截止信息）。 */
     fun remainingMillis(text: String): Long {
         val m = Regex("剩余(?:(\\d+)天)?(?:(\\d+)小时)?(?:(\\d+)分钟)?").find(text) ?: return 0

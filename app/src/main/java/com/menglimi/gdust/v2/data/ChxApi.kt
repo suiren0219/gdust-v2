@@ -115,6 +115,10 @@ class ChxApi {
             )
         }
 
+    /** 作业详情页（列表里每条 li[data] 就是它的地址）：用于读绝对截止时间。 */
+    suspend fun workDetailHtml(cookie: String, detailUrl: String): String? =
+        withContext(Dispatchers.IO) { getHtml(cookie, detailUrl) }
+
     /** 作业列表页：参数全部来自课程页隐藏域（ut=s、t 为页面时间戳）。 */
     suspend fun workListHtml(
         cookie: String,

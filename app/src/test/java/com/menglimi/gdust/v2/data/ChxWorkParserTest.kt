@@ -155,6 +155,34 @@ class ChxWorkParserTest {
         assertTrue(ChxWorkParser.parseJobInfo("").isEmpty())
     }
 
+    @Test fun deadlineParsesFromDetailPage() {
+        // 实测结构：<div class="infoHead"><p>Time:<em>10-28 15:54</em>to<em>11-22 23:59</em></p>
+        val html = """<div class="infoHead"><p>Time:<em>10-28 15:54</em>to<em>11-22 23:59</em></p></div>"""
+        val now = java.time.LocalDateTime.of(2026, 11, 13, 9, 0)
+            .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val due = ChxWorkParser.parseDeadlineMillis(html, now)
+        val expect = java.time.LocalDateTime.of(2026, 11, 22, 23, 59)
+            .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        assertEquals(expect, due)
+    }
+
+    @Test fun deadlineYearInferenceHandlesYearBoundary() {
+        val zone = java.time.ZoneId.systemDefault()
+        // 现在是 12 月底，截止写 01-05 → 应该是明年
+        val nowDec = java.time.LocalDateTime.of(2026, 12, 28, 10, 0).atZone(zone).toInstant().toEpochMilli()
+        val jan = ChxWorkParser.parseMonthDayTime("01-05 23:59", nowDec)
+        assertEquals(2027, java.time.Instant.ofEpochMilli(jan).atZone(zone).year)
+        // 现在是 1 月初，截止写 12-30 → 应该是去年
+        val nowJan = java.time.LocalDateTime.of(2027, 1, 3, 10, 0).atZone(zone).toInstant().toEpochMilli()
+        val dec = ChxWorkParser.parseMonthDayTime("12-30 23:59", nowJan)
+        assertEquals(2026, java.time.Instant.ofEpochMilli(dec).atZone(zone).year)
+        // 完整年份格式直接采用
+        val full = ChxWorkParser.parseMonthDayTime("2027-03-01 08:00", nowJan)
+        assertEquals(2027, java.time.Instant.ofEpochMilli(full).atZone(zone).year)
+        // 解析不了 → 0
+        assertEquals(0L, ChxWorkParser.parseDeadlineMillis("<p>没有时间</p>", nowJan))
+    }
+
     @Test fun oldTodoJsonWithoutDueFieldStaysCompatible() {
         // 旧版本待办只有 id/text/done：parseTodos 手工解析，缺字段用默认值，不丢数据不崩
         val t = com.menglimi.gdust.v2.data.parseTodos(

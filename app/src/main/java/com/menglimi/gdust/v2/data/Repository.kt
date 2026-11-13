@@ -779,16 +779,16 @@ class Repository(context: Context) {
                 async {
                     if (jobInfo.isNotEmpty()) {
                         val (jobCount, jobFinish) = jobInfo[course.classId]
-                            ?: return@async Triple(course, Result.success(emptyList<ChxWorkItem>()), null)
+                            ?: return@async Triple(course, Result.success(emptyList<Pair<ChxWorkItem, Long>>()), null)
                         if (jobCount == 0 || jobFinish >= jobCount) {
                             // 无作业，或全班（含本人）都完成
-                            return@async Triple(course, Result.success(emptyList<ChxWorkItem>()), null)
+                            return@async Triple(course, Result.success(emptyList<Pair<ChxWorkItem, Long>>()), null)
                         }
                     }
                     semaphore.withPermit {
                         var tabs = tabCache[course.courseId]
                         var refreshed: ChxCourseTabs? = null
-                        var items: List<ChxWorkItem> = emptyList()
+                        var rawItems: List<ChxWorkItem> = emptyList()
                         for (attempt in 1..2) {
                             if (tabs == null) {
                                 val tabsHtml = chxApi.courseTabsHtml(cookie, course.courseId, course.classId, course.cpi)
@@ -801,12 +801,20 @@ class Repository(context: Context) {
                                 cookie, tabs.moocDomain, course.courseId, course.classId, course.cpi,
                                 tabs.enc, tabs.workEnc, tabs.t,
                             ) ?: error("作业列表读取失败")
-                            items = ChxWorkParser.parseWorkList(workHtml)
+                            rawItems = ChxWorkParser.parseWorkList(workHtml)
                             // 列表页 title=「作业列表」；缺失说明签名失效被踢走 → 刷新课程页再试一次
                             if (workHtml.contains("作业列表") || attempt == 2) break
                             tabs = null
                         }
-                        Triple(course, Result.success(items), refreshed)
+                        // 未交作业逐条读详情页的绝对截止时间（列表页只有「剩余X」相对时间）。
+                        // 只对未交条目发请求，通常几条，影响可控；失败就回退相对时间。
+                        val nowMain = System.currentTimeMillis()
+                        val detailed = rawItems.map { it ->
+                            if (it.status != "未交" || it.detailUrl.isBlank()) it to 0L
+                            else it to (chxApi.workDetailHtml(cookie, it.detailUrl)
+                                ?.let { html -> ChxWorkParser.parseDeadlineMillis(html, nowMain) } ?: 0L)
+                        }
+                        Triple(course, Result.success(detailed), refreshed)
                     }
                 }
             }.awaitAll()
@@ -826,14 +834,19 @@ class Repository(context: Context) {
                 continue
             }
             scanned++
-            for (item in items) {
+            for ((item, absoluteDue) in items) {
                 if (item.workId <= 0) continue
                 val isPending = item.status == "未交"
                 if (isPending) pending++
-                // 列表页只有相对剩余时间；解析不出（如列表显示「已过期」）就记 0=无截止信息，
-                // 不能写成 now（否则刚同步完就显示「今天已过期」的假过期）
+                // 详情页给了绝对截止时间就用它；否则回退列表页的相对剩余时间；
+                // 都解析不出就记 0=无截止信息（不能写成 now，否则刚同步完就显示「今天已过期」）
                 val remaining = ChxWorkParser.remainingMillis(item.remainingText)
-                val due = if (isPending && remaining > 0) System.currentTimeMillis() + remaining else 0L
+                val due = when {
+                    !isPending -> 0L
+                    absoluteDue > 0L -> absoluteDue
+                    remaining > 0L -> System.currentTimeMillis() + remaining
+                    else -> 0L
+                }
                 updates[item.workId] = Todo(
                     id = item.workId,
                     text = item.title,
