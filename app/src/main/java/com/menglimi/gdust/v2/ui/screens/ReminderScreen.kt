@@ -208,6 +208,36 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 detail = "说明",
             )
             SettingDivider()
+            // 岛显示选项（Nexio 课程提醒同款）：改动写 prefs 后由下一条提醒生效
+            val islandModes = listOf(0 to "课程名称", 1 to "上课地点", 2 to "倒计时")
+            SettingOption(title = "超级岛左侧", detail = islandModes.first { it.first == store.islandLeftMode }.second, onClick = { })
+            SettingEditor {
+                SegmentedChoice(islandModes, store.islandLeftMode, onSelect = { save { store.islandLeftMode = it } })
+            }
+            SettingDivider()
+            SettingOption(title = "超级岛右侧", detail = islandModes.first { it.first == store.islandRightMode }.second, onClick = { })
+            SettingEditor {
+                SegmentedChoice(islandModes, store.islandRightMode, onSelect = { save { store.islandRightMode = it } })
+            }
+            SettingDivider()
+            SettingOption(title = "课中岛右侧", detail = islandModes.first { it.first == store.islandInClassRightMode }.second, onClick = { })
+            SettingEditor {
+                SegmentedChoice(islandModes, store.islandInClassRightMode, onSelect = { save { store.islandInClassRightMode = it } })
+            }
+            SettingDivider()
+            SettingOption(
+                title = "息屏显示",
+                detail = if (store.islandAodMode == 1) "上课地点" else "课程名称",
+                onClick = { },
+            )
+            SettingEditor {
+                SegmentedChoice(
+                    options = listOf(0 to "课程名称", 1 to "上课地点"),
+                    selected = store.islandAodMode,
+                    onSelect = { save { store.islandAodMode = it } },
+                )
+            }
+            SettingDivider()
             SettingOption(
                 title = "测试提醒",
                 subtitle = "发一条示例通知，看看能不能上岛",

@@ -48,6 +48,14 @@
         </receiver>
 
         <receiver
+            android:name=".work.ClassDndToggleReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.menglimi.gdust.v2.CLASS_DND_TOGGLE" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".widget.TodayWidgetReceiver"
             android:exported="false">
             <intent-filter>

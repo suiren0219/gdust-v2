@@ -337,16 +337,6 @@ private fun WeekGrid(
     val currentSection = remember(dates, today, time) {
         if (dates.values.any { it == today }) ScheduleTimes.currentSection(time) else null
     }
-    // Keys include date AND rowHeight; stale calendar.week never decides whether this is today's grid.
-    val lineY = remember(dates, today, time, rowHeight) {
-        if (dates.values.none { it == today }) null else {
-            ScheduleTimes.currentSection(time)?.let { section ->
-                ScheduleTimes.sectionProgress(section, time)?.let { progress ->
-                    ScheduleLayout.sectionY(section, rowHeight) + rowHeight * progress
-                }
-            }
-        }
-    }
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().height(ScheduleLayout.DateHeight).padding(end = 2.dp)) {
@@ -448,16 +438,6 @@ private fun WeekGrid(
                 }
                 ScheduleBreakBand("午休", Modifier.offset(y = ScheduleLayout.sectionY(5, rowHeight) - ScheduleLayout.BreakHeight))
                 ScheduleBreakBand("晚休", Modifier.offset(y = ScheduleLayout.sectionY(9, rowHeight) - ScheduleLayout.BreakHeight))
-                lineY?.let { y ->
-                    Box(
-                        Modifier.offset(y = y).fillMaxWidth().padding(start = ScheduleLayout.SectionWidth - 2.dp)
-                            .height(1.5.dp).background(ds.danger.copy(alpha = 0.85f)),
-                    )
-                    Box(
-                        Modifier.offset(x = ScheduleLayout.SectionWidth - 5.dp, y = y - 2.5.dp)
-                            .size(6.dp).background(ds.danger, CircleShape),
-                    )
-                }
             }
         }
     }

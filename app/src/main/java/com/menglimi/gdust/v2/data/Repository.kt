@@ -327,6 +327,38 @@ class Store(context: Context) {
     var inClassLead: Int
         get() = plain.getInt("inclass_lead", 10).coerceIn(3, 30)
         set(v) = plain.edit().putInt("inclass_lead", v.coerceIn(3, 30)).apply()
+    // ── 超级岛显示（对齐 Nexio 课程提醒设置）──
+    /** 超级岛左侧：0 课程名 / 1 上课地点 / 2 倒计时。 */
+    var islandLeftMode: Int
+        get() = plain.getInt("island_left_mode", 1).coerceIn(0, 2)
+        set(v) = plain.edit().putInt("island_left_mode", v).apply()
+    /** 超级岛右侧：0 课程名 / 1 上课地点 / 2 倒计时。 */
+    var islandRightMode: Int
+        get() = plain.getInt("island_right_mode", 2).coerceIn(0, 2)
+        set(v) = plain.edit().putInt("island_right_mode", v).apply()
+    /** 课中岛右侧：0 课程名 / 1 上课地点 / 2 倒计时。 */
+    var islandInClassRightMode: Int
+        get() = plain.getInt("island_in_class_right_mode", 2).coerceIn(0, 2)
+        set(v) = plain.edit().putInt("island_in_class_right_mode", v).apply()
+    /** 息屏显示：0 课程名称 / 1 上课地点。 */
+    var islandAodMode: Int
+        get() = plain.getInt("island_aod_mode", 0).coerceIn(0, 1)
+        set(v) = plain.edit().putInt("island_aod_mode", v).apply()
+
+    /** 缩略态地点：去掉「教学楼/松/实验楼」等前缀，只保留能塞进岛里的短名。 */
+    fun shortClassroom(room: String): String {
+        val t = room.trim()
+        return t.replace(Regex("^(教学楼|实验楼|松山湖|博|松)"), "")
+            .replace(Regex("[（(].*?[)）]"), "")
+            .take(8).ifEmpty { t.take(8) }
+    }
+
+    /** 缩略态课程名：去掉罗马数字后缀与「基础与应用」等长尾。 */
+    fun shortCourse(name: String): String = name.trim()
+        .replace(Regex("[ⅠⅡⅢⅣⅤI I I I I I]+$", RegexOption.IGNORE_CASE), "")
+        .replace("基础与应用", "")
+        .take(8)
+
     /** 超级岛（HyperOS 焦点通知）开关。 */
     var islandEnabled: Boolean
         get() = plain.getBoolean("island_enabled", true)
