@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
         com.menglimi.gdust.v2.work.PowerWorker.schedule(app)
         // 精确闹钟链与 6h 兜底同样做一次幂等补排（防 WorkManager 迁移竞态 / 系统清闹钟）
         if (app.repo.store.reminderEnabled) com.menglimi.gdust.v2.work.LessonReminderWorker.schedule(app)
+        if (app.repo.store.todoReminderEnabled) com.menglimi.gdust.v2.work.LessonReminderAlarms.rescheduleTodo(app, app.repo.store)
         setContent {
             val style = rememberUiStyle(app.repo.store)
             // 风格切换持久化：值变了就写本机

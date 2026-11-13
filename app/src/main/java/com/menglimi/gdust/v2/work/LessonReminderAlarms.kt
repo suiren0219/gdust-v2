@@ -27,9 +27,11 @@ import java.util.concurrent.TimeUnit
 object LessonReminderAlarms {
 
     internal const val ACTION_FIRE = "com.menglimi.gdust.v2.LESSON_REMINDER_FIRE"
+    internal const val ACTION_TODO_FIRE = "com.menglimi.gdust.v2.TODO_REMINDER_FIRE"
     internal const val WORK_FALLBACK = "gdust_lesson_reminder_fallback"
     private const val WORK_LEGACY = "gdust_lesson_reminder"
     private const val REQ_CODE = 7717
+    private const val REQ_CODE_TODO = 7718
 
     /** 精确闹钟是否可用（Android 12+ 可被用户在系统设置里撤销）。 */
     fun canScheduleExact(ctx: Context): Boolean {
@@ -67,6 +69,19 @@ object LessonReminderAlarms {
                 // 用户撤销精确权限：退化为非精确闹钟，6h 兜底 Worker 仍会补齐
                 alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next.atMillis, pi)
             }
+        }
+    }
+
+    /** 重排待办到期闹钟（开关关闭时取消）。 */
+    fun rescheduleTodo(ctx: Context, store: com.menglimi.gdust.v2.data.Store) {
+        val alarm = ctx.getSystemService(AlarmManager::class.java)
+        val pi = todoPendingIntent(ctx)
+        alarm.cancel(pi)
+        if (!store.todoReminderEnabled || !notificationAllowed(ctx)) return
+        val at = TodoReminder.nextAt(store, System.currentTimeMillis()) ?: return
+        runCatching {
+            if (canScheduleExact(ctx)) alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+            else alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
         }
     }
 
@@ -141,6 +156,12 @@ object LessonReminderAlarms {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
+    private fun todoPendingIntent(ctx: Context): PendingIntent = PendingIntent.getBroadcast(
+        ctx, REQ_CODE_TODO,
+        Intent(ctx, LessonReminderReceiver::class.java).setAction(ACTION_TODO_FIRE),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
     /** 供设置页显示诊断。 */
     fun status(ctx: Context, store: com.menglimi.gdust.v2.data.Store): String = buildString {
         append(if (canScheduleExact(ctx)) "精确闹钟已授权" else "精确闹钟未授权")
@@ -159,9 +180,17 @@ class LessonReminderReceiver : BroadcastReceiver() {
                 LessonReminderAlarms.fire(ctx)
                 LessonReminderAlarms.reschedule(ctx, com.menglimi.gdust.v2.data.Store(ctx))
             }
+            LessonReminderAlarms.ACTION_TODO_FIRE -> {
+                val store = com.menglimi.gdust.v2.data.Store(ctx)
+                TodoReminder.fire(ctx, store)
+                LessonReminderAlarms.rescheduleTodo(ctx, store)
+            }
             Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_TIME_CHANGED,
-            Intent.ACTION_TIMEZONE_CHANGED, Intent.ACTION_MY_PACKAGE_REPLACED ->
-                LessonReminderAlarms.reschedule(ctx, com.menglimi.gdust.v2.data.Store(ctx))
+            Intent.ACTION_TIMEZONE_CHANGED, Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                val store = com.menglimi.gdust.v2.data.Store(ctx)
+                LessonReminderAlarms.reschedule(ctx, store)
+                LessonReminderAlarms.rescheduleTodo(ctx, store)
+            }
         }
     }
 }
@@ -174,6 +203,7 @@ class LessonReminderFallbackWorker(ctx: Context, params: WorkerParameters) : Cor
             LessonReminderAlarms.fire(applicationContext)
             LessonReminderAlarms.reschedule(applicationContext, store)
         }
+        if (store.todoReminderEnabled) LessonReminderAlarms.rescheduleTodo(applicationContext, store)
         return Result.success()
     }
 }

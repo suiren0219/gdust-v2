@@ -97,27 +97,45 @@ class Store(context: Context) {
         }
     }
 
-    // ── 待办 ──
-    data class Todo(val id: Long, val text: String, val done: Boolean)
+    // ── 待办提醒 ──
+    /** 待办到期提醒总开关（独立于课程提醒）。 */
+    var todoReminderEnabled: Boolean
+        get() = plain.getBoolean("todo_reminder_enabled", false)
+        set(v) = plain.edit().putBoolean("todo_reminder_enabled", v).apply()
+    /** 提前提醒分钟数：0 / 10 / 30 / 60 / 1440。 */
+    var todoReminderLead: Int
+        get() = plain.getInt("todo_reminder_lead", 60)
+        set(v) = plain.edit().putInt("todo_reminder_lead", v).apply()
+    /** 只提醒作业/考试（关=所有带截止时间的待办都提醒）。 */
+    var todoReminderOnlyDatedTypes: Boolean
+        get() = plain.getBoolean("todo_reminder_types", true)
+        set(v) = plain.edit().putBoolean("todo_reminder_types", v).apply()
+    /** 已提醒过的待办 key，避免重复通知。 */
+    var lastTodoReminderKey: String
+        get() = plain.getString("todo_reminder_key", "") ?: ""
+        set(v) = plain.edit().putString("todo_reminder_key", v).apply()
+
+    // ── 待办（结构化模型见 TodoModel.kt，带旧 JSON 兼容默认值）──
 
     companion object {
         private val todoLock = Any()
     }
 
-    fun loadTodos(): List<Todo> {
-        val t = object : TypeToken<List<Todo>>() {}.type
-        return runCatching { gson.fromJson<List<Todo>>(plain.getString("todos", "[]"), t) }
-            .getOrNull().orEmpty()
-    }
+    fun loadTodos(): List<Todo> = parseTodos(plain.getString("todos", "[]").orEmpty(), gson)
 
     fun updateTodos(transform: (List<Todo>) -> List<Todo>): List<Todo> = synchronized(todoLock) {
         transform(loadTodos()).also { plain.edit().putString("todos", gson.toJson(it)).commit() }
     }
 
-    fun addTodo(text: String): List<Todo> = updateTodos { items ->
+    fun addTodo(
+        text: String,
+        kind: TodoKind = TodoKind.GENERAL,
+        course: String = "",
+        dueAt: Long = 0L,
+    ): List<Todo> = updateTodos { items ->
         val id = generateSequence(System.currentTimeMillis()) { it + 1 }
             .first { candidate -> items.none { it.id == candidate } }
-        listOf(Todo(id, text, false)) + items
+        listOf(Todo(id, text, false, kind, course, dueAt, "manual")) + items
     }
 
     var chxNotificationsEnabled: Boolean
@@ -154,8 +172,10 @@ class Store(context: Context) {
         val items = loadTodos()
         val id = generateSequence(System.currentTimeMillis()) { it + 1 }
             .first { candidate -> items.none { it.id == candidate } }
+        val (kind, course) = classifyNotificationTodo(text)
+        val todo = Todo(id = id, text = text, done = false, kind = kind, course = course, source = "chaoxing")
         plain.edit()
-            .putString("todos", gson.toJson(listOf(Todo(id, text, false)) + items))
+            .putString("todos", gson.toJson(listOf(todo) + items))
             .putString("chx_seen_notifications", gson.toJson((seen + key).takeLast(500)))
             .commit()
     }

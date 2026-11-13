@@ -1,17 +1,15 @@
 # gdust-v2 — 进度卡
 
-> 最后更新：2026-11-13（P1 落地）。下次开工先读这张卡。
+> 最后更新：2026-11-13（通知改版 + 待办结构化）。下次开工先读这张卡。
 
-## 耗电优化 P1 已落地（2026-11-13，versionCode 8）
+## 本轮新增（versionCode 10）
 
-- **课程提醒 96 唤醒/天 → 精确闹钟**：新增 `LessonReminderPlanner.kt`（纯函数算今天+明天所有提醒时刻：课前=上课-lead、课中=下课-inClassLead、次日汇总=当日 nextDayHour 整点）+ `LessonReminderAlarms.kt`（`setExactAndAllowWhileIdle` 定一个闹钟，触发后 Receiver 发通知并顺带排下一个）
-- 原 15 分钟周期 Worker 降级为 **6h 兜底**（`LessonReminderFallbackWorker`：补发到期提醒 + 重排闹钟链）；启动时 cancel 掉旧 `gdust_lesson_reminder` 轮询
-- 去重键 `lastReminderKey` 不变；通知文案与超级岛 V3 extras 原样复用（`LessonReminderWorker` 改为 object 执行器，`emit()`）
-- Manifest 补 `SCHEDULE_EXACT_ALARM`/`RECEIVE_BOOT_COMPLETED` + 静态 Receiver（开机/时间变更/升级重排）；设置页加「闹钟和提醒权限」诊断行（显示下次提醒时刻、一键授权）
-- 权限撤销时自动退化 `setAndAllowWhileIdle`（非精确，6h 兜底补漏）；HyperOS 仍需自启动授权
-- 单测：新增 9 项 `LessonReminderPlannerTest`（时刻/周次 floorDiv/日期优先/无效节次/窗口契约），**51/51 全绿**
-- `.debug` 包实测：`dumpsys alarm` 出现 `RTC_WAKEUP ... LESSON_REMINDER_FIRE`（11/13 23:00 次日汇总）；WorkSpec = 电费心跳6h + 电费链OneTime + 课程提醒兜底6h 三行，旧 15min 轮询消失
-- **测试环境注意**：验证时把模拟器时钟拨到 2026-11-13 09:50，随后模拟器进程被中断带走，设备时钟未能恢复；下次连接请先 `date -s "$(date -u '+%Y-%m-%d %H:%M:%S')"` 恢复（宿主 UTC，设备时区 GMT）
+- 课程提醒通知按 Nexio 卡片重排：状态栏岛左地点/右 Chronometer 倒计时，锁屏卡「课程名 / 节次|地点 / 即将上课·倒计时 / 地点 / 上课勿扰」；baseInfo/hintInfo/timerInfo/actionInfo/bigIslandArea/sameWidthDigitInfo 全字段（对照 Nexio 28a99a3 IslandNotificationHelper.kt）；设置页加岛左/岛右/课中岛右/息屏显示四项
+- **课表红线按用户要求移除**（节次高亮与课程三态保留）
+- **待办结构化**：`TodoModel.kt` 加可选 kind(作业/考试/普通)/course/dueAt/source；旧 JSON 用 `parseTodos` 从 JsonObject 读（Gson 反射不走 Kotlin 默认参数，直接反序列化缺字段会产 null——实测抓到并修掉）；备份格式不变、旧备份可恢复
+- 待办页按「考试优先 / 已逾期 / 今天 / 未来7天 / 以后 / 未设时间 / 已完成」+ 课程名分组，卡片带类型/时间/课程徽章；学习通通知自动分类并抽课程名，手动输入也轻量识别
+- **独立「待办提醒」设置页**（设置 → 待办提醒）：总开关 / 提前量(准时~1天) / 只提醒作业考试 / 精确闹钟授权 / 通知权限 / 测试提醒；独立渠道与闹钟 requestCode，复用 6h 兜底
+- 57/57 单测通过（新增 TodoModelTest 5 项、FocusJsonStructureTest 1 项）
 
 ## 双线分工（2026-11-13 定稿）
 

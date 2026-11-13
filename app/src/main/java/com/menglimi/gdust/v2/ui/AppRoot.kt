@@ -83,6 +83,7 @@ fun AppRoot(
     var showProfile by remember { mutableStateOf(false) }
     var showNotices by remember { mutableStateOf(false) }
     var showReminder by remember { mutableStateOf(false) }
+    var showTodoReminder by remember { mutableStateOf(false) }
     var showChxNotifications by remember { mutableStateOf(false) }
     var showChxEntry by remember { mutableStateOf(false) }
     var showGlassEffect by remember { mutableStateOf(false) }
@@ -186,6 +187,7 @@ fun AppRoot(
             showWebImport -> "web_import"
             showNotices -> "notices"
             showReminder -> "reminder"
+            showTodoReminder -> "todo_reminder"
             showChxNotifications -> "chx_notifications"
             showChxEntry -> "chx_entry"
             showGlassEffect -> "glass_effect"
@@ -218,6 +220,10 @@ fun AppRoot(
             "reminder" -> {
                 androidx.activity.compose.BackHandler { showReminder = false }
                 ReminderScreen(repo = repo, onBack = { showReminder = false })
+            }
+            "todo_reminder" -> {
+                androidx.activity.compose.BackHandler { showTodoReminder = false }
+                com.menglimi.gdust.v2.ui.screens.TodoReminderScreen(repo = repo, onBack = { showTodoReminder = false })
             }
             "chx_notifications" -> {
                 androidx.activity.compose.BackHandler { showChxNotifications = false }
@@ -266,6 +272,7 @@ fun AppRoot(
                 onSync = { sync() },
                 onWebImport = { showWebImport = true },
                 onReminder = { showReminder = true },
+                onTodoReminder = { showTodoReminder = true },
                 onChxNotifications = { showChxNotifications = true },
                 onChxEntry = { showChxEntry = true },
                 onWallpaperChanged = { wallpaperTick++ },

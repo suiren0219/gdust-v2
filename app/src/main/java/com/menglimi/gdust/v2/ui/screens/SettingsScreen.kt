@@ -102,6 +102,7 @@ fun SettingsScreen(
     onSync: () -> Unit,
     onWebImport: () -> Unit,
     onReminder: () -> Unit,
+    onTodoReminder: () -> Unit = {},
     onChxNotifications: () -> Unit,
     onChxEntry: () -> Unit,
     onWallpaperChanged: () -> Unit,
@@ -266,6 +267,10 @@ fun SettingsScreen(
             SettingsEntry(
                 id = "reminder", title = "课程提醒", summary = "课前、次日与课中提醒", icon = MiuixIcons.Alarm,
                 detail = if (store.reminderEnabled) "已开启" else "未开启", onClick = onReminder,
+            ),
+            SettingsEntry(
+                id = "todoReminder", title = "待办提醒", summary = "作业、考试与自定义事项的到期提醒", icon = MiuixIcons.Alarm,
+                detail = if (store.todoReminderEnabled) "已开启" else "未开启", onClick = onTodoReminder,
             ),
             SettingsEntry(
                 id = "autoSync", title = "自动同步课表", summary = "保持已登录账号的课表更新", icon = MiuixIcons.Refresh,
