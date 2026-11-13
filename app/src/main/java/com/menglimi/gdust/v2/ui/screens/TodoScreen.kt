@@ -92,6 +92,8 @@ fun TodoScreen(repo: Repository) {
     }
     val nowMs = System.currentTimeMillis()
     val groups = groupTodos(items, nowMs)
+    // 已完成默认折叠：条目多时不再刷屏；勾选框重新打开某条时它会回到未完成区
+    var doneExpanded by rememberSaveable { mutableStateOf(false) }
     val startOfToday = java.time.Instant.ofEpochMilli(nowMs)
         .atZone(java.time.ZoneId.systemDefault())
         .toLocalDate().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
@@ -210,15 +212,34 @@ fun TodoScreen(repo: Repository) {
             }
         }
         if (groups.completed.isNotEmpty()) {
-            item(key = "head-done") { TodoGroupHeading("已完成", groups.completed.size) }
-            items(groups.completed, key = { "done-${it.id}" }) { item ->
-                TodoItemCard(item, onToggle = { toggleTodo(item.id) }, onDelete = { deleteTodo(item.id) })
+            item(key = "head-done") {
+                Row(
+                    Modifier.fillMaxWidth()
+                        .toggleable(value = doneExpanded, role = Role.Button, onValueChange = { doneExpanded = it })
+                        .heightIn(min = 48.dp)
+                        .padding(top = 8.dp)
+                        .semantics { stateDescription = if (doneExpanded) "已展开" else "已折叠" },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TodoGroupHeading("已完成", groups.completed.size)
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        if (doneExpanded) "收起" else "展开",
+                        fontSize = 13.sp, color = colors.primary,
+                        modifier = Modifier.padding(start = 12.dp),
+                    )
+                }
             }
-            item(key = "clear-done") {
-                TextButton(text = "清理已完成（${groups.completed.size}）",
-                    onClick = { items = store.updateTodos { c -> c.filterNot { it.done } } },
-                    modifier = Modifier.fillMaxWidth(), minHeight = 48.dp,
-                    colors = ButtonDefaults.textButtonColors(textColor = colors.primary))
+            if (doneExpanded) {
+                items(groups.completed, key = { "done-${it.id}" }) { item ->
+                    TodoItemCard(item, onToggle = { toggleTodo(item.id) }, onDelete = { deleteTodo(item.id) })
+                }
+                item(key = "clear-done") {
+                    TextButton(text = "清理已完成（${groups.completed.size}）",
+                        onClick = { items = store.updateTodos { c -> c.filterNot { it.done } } },
+                        modifier = Modifier.fillMaxWidth(), minHeight = 48.dp,
+                        colors = ButtonDefaults.textButtonColors(textColor = colors.primary))
+                }
             }
         }
     }
