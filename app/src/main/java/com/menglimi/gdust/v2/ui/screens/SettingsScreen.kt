@@ -54,10 +54,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.ui.LocalUiStyle
+import com.menglimi.gdust.v2.ui.LocalWallpaperActive
 import com.menglimi.gdust.v2.ui.UiStyle
 import com.menglimi.gdust.v2.ui.importWallpaper
+import com.menglimi.gdust.v2.ui.pageBackground
+import com.menglimi.gdust.v2.ui.pageTextBacking
+import com.menglimi.gdust.v2.ui.secondaryTextColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -88,6 +93,7 @@ import top.yukonga.miuix.kmp.icon.extended.Unlock
 import top.yukonga.miuix.kmp.icon.extended.Weeks
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * Adapted from NexioSchedule, revision 28a99a3:
@@ -118,6 +124,8 @@ fun SettingsScreen(
     syncing: Boolean = false,
 ) {
     val ds = LocalDs.current
+    val secondary = secondaryTextColor()
+    val onWallpaper = LocalWallpaperActive.current
     val store = repo.store
     val scope = rememberCoroutineScope()
     val styleState = LocalUiStyle.current
@@ -189,7 +197,7 @@ fun SettingsScreen(
                         options = UiStyle.entries.map { it to it.label }, selected = styleState.value,
                         onSelect = { styleState.value = it },
                     )
-                    Text(styleState.value.desc, fontSize = 13.sp, color = ds.sub)
+                    Text(styleState.value.desc, fontSize = 13.sp, color = secondary)
                 },
             ),
             SettingsEntry(
@@ -219,13 +227,13 @@ fun SettingsScreen(
                         wallpaperLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     }
                     if (wallpaperPath.isNotBlank()) {
-                        Text("模糊 ${wallpaperBlur.toInt()} dp", fontSize = 13.sp, color = ds.sub)
+                        Text("模糊 ${wallpaperBlur.toInt()} dp", fontSize = 13.sp, color = secondary)
                         androidx.compose.material3.Slider(
                             value = wallpaperBlur,
                             onValueChange = { wallpaperBlur = it; store.wallpaperBlur = it; onWallpaperChanged() },
                             valueRange = 0f..40f, steps = 19,
                         )
-                        Text("压暗 ${(wallpaperDim * 100).toInt()}%", fontSize = 13.sp, color = ds.sub)
+                        Text("压暗 ${(wallpaperDim * 100).toInt()}%", fontSize = 13.sp, color = secondary)
                         androidx.compose.material3.Slider(
                             value = wallpaperDim,
                             onValueChange = { wallpaperDim = it; store.wallpaperDim = it; onWallpaperChanged() },
@@ -256,7 +264,7 @@ fun SettingsScreen(
                         store.termCurrentWeek = termWeekText.toIntOrNull() ?: 0
                         termSaved = true
                     }
-                    Text("留空则跟随校历。这里只调整日期与周次；学期课程请从教务导入，未取得的周次不能视为无课。", fontSize = 13.sp, color = ds.sub)
+                    Text("留空则跟随校历。这里只调整日期与周次；学期课程请从教务导入，未取得的周次不能视为无课。", fontSize = 13.sp, color = secondary)
                 },
             ),
             SettingsEntry(
@@ -298,7 +306,7 @@ fun SettingsScreen(
                         dropText.toFloatOrNull()?.let { store.warnDropRate = it }
                         thresholdSaved = true
                     }
-                    Text("后台每 15 分钟巡检，同类预警间隔 12 小时。", fontSize = 13.sp, color = ds.sub)
+                    Text("后台每 15 分钟巡检，同类预警间隔 12 小时。", fontSize = 13.sp, color = secondary)
                 },
             ),
             SettingsEntry(
@@ -310,7 +318,7 @@ fun SettingsScreen(
                         selected = sampleIntervalLocal,
                         onSelect = { sampleIntervalLocal = it; store.sampleIntervalMinutes = it },
                     )
-                    Text("间隔越短，走势越细；后台仍按 15 分钟巡检。", fontSize = 13.sp, color = ds.sub)
+                    Text("间隔越短，走势越细；后台仍按 15 分钟巡检。", fontSize = 13.sp, color = secondary)
                 },
             ),
             SettingsEntry(
@@ -423,7 +431,7 @@ fun SettingsScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .background(ds.bg)
+            .background(pageBackground())
             .pointerInput(onBack, backThreshold, backEdge) {
                 detectHorizontalDragGestures(
                     onDragStart = { backPx = if (it.x < backEdge) 0f else Float.NaN },
@@ -439,7 +447,7 @@ fun SettingsScreen(
             .statusBarsPadding()
             .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = AppUiTokens.PagePadding),
     ) {
         Spacer(Modifier.height(24.dp))
         PageTitle(title = "设置", onBack = onBack)
@@ -474,7 +482,9 @@ fun SettingsScreen(
             }
         }
         if (!showAccount && visibleGroups.isEmpty() && !showLogout) {
-            Text("没有找到相关设置", fontSize = 14.sp, color = ds.sub, modifier = Modifier.padding(24.dp))
+            Text("没有找到相关设置", fontSize = 14.sp, color = secondary,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp).pageTextBacking()
+                    .padding(if (onWallpaper) 12.dp else 0.dp))
         }
         Spacer(Modifier.navigationBarsPadding().height(110.dp))
     }
@@ -516,20 +526,21 @@ private fun SettingsPreference(entry: SettingsEntry) {
         }
     }
     val titleColors = BasicComponentDefaults.titleColor(color = if (entry.danger) ds.danger else ds.text)
+    val summaryColors = BasicComponentDefaults.summaryColor(color = secondaryTextColor())
     val margins = PaddingValues(start = 16.dp, end = 13.dp, top = 14.dp, bottom = 14.dp)
     when {
         entry.checked != null && entry.onCheckedChange != null -> SwitchPreference(
-            title = entry.title, summary = entry.summary, titleColor = titleColors,
+            title = entry.title, summary = entry.summary, titleColor = titleColors, summaryColor = summaryColors,
             checked = entry.checked, onCheckedChange = entry.onCheckedChange,
             startAction = leading, insideMargin = margins, enabled = entry.enabled,
         )
         entry.onClick != null -> ArrowPreference(
-            title = entry.title, summary = entry.summary, titleColor = titleColors,
+            title = entry.title, summary = entry.summary, titleColor = titleColors, summaryColor = summaryColors,
             startAction = leading, insideMargin = margins, onClick = entry.onClick, enabled = entry.enabled,
             endActions = { entry.detail?.let { SettingsDetail(it) } },
         )
         else -> BasicComponent(
-            title = entry.title, summary = entry.summary, titleColor = titleColors,
+            title = entry.title, summary = entry.summary, titleColor = titleColors, summaryColor = summaryColors,
             startAction = leading, insideMargin = margins,
             endActions = { entry.detail?.let { SettingsDetail(it) } },
         )
@@ -538,20 +549,22 @@ private fun SettingsPreference(entry: SettingsEntry) {
 
 @Composable
 private fun SettingsDetail(text: String) {
-    Text(text, fontSize = 14.sp, color = LocalDs.current.sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Text(text, fontSize = 14.sp, color = secondaryTextColor(), maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 /** 59dp block from Nexio SettingsSearch.kt; filters only this page's real entries. */
 @Composable
 private fun SettingsSearchField(query: String, onQueryChange: (String) -> Unit) {
     val ds = LocalDs.current
+    val secondary = secondaryTextColor()
+    val searchSurface = MiuixTheme.colorScheme.surface.copy(alpha = 1f)
     val focusManager = LocalFocusManager.current
     Row(
         Modifier.fillMaxWidth().height(59.dp).padding(bottom = 12.dp)
-            .background(ds.card, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp),
+            .background(searchSurface, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(MiuixIcons.Search, contentDescription = null, modifier = Modifier.size(20.dp), tint = ds.sub)
+        Icon(MiuixIcons.Search, contentDescription = null, modifier = Modifier.size(20.dp), tint = secondary)
         Spacer(Modifier.width(10.dp))
         BasicTextField(
             value = query, onValueChange = onQueryChange, modifier = Modifier.weight(1f),
@@ -561,14 +574,14 @@ private fun SettingsSearchField(query: String, onQueryChange: (String) -> Unit) 
             keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
             decorationBox = { input ->
                 Box {
-                    if (query.isEmpty()) Text("搜索设置", fontSize = 16.sp, color = ds.sub)
+                    if (query.isEmpty()) Text("搜索设置", fontSize = 16.sp, color = secondary)
                     input()
                 }
             },
         )
         if (query.isNotEmpty()) {
             IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(40.dp)) {
-                Icon(MiuixIcons.Close, contentDescription = "清除搜索", modifier = Modifier.size(18.dp), tint = ds.sub)
+                Icon(MiuixIcons.Close, contentDescription = "清除搜索", modifier = Modifier.size(18.dp), tint = secondary)
             }
         }
     }

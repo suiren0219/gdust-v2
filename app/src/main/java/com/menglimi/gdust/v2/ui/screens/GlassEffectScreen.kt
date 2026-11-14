@@ -27,21 +27,32 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.secondaryTextColor
+import com.menglimi.gdust.v2.ui.nexio.utils.AppMaterialSettings
 
 /** 课表卡片玻璃材质调参（着色/不透明度/模糊/折射/边缘厚度/高光描边），改动即时生效并持久化。 */
 @Composable
 fun GlassEffectScreen(repo: Repository, onBack: () -> Unit) {
     val ds = LocalDs.current
     val store = repo.store
-    // 普通 prefs 不触发重组：滑杆位置用本地镜像，写回即生效
+    val material = AppMaterialSettings.current()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences("gdust_cache", android.content.Context.MODE_PRIVATE) }
+    // 与课程卡采用相同默认值；显式关闭后不再跟随风格重新开启。
     var tint by remember { mutableStateOf(store.glassTint) }
-    var opacity by remember { mutableStateOf(store.glassOpacity) }
-    var blur by remember { mutableStateOf(store.glassBlurPx) }
-    var refraction by remember { mutableStateOf(store.glassRefraction) }
+    var opacity by remember(material) { mutableStateOf(maxOf(store.glassOpacity, material.courseAlpha)) }
+    var blur by remember(material) {
+        mutableStateOf(if (prefs.contains("glass_blur")) store.glassBlurPx else material.blurDp.toInt())
+    }
+    var refraction by remember(material) {
+        mutableStateOf(material.courseRefraction(if (prefs.contains("glass_refraction")) store.glassRefraction else null))
+    }
     var edge by remember { mutableStateOf(store.glassEdge) }
-    var highlight by remember { mutableStateOf(store.glassHighlightEdge) }
+    var highlight by remember(material) {
+        mutableStateOf(material.liquid && if (prefs.contains("glass_highlight")) store.glassHighlightEdge else true)
+    }
 
-    SettingSubPage(title = "课表效果", subtitle = "卡片玻璃材质 · 桌面同款调参", onBack = onBack) {
+    SettingSubPage(title = "课表效果", subtitle = if (material.liquid) "液态玻璃 · 通透折射" else "柔光玻璃 · 磨砂易读", onBack = onBack) {
         SectionHeader("卡片材质")
         SettingGroup {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
@@ -56,7 +67,7 @@ fun GlassEffectScreen(repo: Repository, onBack: () -> Unit) {
                 EffectSliderRow(
                     label = "卡片不透明度",
                     value = "${(opacity * 100).toInt()} %",
-                    valueRange = 0f..1f,
+                    valueRange = material.courseAlpha..1f,
                     current = opacity,
                     onChange = { opacity = it; store.glassOpacity = it },
                 )

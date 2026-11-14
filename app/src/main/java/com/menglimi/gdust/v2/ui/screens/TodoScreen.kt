@@ -58,10 +58,14 @@ import com.menglimi.gdust.v2.data.Todo
 import com.menglimi.gdust.v2.data.TodoKind
 import com.menglimi.gdust.v2.data.classifyNotificationTodo
 import com.menglimi.gdust.v2.data.groupTodos
+import com.menglimi.gdust.v2.ui.AppCard
+import com.menglimi.gdust.v2.ui.AppUiTokens
+import com.menglimi.gdust.v2.ui.LocalWallpaperActive
 import com.menglimi.gdust.v2.ui.pageBackground
+import com.menglimi.gdust.v2.ui.pageTextBacking
+import com.menglimi.gdust.v2.ui.secondaryTextColor
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -82,6 +86,8 @@ private val dueFormat = SimpleDateFormat("MM-dd HH:mm", Locale.CHINA)
 fun TodoScreen(repo: Repository) {
     val store = repo.store
     val colors = MiuixTheme.colorScheme
+    val secondary = secondaryTextColor()
+    val onWallpaper = LocalWallpaperActive.current
     var items by remember(store) { mutableStateOf(store.loadTodos()) }
     var draft by rememberSaveable { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
@@ -118,13 +124,16 @@ fun TodoScreen(repo: Repository) {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(pageBackground()).statusBarsPadding().imePadding(),
-        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 104.dp + bottomInset),
+        contentPadding = PaddingValues(start = AppUiTokens.PagePadding, end = AppUiTokens.PagePadding, top = 24.dp, bottom = 104.dp + bottomInset),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "todo-heading") {
-            Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+            Column(
+                Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                    .pageTextBacking().padding(if (onWallpaper) 12.dp else 0.dp),
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("待办", fontSize = 32.sp, fontWeight = FontWeight.Normal, color = colors.onSurface,
+                    Text("待办", fontSize = AppUiTokens.TitleSize, fontWeight = AppUiTokens.TitleWeight, color = colors.onSurface,
                         modifier = Modifier.semantics { heading() })
                     Text("${groups.pendingCount}", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = colors.primary,
                         modifier = Modifier.background(colors.primary.copy(alpha = 0.10f), RoundedCornerShape(12.dp))
@@ -132,12 +141,12 @@ fun TodoScreen(repo: Repository) {
                             .semantics { contentDescription = "${groups.pendingCount} 项待完成" })
                 }
                 Text("按时间 · 课程 · 类型分组；考试与作业自动标记",
-                    fontSize = 14.sp, color = colors.onSurface.copy(alpha = 0.72f),
+                    fontSize = 14.sp, lineHeight = 20.sp, color = secondary,
                     modifier = Modifier.padding(top = 6.dp))
             }
         }
         item(key = "todo-input") {
-            Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp, insideMargin = PaddingValues(16.dp)) {
+            AppCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp, insideMargin = PaddingValues(16.dp)) {
                 Text("添加待办", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = colors.onSurface)
                 Spacer(Modifier.height(12.dp))
                 BasicTextField(
@@ -152,7 +161,7 @@ fun TodoScreen(repo: Repository) {
                     keyboardActions = KeyboardActions(onDone = { addDraft() }),
                     decorationBox = { inner ->
                         Box {
-                            if (draft.isEmpty()) Text("作业、考试或要做的事", fontSize = 16.sp, color = colors.onSurfaceVariantSummary)
+                            if (draft.isEmpty()) Text("作业、考试或要做的事", fontSize = 16.sp, color = secondary)
                             inner()
                         }
                     },
@@ -214,15 +223,15 @@ fun TodoScreen(repo: Repository) {
         if (groups.completed.isNotEmpty()) {
             item(key = "head-done") {
                 Row(
-                    Modifier.fillMaxWidth()
+                    Modifier.fillMaxWidth().padding(top = 8.dp).pageTextBacking()
                         .toggleable(value = doneExpanded, role = Role.Button, onValueChange = { doneExpanded = it })
                         .heightIn(min = 48.dp)
-                        .padding(top = 8.dp)
+                        .padding(horizontal = if (onWallpaper) 12.dp else 0.dp, vertical = if (onWallpaper) 6.dp else 0.dp)
                         .semantics { stateDescription = if (doneExpanded) "已展开" else "已折叠" },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TodoGroupHeading("已完成", groups.completed.size)
-                    Spacer(Modifier.weight(1f))
+                    Text("已完成  ${groups.completed.size}", fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                        color = secondary, modifier = Modifier.weight(1f).semantics { heading() })
                     Text(
                         if (doneExpanded) "收起" else "展开",
                         fontSize = 13.sp, color = colors.primary,
@@ -237,7 +246,7 @@ fun TodoScreen(repo: Repository) {
                 item(key = "clear-done") {
                     TextButton(text = "清理已完成（${groups.completed.size}）",
                         onClick = { items = store.updateTodos { c -> c.filterNot { it.done } } },
-                        modifier = Modifier.fillMaxWidth(), minHeight = 48.dp,
+                        modifier = Modifier.fillMaxWidth().pageTextBacking(cornerRadius = ButtonDefaults.CornerRadius), minHeight = 48.dp,
                         colors = ButtonDefaults.textButtonColors(textColor = colors.primary))
                 }
             }
@@ -253,18 +262,20 @@ private fun TodoGroupHeading(
     suffix: String = "",
 ) {
     val colors = MiuixTheme.colorScheme
-    // 次要信息用 72% 实色：Miuix 默认 summary（60% 黑/50% 白）在玻璃卡上偏淡。
-    val summary = colors.onSurface.copy(alpha = 0.72f)
+    val secondary = secondaryTextColor()
+    val onWallpaper = LocalWallpaperActive.current
     Text("$title  $count${suffix.replace("  ", " ")}", fontSize = 14.sp, fontWeight = FontWeight.Medium,
-        color = if (emphasize) colors.error else summary,
-        modifier = Modifier.padding(start = 4.dp, top = 8.dp).semantics { heading() })
+        color = if (emphasize) colors.error else secondary,
+        modifier = Modifier.padding(top = 8.dp).pageTextBacking()
+            .padding(horizontal = if (onWallpaper) 12.dp else 0.dp, vertical = if (onWallpaper) 6.dp else 0.dp)
+            .semantics { heading() })
 }
 
 @Composable
 private fun TodoItemCard(item: Todo, onToggle: () -> Unit, onDelete: () -> Unit) {
     val colors = MiuixTheme.colorScheme
-    val summary = colors.onSurface.copy(alpha = 0.72f)
-    Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
+    val summary = secondaryTextColor()
+    AppCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
         Column(Modifier.fillMaxWidth().padding(start = 4.dp, top = 6.dp, end = 6.dp, bottom = 6.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 val (label, tint) = when (item.kind) {
@@ -308,13 +319,14 @@ private fun TodoItemCard(item: Todo, onToggle: () -> Unit, onDelete: () -> Unit)
 @Composable
 private fun TodoEmptyCard(title: String, message: String) {
     val colors = MiuixTheme.colorScheme
-    Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp, insideMargin = PaddingValues(24.dp)) {
+    val secondary = secondaryTextColor()
+    AppCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp, insideMargin = PaddingValues(24.dp)) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(MiuixIcons.Tasks, contentDescription = null, tint = colors.primary, modifier = Modifier.size(36.dp))
             Text(title, fontSize = 17.sp, fontWeight = FontWeight.Medium, color = colors.onSurface)
             Text(message, fontSize = 14.sp, lineHeight = 21.sp, textAlign = TextAlign.Center,
-                color = colors.onSurface.copy(alpha = 0.72f))
+                color = secondary)
         }
     }
 }

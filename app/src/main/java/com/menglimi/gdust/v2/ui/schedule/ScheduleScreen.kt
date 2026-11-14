@@ -78,6 +78,9 @@ import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.pageTextBacking
+import com.menglimi.gdust.v2.ui.secondaryTextColor
+import com.menglimi.gdust.v2.ui.nexio.utils.AppMaterialSettings
 import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlinx.coroutines.delay
@@ -160,14 +163,18 @@ fun ScheduleScreen(
     }
     var textMono by remember(repo) { mutableStateOf(repo.store.cardTextMono) }
     var smartWeekend by remember(repo, repo.store.smartHideWeekend) { mutableStateOf(repo.store.smartHideWeekend) }
-    // 玻璃材质参数：每次重组直读 prefs（课表效果页改完回来即生效），不 remember 缓存
+    // 未设置时跟随风格；显式保存的 0/false 仍表示关闭，不被默认效果覆盖。
+    val material = AppMaterialSettings.current()
     val glass = GlassSpec(
         tint = repo.store.glassTint,
-        opacity = repo.store.glassOpacity,
-        blurPx = repo.store.glassBlurPx,
-        refraction = repo.store.glassRefraction,
+        opacity = maxOf(repo.store.glassOpacity, material.courseAlpha),
+        blurPx = if (stored.contains("glass_blur")) repo.store.glassBlurPx else material.blurDp.toInt(),
+        refraction = material.courseRefraction(
+            if (stored.contains("glass_refraction")) repo.store.glassRefraction else null,
+        ),
         edge = repo.store.glassEdge,
-        highlightEdge = repo.store.glassHighlightEdge,
+        highlightEdge = material.liquid &&
+            if (stored.contains("glass_highlight")) repo.store.glassHighlightEdge else true,
     )
     var showDisplaySettings by remember { mutableStateOf(false) }
     var showTermSwitch by remember { mutableStateOf(false) }
@@ -523,17 +530,21 @@ private fun LessonCard(
     val inactive = Color(0xFF9E9E9E)
     val pageGlass = LocalPageLayerBackdrop.current
     val onWallpaper = LocalWallpaperActive.current && pageGlass != null
-    // 28a99a3 卡片材质：壁纸开启走玻璃路径（着色 + 底色 + 模糊透出壁纸，参数见「课表效果」页），
-    // 无壁纸沿用其无材质路径（0.12 着色 + 0.92 页底垫色）
+    val material = AppMaterialSettings.current()
+    val glassStyle = AppMaterialSettings.chromeGlassStyle(ScheduleSoftGlassStyle, ds.isDark)
+    // 风格决定磨砂/折射，效果页参数在该档位上微调，默认值也能展示两种材质差异。
     val tintAlpha = glass.tint * (if (isPast) 0.7f else 1f)
     val baseTint = if (isPast) inactive else tint
-    val glassColor = glassSurfaceColor(baseTint, ds.isDark, tintAlpha = tintAlpha, surfaceAlpha = glass.opacity)
+    val opacity = maxOf(glass.opacity, material.courseAlpha)
+    val glassColor = glassSurfaceColor(baseTint, ds.isDark, tintAlpha = tintAlpha, surfaceAlpha = opacity)
     val cardColor = baseTint.copy(alpha = tintAlpha).compositeOver(ds.bg.copy(alpha = 0.92f))
+    val blurDp = glass.blurPx.toFloat()
+    val refraction = glass.refraction
     val preferredText = if (isPast) ds.sub.copy(alpha = 0.7f)
         else CourseColors.text(block.name, ds.isDark, onWallpaper = onWallpaper, monochrome = textMono)
     val foreground = CourseColors.readableText(
         preferredText,
-        if (onWallpaper) glassColor else cardColor.compositeOver(ds.bg),
+        if (onWallpaper) glassColor.compositeOver(ds.bg) else cardColor.compositeOver(ds.bg),
     )
     val scale = textScale.coerceIn(0.7f, 1.4f)
     val nameSize = (12.7f * scale).sp
@@ -572,16 +583,17 @@ private fun LessonCard(
                     backdrop = pageGlass!!,
                     shape = { cardShape },
                     effects = {
-                        blur(glass.blurPx.dp.toPx(), TileMode.Mirror)
-                        if (glass.refraction > 0f) {
+                        blur(blurDp.dp.toPx(), TileMode.Mirror)
+                        if (refraction > 0f) {
+                            padding = 0f
                             runtimeShaderEffect(
                                 key = "NexioSoftGlassLiveCourseCard",
                                 shaderString = SOFT_GLASS_LIVE_SHADER,
                                 uniformShaderName = "content",
                             ) {
                                 applySoftGlass(
-                                    style = ScheduleSoftGlassStyle.copy(
-                                        refractionScale = glass.refraction,
+                                    style = glassStyle.copy(
+                                        refractionScale = refraction,
                                         edgeHighlight = glass.highlightEdge,
                                     ),
                                     width = size.width,

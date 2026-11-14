@@ -9,6 +9,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.key
+import com.haooz.softglass.SoftGlassTheme
+import com.haooz.softglass.backdrop.backdrops.layerBackdrop
+import com.haooz.softglass.backdrop.backdrops.rememberLayerBackdrop
+import com.menglimi.gdust.v2.data.Store
+import com.menglimi.gdust.v2.ui.nexio.LocalPageLayerBackdrop
+import com.menglimi.gdust.v2.ui.nexio.utils.AppMaterialSettings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -86,6 +94,39 @@ fun WallpaperBackdrop(
         )
         if (dim > 0.01f) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dim)))
+        }
+    }
+}
+
+/** 全部页面共用背景采样，采样节点只录背景，不录制会反向采样的卡片。 */
+@Composable
+fun AppPageBackdrop(store: Store, wallpaperTick: Int, content: @Composable () -> Unit) {
+    val ds = LocalDs.current
+    val path = remember(store, wallpaperTick) { store.wallpaperPath }
+    val blur = remember(store, wallpaperTick) { store.wallpaperBlur }
+    val dim = remember(store, wallpaperTick) { store.wallpaperDim }
+    val wallpaper = path.isNotBlank() && File(path).isFile
+    val backdrop = rememberLayerBackdrop()
+    SoftGlassTheme(
+        level = AppMaterialSettings.materialLevel(),
+        isDark = ds.isDark,
+        hasWallpaper = wallpaper,
+    ) {
+        CompositionLocalProvider(
+            LocalWallpaperActive provides wallpaper,
+            LocalPageLayerBackdrop provides backdrop,
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
+                    if (wallpaper) {
+                        // 同路径覆盖壁纸后也重新解码，但不重建页面状态。
+                        key(path, wallpaperTick) { WallpaperBackdrop(path, blur, dim) }
+                    } else {
+                        Box(Modifier.fillMaxSize().background(ds.bg))
+                    }
+                }
+                content()
+            }
         }
     }
 }

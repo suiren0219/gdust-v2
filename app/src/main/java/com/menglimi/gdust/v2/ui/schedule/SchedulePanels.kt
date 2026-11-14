@@ -56,6 +56,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.appSurface
+import com.menglimi.gdust.v2.ui.pageTextBacking
+import com.menglimi.gdust.v2.ui.secondaryTextColor
 import com.menglimi.gdust.v2.ui.LocalWallpaperActive
 import com.menglimi.gdust.v2.ui.nexio.LocalPageLayerBackdrop
 import com.kyant.backdrop.edgelight.rememberCardEdgeLight
@@ -97,6 +100,7 @@ internal fun ScheduleHeader(
     onGlassEffect: () -> Unit,
 ) {
     val ds = LocalDs.current
+    val secondary = secondaryTextColor()
     var showMenu by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 6.dp)) {
         Row(
@@ -107,14 +111,14 @@ internal fun ScheduleHeader(
                 Icon(MiuixIcons.Normal.ConvertFile, contentDescription = "切换学期", modifier = Modifier.size(25.dp), tint = ds.text)
             }
             Column(
-                Modifier.weight(1f).padding(horizontal = 4.dp).clip(RoundedCornerShape(14.dp))
+                Modifier.weight(1f).padding(horizontal = 8.dp).pageTextBacking(14.dp).clip(RoundedCornerShape(14.dp))
                     .clickable(role = Role.Button, onClickLabel = "选择周次", onClick = onChooseWeek)
                     .padding(vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("第 $week 周", fontSize = 26.sp, lineHeight = 31.sp, fontWeight = FontWeight.Bold, color = ds.text, maxLines = 1)
-                    Icon(MiuixIcons.Basic.ArrowUpDown, contentDescription = "选择周次", modifier = Modifier.size(14.dp), tint = ds.sub)
+                    Icon(MiuixIcons.Basic.ArrowUpDown, contentDescription = "选择周次", modifier = Modifier.size(14.dp), tint = secondary)
                 }
                 val weekEnd = weekStart?.plusDays(6)
                 Text(
@@ -123,7 +127,7 @@ internal fun ScheduleHeader(
                     } else "点击选择周次",
                     fontSize = 11.sp,
                     lineHeight = 16.sp,
-                    color = ds.sub,
+                    color = secondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -148,6 +152,7 @@ internal fun ScheduleHeader(
             if (currentWeek in 1..totalWeeks && week != currentWeek) {
                 TextButton(
                     text = "回本周",
+                    modifier = Modifier.pageTextBacking(18.dp),
                     onClick = onCurrentWeek,
                     minHeight = 36.dp,
                     insideMargin = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
@@ -155,7 +160,7 @@ internal fun ScheduleHeader(
                     textStyle = TextStyle(fontSize = 12.sp),
                 )
             } else {
-                Box(Modifier.height(36.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.height(36.dp).pageTextBacking(18.dp).padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
                     Text(
                         when {
                             currentWeek < 1 -> "学期尚未开始"
@@ -163,7 +168,7 @@ internal fun ScheduleHeader(
                             else -> "本周"
                         },
                         fontSize = 12.sp,
-                        color = if (week == currentWeek) ds.accent else ds.sub,
+                        color = if (week == currentWeek) ds.accent else secondary,
                     )
                 }
             }
@@ -171,27 +176,11 @@ internal fun ScheduleHeader(
     }
 }
 
-/** 顶栏玻璃圆钮：壁纸上采样页面层 + 描边光；无壁纸回退到实色圆。 */
+/** 顶栏与页面卡片共用材质；24dp 半径对应 48dp 圆钮。 */
 @Composable
 private fun HeaderGlassButton(onClick: () -> Unit, content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
-    val ds = LocalDs.current
-    val pageGlass = LocalPageLayerBackdrop.current
-    val onWallpaper = LocalWallpaperActive.current && pageGlass != null
-    val surface = if (ds.isDark) Color.Black.copy(alpha = 0.42f) else Color.White.copy(alpha = 0.52f)
     Box(
-        Modifier
-            .size(48.dp)
-            .then(
-                if (onWallpaper) Modifier
-                    .drawBackdrop(
-                        backdrop = pageGlass!!,
-                        shape = { CircleShape },
-                        effects = { blur(16.dp.toPx(), TileMode.Mirror) },
-                        onDrawSurface = { drawRect(surface) },
-                    )
-                    .edgeLight(shape = CircleShape, edgeLight = rememberCardEdgeLight(surface))
-                else Modifier.background(ds.card.copy(alpha = 0.92f), CircleShape)
-            )
+        Modifier.size(48.dp).appSurface(24.dp)
             .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
         content = content,
@@ -209,11 +198,8 @@ private fun ScheduleGlassMenu(
     onDismiss: () -> Unit,
 ) {
     val ds = LocalDs.current
-    val pageGlass = LocalPageLayerBackdrop.current
-    val onWallpaper = LocalWallpaperActive.current && pageGlass != null
     val density = androidx.compose.ui.platform.LocalDensity.current
     val shape = RoundedCornerShape(18.dp)
-    val menuSurface = if (ds.isDark) Color.Black.copy(alpha = 0.62f) else Color.White.copy(alpha = 0.88f)
     androidx.compose.ui.window.Popup(
         alignment = Alignment.TopEnd,
         offset = androidx.compose.ui.unit.IntOffset(0, with(density) { 54.dp.roundToPx() }),
@@ -223,17 +209,8 @@ private fun ScheduleGlassMenu(
         Column(
             Modifier
                 .width(196.dp)
-                .then(
-                    if (onWallpaper) Modifier
-                        .drawBackdrop(
-                            backdrop = pageGlass!!,
-                            shape = { shape },
-                            effects = { blur(18.dp.toPx(), TileMode.Mirror) },
-                            onDrawSurface = { drawRect(menuSurface) },
-                        )
-                        .edgeLight(shape = shape, edgeLight = rememberCardEdgeLight(menuSurface))
-                    else Modifier.background(ds.card, shape)
-                )
+                // Popup 属于另一个窗口，不采样页面坐标，保留清晰的实底菜单。
+                .background(ds.card, shape)
                 .clip(shape)
                 .padding(vertical = 6.dp),
         ) {

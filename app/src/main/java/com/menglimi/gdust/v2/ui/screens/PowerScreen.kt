@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,11 +51,16 @@ import com.menglimi.gdust.v2.data.PowerRoom
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.data.Store
 import com.menglimi.gdust.v2.data.isNetworkDown
+import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.LocalWallpaperActive
 import com.menglimi.gdust.v2.ui.pageBackground
+import com.menglimi.gdust.v2.ui.pageTextBacking
+import com.menglimi.gdust.v2.ui.secondaryTextColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -70,6 +76,9 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
 fun PowerScreen(repo: Repository) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val ds = LocalDs.current
+    val secondary = secondaryTextColor()
+    val preferenceSummary = BasicComponentDefaults.summaryColor(color = secondary)
+    val onWallpaper = LocalWallpaperActive.current
     val scope = rememberCoroutineScope()
     val store = repo.store
 
@@ -130,27 +139,33 @@ fun PowerScreen(repo: Repository) {
             .statusBarsPadding()
             .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp),
+            .padding(horizontal = AppUiTokens.PagePadding),
     ) {
         Spacer(Modifier.height(24.dp))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("宿舍电费", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = ds.text, modifier = Modifier.weight(1f))
-            if (hasBinding && !editingBinding) {
-                IconButton(onClick = { refresh() }, enabled = !busy, modifier = Modifier.size(48.dp)) {
-                    Icon(MiuixIcons.Refresh, contentDescription = "刷新电量", tint = ds.accent, modifier = Modifier.size(24.dp))
+        Column(
+            Modifier.fillMaxWidth().padding(bottom = 24.dp)
+                .pageTextBacking().padding(if (onWallpaper) 12.dp else 0.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("宿舍电费", fontSize = AppUiTokens.TitleSize, fontWeight = AppUiTokens.TitleWeight, color = ds.text,
+                    modifier = Modifier.weight(1f).semantics { heading() })
+                if (hasBinding && !editingBinding) {
+                    IconButton(onClick = { refresh() }, enabled = !busy, modifier = Modifier.size(48.dp)) {
+                        Icon(MiuixIcons.Refresh, contentDescription = "刷新电量", tint = ds.accent, modifier = Modifier.size(24.dp))
+                    }
                 }
             }
+            Text(
+                if (hasBinding) roomName.ifBlank { "已绑定宿舍" } else "绑定宿舍，查看电量与用电趋势",
+                fontSize = 14.sp, lineHeight = 20.sp, color = secondary, modifier = Modifier.padding(top = 6.dp),
+            )
         }
-        Text(
-            if (hasBinding) roomName.ifBlank { "已绑定宿舍" } else "绑定宿舍，查看电量与用电趋势",
-            fontSize = 14.sp, color = ds.sub, modifier = Modifier.padding(top = 6.dp, bottom = 24.dp),
-        )
 
         if (msg.isNotEmpty()) {
             GlassCard {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("查询未完成", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.danger)
-                    Text(msg, fontSize = 14.sp, color = ds.sub)
+                    Text(msg, fontSize = 14.sp, color = secondary)
                     if (hasBinding && !editingBinding) Button("重新查询", enabled = !busy) { refresh() }
                 }
             }
@@ -164,7 +179,7 @@ fun PowerScreen(repo: Repository) {
             val daysLeft = avgDaily?.let { detail?.odd?.div(it) }
             GlassCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("剩余电量", fontSize = 14.sp, color = ds.sub)
+                    Text("剩余电量", fontSize = 14.sp, color = secondary)
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             detail?.odd?.let { "%.1f".format(it) } ?: if (busy) "查询中" else "--",
@@ -172,7 +187,7 @@ fun PowerScreen(repo: Repository) {
                             fontWeight = FontWeight.Bold,
                             color = if (detail?.odd?.let { it < store.warnThreshold } == true) ds.danger else ds.text,
                         )
-                        Text("度", fontSize = 17.sp, color = ds.sub, modifier = Modifier.padding(start = 8.dp, bottom = 10.dp))
+                        Text("度", fontSize = 17.sp, color = secondary, modifier = Modifier.padding(start = 8.dp, bottom = 10.dp))
                     }
                     Text(
                         when {
@@ -182,7 +197,7 @@ fun PowerScreen(repo: Repository) {
                                 .format(java.util.Date(updatedAt!!))
                             else -> "等待查询"
                         },
-                        fontSize = 13.sp, color = ds.sub,
+                        fontSize = 13.sp, color = secondary,
                     )
                 }
             }
@@ -214,11 +229,11 @@ fun PowerScreen(repo: Repository) {
                     UsageChart(ranged, store.warnThreshold)
                     Text(
                         "近 $chartDays 天 · ${ranged.size} 个采样点 · 覆盖 %.1f 小时".format(coveredHours),
-                        fontSize = 13.sp, color = ds.sub,
+                        fontSize = 13.sp, color = secondary,
                     )
                     Text(
                         "采样间隔 $sampleIntervalLocal 分钟，保留最近 30 天；预警线 ${store.warnThreshold.toInt()} 度。",
-                        fontSize = 12.sp, lineHeight = 17.sp, color = ds.sub,
+                        fontSize = 12.sp, lineHeight = 17.sp, color = secondary,
                     )
                 }
             }
@@ -256,13 +271,13 @@ fun PowerScreen(repo: Repository) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text("近 7 日用电", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text, modifier = Modifier.weight(1f))
-                            Text("峰值 %.1f 度".format(maxUse), fontSize = 12.sp, color = ds.sub)
+                            Text("峰值 %.1f 度".format(maxUse), fontSize = 12.sp, color = secondary)
                         }
                         Text(
                             "每日用电量（度）",
-                            fontSize = 13.sp, color = ds.sub,
+                            fontSize = 13.sp, color = secondary,
                         )
-                        // 7 根等宽柱随可用宽度分配空间，兼容窄屏与24dp页面边距。
+                        // 7 根等宽柱随可用宽度分配空间，兼容窄屏与统一页面边距。
                         Row(
                             Modifier.fillMaxWidth().height(112.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -290,7 +305,7 @@ fun PowerScreen(repo: Repository) {
                                         "%.1f".format(use),
                                         fontSize = 9.sp,
                                         fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isToday || use >= maxUse) ds.accent else ds.sub,
+                                        color = if (isToday || use >= maxUse) ds.accent else secondary,
                                         maxLines = 1,
                                     )
                                     Box(
@@ -318,7 +333,7 @@ fun PowerScreen(repo: Repository) {
                                         if (isToday) "今天" else dayName,
                                         fontSize = 9.sp,
                                         fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isToday) ds.accent else ds.sub,
+                                        color = if (isToday) ds.accent else secondary,
                                         maxLines = 1,
                                         softWrap = false,
                                         overflow = androidx.compose.ui.text.style.TextOverflow.Visible,
@@ -326,7 +341,7 @@ fun PowerScreen(repo: Repository) {
                                     )
                                     if (dayDate.isNotBlank()) {
                                         Text(
-                                            dayDate, fontSize = 8.sp, color = ds.sub,
+                                            dayDate, fontSize = 8.sp, color = secondary,
                                             maxLines = 1, softWrap = false,
                                             overflow = androidx.compose.ui.text.style.TextOverflow.Visible,
                                         )
@@ -343,17 +358,17 @@ fun PowerScreen(repo: Repository) {
             SettingGroup {
                 ArrowPreference(
                     title = if (busy) "正在刷新" else "立即刷新",
-                    summary = "从完美校园更新电量", onClick = { refresh() }, enabled = !busy,
+                    summary = "从完美校园更新电量", summaryColor = preferenceSummary, onClick = { refresh() }, enabled = !busy,
                 )
                 ArrowPreference(
-                    title = "重新绑定宿舍", summary = roomName, enabled = !busy,
+                    title = "重新绑定宿舍", summary = roomName, summaryColor = preferenceSummary, enabled = !busy,
                     onClick = { editingBinding = true; rooms = emptyList(); msg = "" },
                 )
             }
             GlassCard {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("采样间隔", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
-                    Text("每 $sampleIntervalLocal 分钟记录电量，后台最低 15 分钟巡检。", fontSize = 14.sp, color = ds.sub)
+                    Text("每 $sampleIntervalLocal 分钟记录电量，后台最低 15 分钟巡检。", fontSize = 14.sp, color = secondary)
                     SegmentedChoice(
                         options = listOf(15, 30, 60, 120).map { it to "${it}分" },
                         selected = sampleIntervalLocal,
@@ -376,7 +391,7 @@ fun PowerScreen(repo: Repository) {
             GlassCard {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text(if (hasBinding) "重新绑定宿舍" else "绑定宿舍", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
-                    Text("使用完美校园水电账号查询，选定房间后保存到本机。", fontSize = 14.sp, color = ds.sub)
+                    Text("使用完美校园水电账号查询，选定房间后保存到本机。", fontSize = 14.sp, color = secondary)
                     InputField(account, { account = it; rooms = emptyList() }, "水电账号（完美校园 outid）")
                     InputField(code, { code = it; rooms = emptyList() }, "学校代码（广科 1000145）", KeyboardType.Number)
                     Button(
@@ -425,7 +440,7 @@ fun PowerScreen(repo: Repository) {
                 SettingGroup {
                     rooms.forEach { room ->
                         ArrowPreference(
-                            title = room.name, summary = "绑定此房间", enabled = !busy,
+                            title = room.name, summary = "绑定此房间", summaryColor = preferenceSummary, enabled = !busy,
                             onClick = {
                                 repo.savePowerBinding(roomQueryAccount, roomQueryCode, room)
                                 account = roomQueryAccount
@@ -459,10 +474,11 @@ fun PowerScreen(repo: Repository) {
 @Composable
 private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
     val ds = LocalDs.current
+    val secondary = secondaryTextColor()
     if (samples.size < 2) {
         Text(
             "这个时间范围内的采样还不足，稍后刷新或选择更长时间查看。",
-            fontSize = 14.sp, lineHeight = 20.sp, color = ds.sub,
+            fontSize = 14.sp, lineHeight = 20.sp, color = secondary,
             modifier = Modifier.padding(vertical = 20.dp),
         )
         return
@@ -498,9 +514,9 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.End,
             ) {
-                Text("%.0f".format(hi), fontSize = 10.sp, color = ds.sub)
-                Text("%.0f".format((lo + hi) / 2f), fontSize = 10.sp, color = ds.sub)
-                Text("%.0f".format(lo), fontSize = 10.sp, color = ds.sub)
+                Text("%.0f".format(hi), fontSize = 10.sp, color = secondary)
+                Text("%.0f".format((lo + hi) / 2f), fontSize = 10.sp, color = secondary)
+                Text("%.0f".format(lo), fontSize = 10.sp, color = secondary)
             }
             Canvas(
                 Modifier
@@ -528,7 +544,7 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
                 // 水平网格线（3 条，最淡）
                 listOf(hi, (lo + hi) / 2f, lo).forEach { v ->
                     drawLine(
-                        color = ds.sub.copy(alpha = 0.12f),
+                        color = secondary.copy(alpha = 0.12f),
                         start = Offset(left, y(v)), end = Offset(w, y(v)),
                         strokeWidth = 1f,
                     )
@@ -582,7 +598,7 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
         // X 轴时间刻度
         Row(Modifier.fillMaxWidth().padding(start = 40.dp, top = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             xLabels.forEach { (_, label) ->
-                Text(label, fontSize = 10.sp, color = ds.sub)
+                Text(label, fontSize = 10.sp, color = secondary)
             }
         }
         // 最新值 / 选中点详情
@@ -595,7 +611,7 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
                 Text(
                     "平均变化 %.1f 度/小时".format(kotlin.math.abs(values.last() - values.first()) /
                         ((samples.last().time - samples.first().time) / 3600000f).coerceAtLeast(0.25f)),
-                    fontSize = 12.sp, color = ds.sub, modifier = Modifier.weight(1f),
+                    fontSize = 12.sp, color = secondary, modifier = Modifier.weight(1f),
                 )
                 if (selectedIndex in values.indices) {
                     Box(
@@ -614,8 +630,9 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
 @Composable
 private fun PowerMetric(label: String, value: String, modifier: Modifier = Modifier, warn: Boolean = false) {
     val ds = LocalDs.current
+    val secondary = secondaryTextColor()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, fontSize = 12.sp, color = ds.sub)
+        Text(label, fontSize = 12.sp, color = secondary)
         Text(value, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = if (warn) ds.danger else ds.text)
     }
 }

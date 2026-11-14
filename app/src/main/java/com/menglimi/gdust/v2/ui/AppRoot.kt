@@ -181,6 +181,7 @@ fun AppRoot(
         if (teachingReady && stale && repo.store.autoSyncEnabled) sync()
     }
 
+    AppPageBackdrop(repo.store, wallpaperTick) {
     Crossfade(
         targetState = when {
             !checked.value -> "loading"
@@ -330,10 +331,11 @@ fun AppRoot(
                         sync()
                     }
                 },
-                wallpaperTick = wallpaperTick,
             )
             else -> Box(Modifier.fillMaxSize().background(LocalDs.current.bg))
         }
+    }
+
     }
 
     if (webImportReport != null) InfoDialog("网页登录导入完成", webImportReport!!, onDismiss = { webImportReport = null })
@@ -387,35 +389,11 @@ private fun MainScaffold(
     blocks: List<CourseBlock>,
     syncError: String?,
     onSwitchTerm: (String) -> Unit = {},
-    wallpaperTick: Int = 0,
     onImport: () -> Unit = {},
     onGlassEffect: () -> Unit = {},
 ) {
-    val ds = LocalDs.current
-    // 壁纸：路径非空即启用；页面底色转透明，让壁纸透出来（tick 变化时重读）
-    val wallpaperPath = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperPath }
-    val wallpaperOn = wallpaperPath.isNotBlank()
-    androidx.compose.runtime.CompositionLocalProvider(LocalWallpaperActive provides wallpaperOn) {
-        // 新底栏是液态玻璃：内容层要先录进 layer backdrop，玻璃才有东西可采样
-        val glassBackdrop = com.haooz.softglass.backdrop.backdrops.rememberLayerBackdrop()
-        // 课程卡/顶栏的玻璃都采样这一层（单层，避免双录制把 RenderThread 干崩）
-        androidx.compose.runtime.CompositionLocalProvider(
-            com.menglimi.gdust.v2.ui.nexio.LocalPageLayerBackdrop provides glassBackdrop,
-        ) {
-        Box(Modifier.fillMaxSize()) {
-            // 采样层只录壁纸（卡片/顶栏在页面里采样它；录页面会形成 GPU 自采样反馈回路 → RenderThread SIGSEGV）
-            if (wallpaperOn) {
-                Box(Modifier.fillMaxSize().layerBackdrop(glassBackdrop)) {
-                    WallpaperBackdrop(
-                        path = wallpaperPath,
-                        blurDp = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperBlur },
-                        dim = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperDim },
-                    )
-                }
-            } else {
-                Box(Modifier.fillMaxSize().background(ds.bg))
-            }
-            Box(Modifier.fillMaxSize()) {
+    val glassBackdrop = requireNotNull(com.menglimi.gdust.v2.ui.nexio.LocalPageLayerBackdrop.current)
+    Box(Modifier.fillMaxSize()) {
             Crossfade(
                 targetState = tab,
                 animationSpec = tween(220),
@@ -448,9 +426,8 @@ private fun MainScaffold(
                     else -> TodoScreen(repo)
                 }
             }
-            }
 
-        // 新 UI：Nexio 式浮动液态玻璃底栏（四个 tab + 设置）
+        // 四个 tab 与设置使用同一份背景采样和材质参数。
             com.menglimi.gdust.v2.ui.nexio.NexioBottomBar(
                 selectedTab = tab,
                 onTabSelected = onTab,
@@ -458,7 +435,5 @@ private fun MainScaffold(
                 backdrop = glassBackdrop,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
-        }
-        }
     }
 }

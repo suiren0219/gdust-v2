@@ -56,13 +56,17 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
+import com.menglimi.gdust.v2.ui.AppCard
+import com.menglimi.gdust.v2.ui.AppUiTokens
+import com.menglimi.gdust.v2.ui.LocalWallpaperActive
 import com.menglimi.gdust.v2.ui.pageBackground
+import com.menglimi.gdust.v2.ui.pageTextBacking
 import com.menglimi.gdust.v2.ui.schedule.ScheduleTimes
+import com.menglimi.gdust.v2.ui.secondaryTextColor
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
@@ -106,6 +110,8 @@ fun TodayScreen(
     val imported = hasImportedSchedule || blocks.isNotEmpty()
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val colors = MiuixTheme.colorScheme
+    val secondary = secondaryTextColor()
+    val onWallpaper = LocalWallpaperActive.current
     val weekText = when {
         currentWeek == null -> if (imported) "按课程日期展示" else "导入课表，安排今天"
         currentWeek <= 0 -> "学期尚未开始"
@@ -113,19 +119,21 @@ fun TodayScreen(
         else -> "第 $currentWeek 周"
     }
 
-    // Nexio's phone list uses 16dp horizontal padding and 12dp item spacing.
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(pageBackground()).statusBarsPadding(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 104.dp + bottomInset),
+        contentPadding = PaddingValues(start = AppUiTokens.PagePadding, end = AppUiTokens.PagePadding, top = 24.dp, bottom = 104.dp + bottomInset),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "today-header") {
-            Column(Modifier.fillMaxWidth().padding(start = 12.dp, bottom = 4.dp)) {
+            Column(
+                Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                    .pageTextBacking().padding(if (onWallpaper) 12.dp else 0.dp),
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "今天是${ScheduleTimes.dayNames[today.dayOfWeek.value - 1]}",
-                        fontSize = 30.sp,
-                        fontWeight = FontWeight.Normal,
+                        fontSize = AppUiTokens.TitleSize,
+                        fontWeight = AppUiTokens.TitleWeight,
                         color = colors.onSurface,
                         modifier = Modifier.weight(1f).semantics { heading() },
                     )
@@ -141,7 +149,7 @@ fun TodayScreen(
                 Text(
                     text = weekText,
                     fontSize = 14.sp,
-                    color = colors.onSurfaceVariantSummary,
+                    color = secondary,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
@@ -170,7 +178,7 @@ fun TodayScreen(
                     val ongoing = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.Ongoing }
                     val pending = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.NotStarted }
                     val unknown = todayCourses.size - completed - ongoing - pending
-                    Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp, insideMargin = PaddingValues(16.dp)) {
+                    AppCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp, insideMargin = PaddingValues(16.dp)) {
                         Text(
                             "今日 ${todayCourses.size} 门课",
                             fontSize = 18.sp,
@@ -185,7 +193,7 @@ fun TodayScreen(
                                 if (unknown > 0) add("时间待确认 $unknown")
                             }.joinToString("  /  "),
                             fontSize = 14.sp,
-                            color = colors.onSurfaceVariantSummary,
+                            color = secondary,
                             modifier = Modifier.padding(top = 6.dp),
                         )
                     }
@@ -212,7 +220,8 @@ fun TodayScreen(
                     }
                 }
                 item(key = "today-schedule-action") {
-                    TextButton(text = "查看完整课表", onClick = onOpenSchedule, modifier = Modifier.fillMaxWidth(), minHeight = 48.dp)
+                    TextButton(text = "查看完整课表", onClick = onOpenSchedule,
+                        modifier = Modifier.fillMaxWidth().pageTextBacking(cornerRadius = ButtonDefaults.CornerRadius), minHeight = 48.dp)
                 }
             }
         }
@@ -243,11 +252,12 @@ private fun TodayNoticeButton(unreadCount: Int, onClick: () -> Unit) {
 @Composable
 private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, missingDates: Boolean) {
     val colors = MiuixTheme.colorScheme
+    val secondary = secondaryTextColor()
     val current = courses.firstOrNull { it.statusAt(now) == TodayCourseStatus.Ongoing }
     val next = courses.firstOrNull { it.statusAt(now) == TodayCourseStatus.NotStarted }
     val active = current ?: next
     val unknown = courses.count { it.statusAt(now) == TodayCourseStatus.Unknown }
-    Card(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
         cornerRadius = 20.dp,
         insideMargin = PaddingValues(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 14.dp),
@@ -285,7 +295,7 @@ private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, miss
             Text(
                 text = active.block.metadata(),
                 fontSize = 13.sp,
-                color = colors.onSurfaceVariantSummary,
+                color = secondary,
                 modifier = Modifier.padding(top = 5.dp),
             )
         }
@@ -318,7 +328,7 @@ private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, miss
             },
             fontSize = 14.sp,
             lineHeight = 21.sp,
-            color = colors.onSurfaceVariantSummary,
+            color = secondary,
             modifier = Modifier.padding(top = 12.dp),
         )
     }
@@ -326,20 +336,25 @@ private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, miss
 
 @Composable
 private fun TodayPeriodTitle(title: String) {
+    val onWallpaper = LocalWallpaperActive.current
     Text(
         text = title,
         fontSize = 14.sp,
         fontWeight = FontWeight.Medium,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        modifier = Modifier.padding(start = 4.dp, top = 4.dp).semantics { heading() },
+        color = secondaryTextColor(),
+        modifier = Modifier.padding(top = 8.dp).pageTextBacking()
+            .padding(horizontal = if (onWallpaper) 12.dp else 0.dp, vertical = if (onWallpaper) 6.dp else 0.dp)
+            .semantics { heading() },
     )
 }
 
 @Composable
 private fun TodayTimelineCard(course: TodayCourse, now: LocalTime, onOpenSchedule: () -> Unit) {
     val colors = MiuixTheme.colorScheme
+    val secondary = secondaryTextColor()
+    val onWallpaper = LocalWallpaperActive.current
     val status = course.statusAt(now)
-    val axisWidth = 36.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
+    val axisWidth = 36.dp * LocalDensity.current.fontScale.coerceAtLeast(1f) + if (onWallpaper) 8.dp else 0.dp
     // Adapted TodayTimelineCard: axis + accent bar + name/time/metadata. Natural-height
     // rows retain large-font readability; Gdust does not import Nexio's proportional grid.
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -347,12 +362,13 @@ private fun TodayTimelineCard(course: TodayCourse, now: LocalTime, onOpenSchedul
             Text(
                 course.start?.toString() ?: "待定",
                 fontSize = 11.sp,
-                color = if (status == TodayCourseStatus.Ongoing) colors.primary else colors.onSurfaceVariantSummary,
-                modifier = Modifier.padding(top = 16.dp),
+                color = if (status == TodayCourseStatus.Ongoing) colors.primary else secondary,
+                modifier = Modifier.padding(top = 16.dp).pageTextBacking(cornerRadius = 8.dp)
+                    .padding(horizontal = if (onWallpaper) 4.dp else 0.dp, vertical = if (onWallpaper) 3.dp else 0.dp),
             )
             Box(Modifier.padding(top = 8.dp).width(1.dp).weight(1f).background(colors.onSurfaceVariantActions.copy(alpha = 0.15f)))
         }
-        Card(modifier = Modifier.weight(1f), cornerRadius = 16.dp) {
+        AppCard(modifier = Modifier.weight(1f), cornerRadius = 16.dp) {
             Row(
                 modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp).height(IntrinsicSize.Min)
                     .clickable(role = Role.Button, onClickLabel = "查看${course.block.name}所在课表", onClick = onOpenSchedule)
@@ -364,8 +380,8 @@ private fun TodayTimelineCard(course: TodayCourse, now: LocalTime, onOpenSchedul
                 )
                 Column(Modifier.weight(1f).padding(start = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(course.block.sectionLabel(), fontSize = 12.sp, color = colors.onSurfaceVariantSummary, modifier = Modifier.weight(1f))
-                        Text(status.label, fontSize = 12.sp, color = if (status == TodayCourseStatus.Ongoing) colors.primary else colors.onSurfaceVariantSummary)
+                        Text(course.block.sectionLabel(), fontSize = 12.sp, color = secondary, modifier = Modifier.weight(1f))
+                        Text(status.label, fontSize = 12.sp, color = if (status == TodayCourseStatus.Ongoing) colors.primary else secondary)
                     }
                     Text(
                         course.block.name,
@@ -376,8 +392,8 @@ private fun TodayTimelineCard(course: TodayCourse, now: LocalTime, onOpenSchedul
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(course.timeRange, fontSize = 12.5.sp, color = colors.onSurfaceVariantSummary)
-                    Text(course.block.metadata(), fontSize = 12.5.sp, lineHeight = 18.sp, color = colors.onSurfaceVariantSummary)
+                    Text(course.timeRange, fontSize = 12.5.sp, color = secondary)
+                    Text(course.block.metadata(), fontSize = 12.5.sp, lineHeight = 18.sp, color = secondary)
                 }
             }
         }
@@ -387,11 +403,12 @@ private fun TodayTimelineCard(course: TodayCourse, now: LocalTime, onOpenSchedul
 @Composable
 private fun TodayEmptyCard(title: String, message: String, action: String, onAction: () -> Unit) {
     val colors = MiuixTheme.colorScheme
-    Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp, insideMargin = PaddingValues(24.dp)) {
+    val secondary = secondaryTextColor()
+    AppCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp, insideMargin = PaddingValues(24.dp)) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(MiuixIcons.Months, contentDescription = null, tint = colors.primary, modifier = Modifier.padding(top = 12.dp).size(40.dp))
             Text(title, fontSize = 18.sp, fontWeight = FontWeight.Medium, color = colors.onSurface)
-            Text(message, fontSize = 14.sp, lineHeight = 21.sp, textAlign = TextAlign.Center, color = colors.onSurfaceVariantSummary)
+            Text(message, fontSize = 14.sp, lineHeight = 21.sp, textAlign = TextAlign.Center, color = secondary)
             TextButton(
                 text = action,
                 onClick = onAction,

@@ -96,28 +96,14 @@ fun WithTypography(ds: Ds, content: @Composable () -> Unit) {
     )
 }
 
-/** Nexio 的 Miuix Card 表面；保留旧调用签名，业务页共享同一套圆角与材质。 */
+/** 保留旧 BoxScope 调用签名，业务页与 AppCard 共用材质和圆角。 */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val ds = LocalDs.current
-    val liquid = LocalUiStyle.current.value == UiStyle.LIQUID
-    val surface = if (LocalWallpaperActive.current) {
-        ds.card.copy(alpha = if (liquid) 0.80f else 0.94f)
-    } else ds.card
-    top.yukonga.miuix.kmp.basic.Card(
-        modifier = modifier.fillMaxWidth(),
-        cornerRadius = 20.dp,
-        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(
-            color = surface,
-            contentColor = ds.text,
-        ),
-        onClick = onClick,
-        showIndication = onClick != null,
-    ) {
+    AppCard(modifier = modifier.fillMaxWidth(), onClick = onClick) {
         Box(Modifier.padding(16.dp), content = content)
     }
 }

@@ -43,14 +43,7 @@ fun NexioTheme(
         )
         SideEffect { com.kyant.backdrop.AppThemeSnapshot.isDark.value = dark }
         CompositionLocalProvider(LocalDs provides ds) {
-            com.haooz.softglass.SoftGlassTheme(
-                preset = com.haooz.softglass.GlassPreset.Default,
-                level = com.haooz.softglass.GlassMaterialLevel.SOFT,
-                isDark = dark,
-                hasWallpaper = false,
-            ) {
-                WithTypography(ds, content)
-            }
+            WithTypography(ds, content)
         }
     }
 }

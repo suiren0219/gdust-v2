@@ -29,7 +29,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.menglimi.gdust.v2.ui.AppCard
+import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.LocalWallpaperActive
+import com.menglimi.gdust.v2.ui.pageTextBacking
+import com.menglimi.gdust.v2.ui.secondaryTextColor
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -43,7 +48,8 @@ import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 @Composable
 fun PageTitle(title: String, subtitle: String? = null, onBack: (() -> Unit)? = null) {
     val ds = LocalDs.current
-    Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 24.dp).pageTextBacking()
+        .padding(if (LocalWallpaperActive.current) 12.dp else 0.dp)) {
         if (onBack != null) {
             Box(
                 Modifier.size(48.dp).clip(CircleShape)
@@ -52,17 +58,18 @@ fun PageTitle(title: String, subtitle: String? = null, onBack: (() -> Unit)? = n
             ) { Icon(MiuixIcons.Back, "返回", Modifier.size(26.dp), tint = ds.text) }
             Spacer(Modifier.height(8.dp))
         }
-        Text(title, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = ds.text)
+        Text(title, fontSize = AppUiTokens.TitleSize, fontWeight = AppUiTokens.TitleWeight, color = ds.text)
         if (!subtitle.isNullOrBlank()) {
-            Text(subtitle, fontSize = 14.sp, lineHeight = 20.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp))
+            Text(subtitle, fontSize = 14.sp, lineHeight = 20.sp, color = secondaryTextColor(), modifier = Modifier.padding(top = 8.dp))
         }
     }
 }
 
 @Composable
 fun SectionHeader(text: String, modifier: Modifier = Modifier) {
-    Text(text, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = LocalDs.current.sub,
-        modifier = modifier.padding(start = 12.dp, bottom = 10.dp, top = 16.dp))
+    Text(text, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = secondaryTextColor(),
+        modifier = modifier.padding(bottom = 10.dp, top = 16.dp).pageTextBacking(10.dp)
+            .padding(horizontal = 12.dp, vertical = if (LocalWallpaperActive.current) 6.dp else 0.dp))
 }
 
 @Composable
@@ -74,14 +81,14 @@ fun SettingRow(
     onClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
-    Card(Modifier.fillMaxWidth()) {
+    AppCard(Modifier.fillMaxWidth()) {
         PreferenceContent(title, subtitle, detail, danger, onClick, trailing)
     }
 }
 
 @Composable
 fun SettingGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Card(modifier.fillMaxWidth(), cornerRadius = 20.dp, content = content)
+    AppCard(modifier.fillMaxWidth(), content = content)
     Spacer(Modifier.height(12.dp))
 }
 
@@ -112,21 +119,22 @@ private fun PreferenceContent(
     trailing: (@Composable () -> Unit)?,
 ) {
     val ds = LocalDs.current
+    val secondary = secondaryTextColor()
     BasicComponent(
         onClick = onClick,
         insideMargin = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
         endActions = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (detail != null) Text(detail, color = ds.sub, fontSize = 13.sp,
+                if (detail != null) Text(detail, color = secondary, fontSize = 13.sp,
                     textAlign = TextAlign.End, modifier = Modifier.widthIn(max = 128.dp))
                 if (trailing != null) trailing()
-                else if (onClick != null) Icon(MiuixIcons.ChevronForward, null, Modifier.size(18.dp), tint = ds.sub)
+                else if (onClick != null) Icon(MiuixIcons.ChevronForward, null, Modifier.size(18.dp), tint = secondary)
             }
         },
     ) {
         Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = if (danger) ds.danger else ds.text)
         if (!subtitle.isNullOrBlank()) Text(subtitle, fontSize = 12.sp, lineHeight = 17.sp,
-            color = ds.sub, modifier = Modifier.padding(top = 4.dp))
+            color = secondary, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
