@@ -168,18 +168,12 @@ class GdustApi {
     }
 
     suspend fun notices(token: String, job: String): List<Notice> = io {
-        val o = jsonObj(request("$PORTAL/smart-admin-api/app/ding/get_announcement_items?jobNumber=$job", token))
-        val arr = o.getAsJsonArray("data") ?: return@io emptyList()
-        arr.map { e ->
-            val n = e.asJsonObject
-            Notice(
-                title = n.str("title").orEmpty(),
-                url = n.str("url").orEmpty(),
-                type = n.str("announcementType").orEmpty(),
-                issuer = n.str("issuer"),
-                time = n.numL("gmtCreate") ?: 0L,
-            )
-        }
+        parsePortalNotices(request("$PORTAL/smart-admin-api/app/ding/get_announcement_items?jobNumber=$job", token))
+    }
+
+    /** 教务处/官网新闻；门户通知继续使用 notices(token, job)。 */
+    suspend fun news(token: String, source: NoticeSource): List<Notice> = io {
+        PortalNews.parse(request(PortalNews.requestUrl(source), token), source)
     }
 
     // ── 水电 ──

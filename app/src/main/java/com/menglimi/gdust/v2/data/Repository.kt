@@ -16,6 +16,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
+import okhttp3.HttpUrl.Companion.toHttpUrl
 
 /**
  * 本机存储（v2）：凭据/会话/课表缓存/待办/设置全部只在本机。
@@ -567,6 +568,9 @@ class Repository(context: Context) {
     private val sessionGuard = SessionGuard()
     private val mutableSessionVersion = MutableStateFlow(0L)
     val sessionVersion = mutableSessionVersion.asStateFlow()
+    private val mutableChxSessionVersion = MutableStateFlow(0L)
+    val chxSessionVersion = mutableChxSessionVersion.asStateFlow()
+    @Volatile private var clearingChxSession = false
     private val authenticationMutex = Mutex()
     private val webCleanupMutex = Mutex()
     private val chxSessionMutex = Mutex()
@@ -587,6 +591,23 @@ class Repository(context: Context) {
 
     fun isCurrentSession(version: Long): Boolean = sessionGuard.current() == version
 
+    /** WebView 重新认证前使旧课程请求过期，不清除正在复用的网页 Cookie。 */
+    fun invalidateChxRequests() {
+        mutableChxSessionVersion.value++
+    }
+
+    internal fun saveWebSession(pageUrl: String, version: Long): Boolean = sessionGuard.withCurrent(version) {
+        if (store.webLogoutPending || !TeachingEndpoints.isLandingPage(pageUrl)) return@withCurrent false
+        store.saveWebImport(pageUrl.substringBefore('?').substringBefore('#'))
+        true
+    }
+
+    internal fun saveChxCandidate(cookie: String, version: Long) = sessionGuard.withCurrent(version) {
+        if (!store.webLogoutPending && !clearingChxSession && ChxSso.hasSessionCookie(cookie) && store.chxCookie != cookie) {
+            store.saveChxCookie(cookie)
+        }
+    }
+
     private fun teachingSessionJar(version: Long) = object : okhttp3.CookieJar {
         override fun loadForRequest(url: okhttp3.HttpUrl) = sessionGuard.withCurrent(version) {
             teachingCookies.loadForRequest(url)
@@ -602,6 +623,7 @@ class Repository(context: Context) {
             teachingCookies.clear()
             store.clearAccountSession()
             lastSsoTicket = null
+            invalidateChxRequests()
             mutableSessionVersion.value = version
         }
         return version
@@ -896,11 +918,78 @@ class Repository(context: Context) {
 
     suspend fun notices(): List<Notice> = notices(portalSession() ?: error("请先登录学校门户"))
 
-    internal suspend fun notices(session: PortalSession): List<Notice> {
+    internal suspend fun notices(session: PortalSession, source: NoticeSource = NoticeSource.PORTAL): List<Notice> {
         if (session != portalSession()) throw CancellationException("登录状态已变更")
-        val result = api.notices(session.token, session.account)
+        val result = if (source == NoticeSource.PORTAL) api.notices(session.token, session.account)
+            else api.news(session.token, source)
         if (session != portalSession()) throw CancellationException("登录状态已变更")
         return result
+    }
+
+    /** 成绩只读取已建立的教务会话；不重放历史票据，失败可继续尝试同站点的网页会话。 */
+    suspend fun grades(year: String, semester: String): GradeReport = withContext(Dispatchers.Main.immediate) {
+        val version = sessionGuard.current()
+        fun checkSession() = sessionGuard.withCurrent(version) {
+            if (store.webLogoutPending) throw CancellationException("网页会话正在清理")
+        }
+        checkSession()
+        val savedBase = TeachingEndpoints.baseForPage(store.loadWebImportPage())
+        val bases = (listOfNotNull(savedBase) + TeachingEndpoints.bases).distinct()
+        val jar = teachingSessionJar(version)
+        var failure: Exception? = null
+        for (base in bases) {
+            val probe = "$base/cjcx/cjcx_cxDgXscj.html".toHttpUrl()
+            val hasWeb = webCleanupMutex.withLock {
+                checkSession()
+                !android.webkit.CookieManager.getInstance().getCookie(probe.toString()).isNullOrBlank()
+            }
+            val hasDirect = jar.loadForRequest(probe).isNotEmpty()
+            // 用户最近从网页登录时优先复用它，避免旧原生 Cookie 遮蔽新网页会话。
+            for (web in if (base == savedBase) listOf(true, false) else listOf(false, true)) {
+                if ((web && !hasWeb) || (!web && !hasDirect)) continue
+                try {
+                    val http = SessionHttpClient(
+                        allowedUrl = { TeachingEndpoints.allowsGradeRequest(base, it) },
+                        checkSession = ::checkSession,
+                        cookieJar = if (web) null else jar,
+                        webCookieMutex = webCleanupMutex,
+                    )
+                    val report = TeachingGradeApi(http, base).load(year, semester)
+                    checkSession()
+                    return@withContext report
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: GradeLoadException) {
+                    // 已读到业务响应，分页/格式异常应明确报告，不换站点悄悄掩盖。
+                    throw e
+                } catch (e: Exception) {
+                    if (failure == null || e !is AuthFailed) failure = e
+                }
+            }
+        }
+        checkSession()
+        throw failure ?: AuthFailed(401, "请先完成教务网页登录")
+    }
+
+    /** 学习通课程与任务点只用应用内网页会话；快照变化后旧请求不得回填。 */
+    suspend fun chxCourses(): ChxCourseOverview = withContext(Dispatchers.Main.immediate) {
+        val version = sessionGuard.current()
+        val chxVersion = chxSessionVersion.value
+        fun checkSession() = sessionGuard.withCurrent(version) {
+            if (store.webLogoutPending || clearingChxSession || chxSessionVersion.value != chxVersion) {
+                throw CancellationException("学习通登录状态已变更")
+            }
+        }
+        webCleanupMutex.withLock {
+            checkSession()
+            val cookie = android.webkit.CookieManager.getInstance().getCookie(ChxSso.HOME)
+            if (!ChxSso.hasSessionCookie(cookie)) throw AuthFailed(401, "请先登录学习通")
+        }
+        val http = SessionHttpClient(ChxCourseApi::isAllowedUrl, ::checkSession,
+            webCookieMutex = webCleanupMutex)
+        val overview = ChxCourseApi(http).load()
+        checkSession()
+        overview
     }
 
     /** 学习通会话探活；迟到的旧结果不能清除新保存的会话。 */
@@ -920,8 +1009,15 @@ class Repository(context: Context) {
 
     /** 只清理学习通和 CAS 的已知网页存储范围，返回本机清理结果。 */
     suspend fun clearChxSession(): Boolean = withContext(NonCancellable + Dispatchers.Main.immediate) {
+        clearingChxSession = true
+        invalidateChxRequests()
         store.clearChxCookie()
-        ChxWebSession.clear()
+        try {
+            webCleanupMutex.withLock { ChxWebSession.clear() }
+        } finally {
+            clearingChxSession = false
+            invalidateChxRequests()
+        }
     }
 
     suspend fun summarize(): String {

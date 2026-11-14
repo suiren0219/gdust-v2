@@ -46,7 +46,7 @@ import java.util.Locale
 
 /** 学校认证与两个站点各自的会话独立；保存 Cookie 不等于当前已验证登录。 */
 @Composable
-fun ChxEntryScreen(repo: Repository, onBack: () -> Unit) {
+fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit = {}) {
     val ds = LocalDs.current
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -145,6 +145,8 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit) {
             Box(Modifier.weight(1f)) { ChxActionButton("教务网页", !busy) { open(ChxSso.teachingWebUrl) } }
             Box(Modifier.weight(1f)) { ChxActionButton("学习通首页", !busy) { open(ChxSso.HOME) } }
         }
+        Spacer(Modifier.height(8.dp))
+        ChxActionButton("查看课程与任务进度", !busy, onCourses)
         Spacer(Modifier.height(8.dp))
         ChxActionButton(if (checking) "检查中…" else "检查会话", saved && !busy) {
             checking = true

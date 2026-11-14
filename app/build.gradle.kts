@@ -94,6 +94,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
     implementation("com.google.code.gson:gson:2.11.0")
+    implementation("org.jsoup:jsoup:1.17.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     // 只取二维码矩阵生成（Canvas 自绘，不引完整扫码 SDK）
     implementation("com.google.zxing:core:3.5.3")

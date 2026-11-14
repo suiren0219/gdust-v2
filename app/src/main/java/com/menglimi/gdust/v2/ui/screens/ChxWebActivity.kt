@@ -204,8 +204,9 @@ class ChxWebActivity : ComponentActivity() {
         val cookie = ChxSso.cookieProbes.firstNotNullOfOrNull { url ->
             CookieManager.getInstance().getCookie(url)?.takeIf(ChxSso::hasSessionCookie)
         } ?: return false
-        if (repo.store.chxCookie != cookie) repo.store.saveChxCookie(cookie)
-        return true
+        val before = repo.store.hasChxSession
+        repo.saveChxCandidate(cookie, repo.sessionVersion.value)
+        return before || repo.store.hasChxSession
     }
 
     private fun showLoadError(message: String) {
@@ -282,7 +283,7 @@ class ChxWebActivity : ComponentActivity() {
                 }
                 // 教务网页登录落地即保存入口：学习通联动完成后，「网页登录导入」可直接读取学期课表
                 val teachingSaved = ChxSso.isTeachingWebEntry(url) &&
-                    runCatching { repo.store.saveWebImport(url) }.isSuccess
+                    runCatching { repo.saveWebSession(url, repo.sessionVersion.value) }.getOrDefault(false)
                 pageMessage = buildString {
                     if (teachingSaved) append("教务网页入口已保存，可在「网页登录导入」直接读取学期课表。")
                     append(

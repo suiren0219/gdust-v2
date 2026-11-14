@@ -55,6 +55,10 @@ import com.menglimi.gdust.v2.ui.screens.NoticeScreen
 import com.menglimi.gdust.v2.ui.screens.ReminderScreen
 import com.menglimi.gdust.v2.ui.screens.ChxNotificationScreen
 import com.menglimi.gdust.v2.ui.screens.ChxEntryScreen
+import com.menglimi.gdust.v2.ui.screens.ChxCoursesScreen
+import com.menglimi.gdust.v2.ui.screens.ChxWebActivity
+import com.menglimi.gdust.v2.ui.screens.GradesScreen
+import com.menglimi.gdust.v2.data.ChxSso
 import com.menglimi.gdust.v2.data.Notice
 import com.menglimi.gdust.v2.data.NoticeFeed
 import com.menglimi.gdust.v2.data.readId
@@ -92,6 +96,9 @@ fun AppRoot(
     var showTodoReminder by remember { mutableStateOf(false) }
     var showChxNotifications by remember { mutableStateOf(false) }
     var showChxEntry by remember { mutableStateOf(false) }
+    var showGrades by remember { mutableStateOf(false) }
+    var showChxCourses by remember { mutableStateOf(false) }
+    var webReturnVersion by remember { mutableIntStateOf(0) }
     var showGlassEffect by remember { mutableStateOf(false) }
     val sessionVersion by repo.sessionVersion.collectAsState()
     val noticeFeed = remember(repo) { NoticeFeed(repo::portalSession, repo::notices) }
@@ -123,6 +130,14 @@ fun AppRoot(
     }
     // 备份导出：SAF 建文档，写入后提示
     val context = androidx.compose.ui.platform.LocalContext.current
+    val serviceWeb = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+    ) { webReturnVersion++ }
+    fun openServiceWeb(url: String) {
+        repo.invalidateChxRequests()
+        serviceWeb.launch(android.content.Intent(context, ChxWebActivity::class.java)
+            .putExtra(ChxWebActivity.EXTRA_URL, url))
+    }
     val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
@@ -207,6 +222,8 @@ fun AppRoot(
         showNotices = false
         showWebImport = false
         showChxEntry = false
+        showGrades = false
+        showChxCourses = false
         showProfile = false
         showSettings.value = false
         loggedIn.value = false
@@ -258,6 +275,8 @@ fun AppRoot(
         targetState = when {
             !checked.value -> "loading"
             showWebImport -> "web_import"
+            showGrades -> "grades"
+            showChxCourses -> "chx_courses"
             showNotices -> "notices"
             showReminder -> "reminder"
             showTodoReminder -> "todo_reminder"
@@ -302,9 +321,18 @@ fun AppRoot(
                 androidx.activity.compose.BackHandler { showChxNotifications = false }
                 ChxNotificationScreen(repo = repo, onBack = { showChxNotifications = false })
             }
+            "grades" -> androidx.compose.runtime.key(webReturnVersion) {
+                GradesScreen(repo = repo, onBack = { showGrades = false },
+                    onWebLogin = { openServiceWeb(ChxSso.teachingWebUrl) })
+            }
+            "chx_courses" -> androidx.compose.runtime.key(webReturnVersion) {
+                ChxCoursesScreen(repo = repo, onBack = { showChxCourses = false },
+                    onLogin = { openServiceWeb(ChxSso.fyssoUrl) }, onOpenCourse = ::openServiceWeb)
+            }
             "chx_entry" -> {
                 androidx.activity.compose.BackHandler { showChxEntry = false }
-                ChxEntryScreen(repo = repo, onBack = { showChxEntry = false })
+                ChxEntryScreen(repo = repo, onBack = { showChxEntry = false },
+                    onCourses = { showChxCourses = true })
             }
             "glass_effect" -> {
                 androidx.activity.compose.BackHandler { showGlassEffect = false }
@@ -322,6 +350,8 @@ fun AppRoot(
                     onMarkRead = { items -> repo.store.markNoticesRead(noticeAccount, items) },
                     onBack = { showNotices = false },
                     onRefresh = { loadNotices() },
+                    source = noticeState.source,
+                    onSourceChange = { noticeFeed.refresh(scope, it) },
                 )
             }
             "profile" -> {
@@ -352,6 +382,10 @@ fun AppRoot(
                 onTodoReminder = { showTodoReminder = true },
                 onChxNotifications = { showChxNotifications = true },
                 onChxEntry = { showChxEntry = true },
+                onGrades = { showGrades = true },
+                onChxCourses = { showChxCourses = true },
+                onSchoolNotices = { showNotices = true; loadNotices() },
+                onFiveEducation = { openServiceWeb("http://172.16.1.232/index") },
                 onWallpaperChanged = { wallpaperTick++ },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },
