@@ -1,32 +1,29 @@
-// Schedule-only adaptation of NexioSchedule revision 28a99a3:
-// ui-shared/src/commonMain/kotlin/com/haooz/chedule/ui/activities/classschedule/ScheduleTopBar.kt
-// ui-shared/src/commonMain/kotlin/com/haooz/chedule/ui/activities/main/CourseScheduleChrome.kt
-// ui-shared/src/commonMain/kotlin/com/haooz/chedule/ui/activities/classschedule/MainScheduleScreen.kt
-// Uses the vendored Miuix window components; week selection and GDUST detail/preferences are local adaptations.
+// CZeroX schedule controls using Miuix windows and solid AppCard surfaces.
+// Week selection, course aggregation and GDUST display preferences stay local to the schedule.
 package com.menglimi.gdust.v2.ui.schedule
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -39,41 +36,29 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TileMode
-import com.haooz.softglass.backdrop.drawBackdrop
-import com.haooz.softglass.backdrop.effects.blur
-import com.kyant.backdrop.edgelight.edgeLight
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.menglimi.gdust.v2.ui.AppCard
+import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.appSurface
-import com.menglimi.gdust.v2.ui.pageTextBacking
-import com.menglimi.gdust.v2.ui.secondaryTextColor
-import com.menglimi.gdust.v2.ui.LocalWallpaperActive
-import com.menglimi.gdust.v2.ui.nexio.LocalPageLayerBackdrop
-import com.kyant.backdrop.edgelight.rememberCardEdgeLight
 import java.time.LocalDate
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Theme
 import top.yukonga.miuix.kmp.icon.basic.ArrowUpDown
 import top.yukonga.miuix.kmp.icon.basic.Check
 import top.yukonga.miuix.kmp.icon.basic.FastForward
@@ -81,8 +66,6 @@ import top.yukonga.miuix.kmp.icon.extended.Background
 import top.yukonga.miuix.kmp.icon.extended.Backup
 import top.yukonga.miuix.kmp.icon.extended.ConvertFile
 import top.yukonga.miuix.kmp.icon.extended.More
-import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.window.WindowBottomSheet
 import top.yukonga.miuix.kmp.window.WindowDialog
 
@@ -97,50 +80,29 @@ internal fun ScheduleHeader(
     onSwitchTerm: () -> Unit,
     onDisplaySettings: () -> Unit,
     onImport: () -> Unit,
-    onGlassEffect: () -> Unit,
 ) {
     val ds = LocalDs.current
-    val secondary = secondaryTextColor()
     var showMenu by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 6.dp)) {
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 66.dp).padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            HeaderGlassButton(onClick = onSwitchTerm) {
-                Icon(MiuixIcons.Normal.ConvertFile, contentDescription = "切换学期", modifier = Modifier.size(25.dp), tint = ds.text)
-            }
-            Column(
-                Modifier.weight(1f).padding(horizontal = 8.dp).pageTextBacking(14.dp).clip(RoundedCornerShape(14.dp))
-                    .clickable(role = Role.Button, onClickLabel = "选择周次", onClick = onChooseWeek)
-                    .padding(vertical = 8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("第 $week 周", fontSize = 26.sp, lineHeight = 31.sp, fontWeight = FontWeight.Bold, color = ds.text, maxLines = 1)
-                    Icon(MiuixIcons.Basic.ArrowUpDown, contentDescription = "选择周次", modifier = Modifier.size(14.dp), tint = secondary)
-                }
-                val weekEnd = weekStart?.plusDays(6)
-                Text(
-                    if (weekStart != null && weekEnd != null) {
-                        "${weekStart.monthValue}月${weekStart.dayOfMonth}日 – ${weekEnd.monthValue}月${weekEnd.dayOfMonth}日"
-                    } else "点击选择周次",
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
-                    color = secondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+    Column(Modifier.fillMaxWidth().padding(horizontal = AppUiTokens.PagePadding).padding(top = 12.dp, bottom = 12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "课表",
+                fontSize = AppUiTokens.TitleSize,
+                fontWeight = AppUiTokens.TitleWeight,
+                color = ds.text,
+                modifier = Modifier.weight(1f),
+            )
+            HeaderActionButton(onClick = onChooseWeek) {
+                Icon(MiuixIcons.Basic.ArrowUpDown, contentDescription = "选择周次", modifier = Modifier.size(24.dp), tint = ds.text)
             }
             Box {
-                HeaderGlassButton(onClick = { showMenu = true }) {
-                    Icon(MiuixIcons.More, contentDescription = "课表菜单", modifier = Modifier.size(24.dp), tint = ds.text)
+                HeaderActionButton(onClick = { showMenu = true }) {
+                    Icon(MiuixIcons.More, contentDescription = "课表菜单", modifier = Modifier.size(26.dp), tint = ds.text)
                 }
                 if (showMenu) {
-                    ScheduleGlassMenu(
+                    ScheduleMenu(
                         onChooseWeek = { showMenu = false; onChooseWeek() },
                         onDisplaySettings = { showMenu = false; onDisplaySettings() },
-                        onGlassEffect = { showMenu = false; onGlassEffect() },
                         onSwitchTerm = { showMenu = false; onSwitchTerm() },
                         onImport = { showMenu = false; onImport() },
                         onDismiss = { showMenu = false },
@@ -148,75 +110,90 @@ internal fun ScheduleHeader(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                Modifier.weight(1f).scheduleClickable(ds.bg, onChooseWeek).padding(vertical = 6.dp),
+            ) {
+                Text("第 $week 周", fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+                val weekEnd = weekStart?.plusDays(6)
+                Text(
+                    if (weekStart != null && weekEnd != null) {
+                        "${weekStart.monthValue}月${weekStart.dayOfMonth}日 – ${weekEnd.monthValue}月${weekEnd.dayOfMonth}日"
+                    } else "选择周次查看课程",
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    color = ds.sub,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
             if (currentWeek in 1..totalWeeks && week != currentWeek) {
                 TextButton(
                     text = "回本周",
-                    modifier = Modifier.pageTextBacking(18.dp),
                     onClick = onCurrentWeek,
-                    minHeight = 36.dp,
-                    insideMargin = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                    colors = ButtonDefaults.textButtonColors(color = ds.accent, textColor = ds.accent, alpha = 0.1f),
-                    textStyle = TextStyle(fontSize = 12.sp),
+                    minHeight = 44.dp,
+                    insideMargin = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                    colors = ButtonDefaults.textButtonColors(color = ds.accent, textColor = ds.text, alpha = 0.12f),
+                    textStyle = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium),
                 )
             } else {
-                Box(Modifier.height(36.dp).pageTextBacking(18.dp).padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                    Text(
-                        when {
-                            currentWeek < 1 -> "学期尚未开始"
-                            currentWeek > totalWeeks -> "学期已结束"
-                            else -> "本周"
-                        },
-                        fontSize = 12.sp,
-                        color = if (week == currentWeek) ds.accent else secondary,
-                    )
-                }
+                Text(
+                    when {
+                        currentWeek < 1 -> "学期尚未开始"
+                        currentWeek > totalWeeks -> "学期已结束"
+                        else -> "本周"
+                    },
+                    fontSize = 13.sp,
+                    color = ds.sub,
+                    modifier = Modifier.padding(start = 12.dp),
+                )
             }
         }
     }
 }
 
-/** 顶栏与页面卡片共用材质；24dp 半径对应 48dp 圆钮。 */
 @Composable
-private fun HeaderGlassButton(onClick: () -> Unit, content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
+private fun HeaderActionButton(onClick: () -> Unit, content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
+    val ds = LocalDs.current
     Box(
-        Modifier.size(48.dp).appSurface(24.dp)
-            .clickable(role = Role.Button, onClick = onClick),
+        Modifier.size(48.dp).scheduleClickable(ds.bg, onClick),
         contentAlignment = Alignment.Center,
         content = content,
     )
 }
 
-/** 右上角菜单：原地玻璃下拉（替代 WindowListPopup，修复弹层锚点错位）。 */
+/** 按下仅增加轻微 tint，页头不增加常驻底衬。 */
 @Composable
-private fun ScheduleGlassMenu(
+private fun Modifier.scheduleClickable(background: Color, onClick: () -> Unit): Modifier {
+    val ds = LocalDs.current
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    return clip(RoundedCornerShape(14.dp))
+        .background(if (pressed) ds.accent.copy(alpha = 0.07f).compositeOver(background) else background)
+        .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
+}
+
+/** 菜单固定锚定右上角，使用统一的不透明卡片。 */
+@Composable
+private fun ScheduleMenu(
     onChooseWeek: () -> Unit,
     onDisplaySettings: () -> Unit,
-    onGlassEffect: () -> Unit,
     onSwitchTerm: () -> Unit,
     onImport: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val ds = LocalDs.current
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val shape = RoundedCornerShape(18.dp)
     androidx.compose.ui.window.Popup(
         alignment = Alignment.TopEnd,
         offset = androidx.compose.ui.unit.IntOffset(0, with(density) { 54.dp.roundToPx() }),
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.PopupProperties(focusable = true),
     ) {
-        Column(
-            Modifier
-                .width(196.dp)
-                // Popup 属于另一个窗口，不采样页面坐标，保留清晰的实底菜单。
-                .background(ds.card, shape)
-                .clip(shape)
-                .padding(vertical = 6.dp),
+        AppCard(
+            modifier = Modifier.width(220.dp),
+            insideMargin = PaddingValues(vertical = 8.dp),
         ) {
             ScheduleMenuItem("选择周次", MiuixIcons.Basic.FastForward, onChooseWeek)
-            ScheduleMenuItem("课表外观", MiuixIcons.Background, onDisplaySettings)
-            ScheduleMenuItem("课表效果", MiuixIcons.Theme, onGlassEffect)
+            ScheduleMenuItem("显示设置", MiuixIcons.Background, onDisplaySettings)
             ScheduleMenuItem("切换学期", MiuixIcons.Normal.ConvertFile, onSwitchTerm)
             ScheduleMenuItem("导入课表", MiuixIcons.Backup, onImport)
         }
@@ -227,8 +204,8 @@ private fun ScheduleGlassMenu(
 private fun ScheduleMenuItem(label: String, icon: ImageVector, onClick: () -> Unit) {
     val ds = LocalDs.current
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 50.dp).clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().heightIn(min = 50.dp).scheduleClickable(ds.card, onClick)
+            .padding(horizontal = AppUiTokens.CardPadding, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -272,19 +249,18 @@ internal fun WeekPickerDialog(
                 items((1..totalWeeks).toList(), key = { it }) { week ->
                     val picked = week == selectedWeek
                     val count = weekCounts[week] ?: 0
-                    Card(
-                        modifier = Modifier.height(66.dp).semantics { selected = picked },
+                    AppCard(
+                        modifier = Modifier.heightIn(min = 72.dp).semantics { selected = picked },
                         cornerRadius = 14.dp,
-                        colors = CardDefaults.defaultColors(
-                            color = if (picked) ds.accent else ds.text.copy(alpha = 0.045f),
-                            contentColor = if (picked) MiuixTheme.colorScheme.onPrimary else ds.text,
-                        ),
-                        pressFeedbackType = PressFeedbackType.Sink,
-                        showIndication = true,
+                        color = if (picked) ds.accent.copy(alpha = 0.18f).compositeOver(ds.card) else ds.bg,
                         onClick = { onPick(week) },
                     ) {
-                        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("第 $week 周", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Column(
+                            Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text("第 $week 周", fontSize = 13.sp, fontWeight = if (picked) FontWeight.Bold else FontWeight.Medium, color = ds.text)
                             Text(
                                 when {
                                     week == currentWeek -> "本周"
@@ -292,9 +268,8 @@ internal fun WeekPickerDialog(
                                     fullTermImported -> "无课"
                                     else -> "未获取"
                                 },
-                                fontSize = 10.sp,
-                                color = if (picked) MiuixTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
-                                    else if (week == currentWeek) ds.accent else ds.sub,
+                                fontSize = 12.sp,
+                                color = ds.sub,
                             )
                         }
                     }
@@ -326,7 +301,8 @@ internal fun ScheduleLessonSheet(
     WindowBottomSheet(
         show = show,
         title = "课程详情",
-        backgroundColor = ds.card,
+        backgroundColor = ds.bg,
+        cornerRadius = AppUiTokens.CardCorner,
         onDismissRequest = onDismiss,
         onDismissFinished = onDismissFinished,
     ) {
@@ -334,22 +310,19 @@ internal fun ScheduleLessonSheet(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("第 $week 周 · 此时段及其他周次的实际排课", color = ds.sub, fontSize = 12.sp)
+            Text("第 $week 周 · 此时段及其他周次的实际排课", color = ds.sub, fontSize = 13.sp)
             lessons.forEach { lesson ->
-                val tint = CourseColors.tint(lesson.name)
-                Card(
+                val surface = CourseColors.tint(lesson.name)
+                    .copy(alpha = if (ds.isDark) 0.24f else 0.16f).compositeOver(ds.card)
+                AppCard(
                     modifier = Modifier.fillMaxWidth(),
-                    cornerRadius = 16.dp,
-                    insideMargin = PaddingValues(16.dp),
-                    colors = CardDefaults.defaultColors(color = tint.copy(alpha = 0.1f), contentColor = ds.text),
+                    insideMargin = PaddingValues(AppUiTokens.CardPadding),
+                    color = surface,
                 ) {
+                    Text(lesson.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
                     Text(
-                        lesson.name, fontSize = 17.sp, fontWeight = FontWeight.Bold,
-                        color = CourseColors.readableText(tint, tint.copy(alpha = 0.1f).compositeOver(ds.card)),
-                    )
-                    Text(
-                        formatScheduleWeeks(lesson.weeks, allWeeks), fontSize = 12.sp, lineHeight = 17.sp,
-                        color = if (week in lesson.weeks) ds.accent else ds.sub,
+                        formatScheduleWeeks(lesson.weeks, allWeeks), fontSize = 13.sp, lineHeight = 19.sp,
+                        color = ds.sub,
                         modifier = Modifier.padding(top = 6.dp),
                     )
                     val start = ScheduleTimes.start(lesson.startSection)
@@ -379,7 +352,6 @@ internal fun ScheduleDisplayDialog(
     rowHeight: Int,
     corner: Int,
     alignCenter: Boolean,
-    textMono: Boolean,
     smartWeekend: Boolean,
     onScale: (Float) -> Unit,
     onTeacher: (Boolean) -> Unit,
@@ -387,12 +359,17 @@ internal fun ScheduleDisplayDialog(
     onRowHeight: (Int) -> Unit,
     onCorner: (Int) -> Unit,
     onAlignCenter: (Boolean) -> Unit,
-    onTextMono: (Boolean) -> Unit,
     onSmartWeekend: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val ds = LocalDs.current
-    WindowBottomSheet(show = show, title = "课表外观", backgroundColor = ds.card, onDismissRequest = onDismiss) {
+    WindowBottomSheet(
+        show = show,
+        title = "显示设置",
+        backgroundColor = ds.card,
+        cornerRadius = AppUiTokens.CardCorner,
+        onDismissRequest = onDismiss,
+    ) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -410,7 +387,6 @@ internal fun ScheduleDisplayDialog(
                 listOf(6, 10, 14).minBy { kotlin.math.abs(it - corner) }, onCorner,
             )
             ScheduleChoice("内容对齐", listOf(false to "左对齐", true to "居中"), alignCenter, onAlignCenter)
-            ScheduleChoice("文字颜色", listOf(false to "彩色", true to "单色"), textMono, onTextMono)
             ScheduleToggle("显示地点", showClassroom, onClassroom)
             ScheduleToggle("显示教师", showTeacher, onTeacher)
             ScheduleToggle("智能隐藏无课周末", smartWeekend, onSmartWeekend)
@@ -424,7 +400,30 @@ private fun <T> ScheduleChoice(label: String, options: List<Pair<T, String>>, se
     val ds = LocalDs.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, fontSize = 13.sp, color = ds.sub)
-        com.menglimi.gdust.v2.ui.screens.SegmentedChoice(options, selected, onSelect)
+        Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            options.forEach { (value, text) ->
+                val picked = value == selected
+                AppCard(
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics {
+                        this.selected = picked
+                        role = Role.RadioButton
+                    },
+                    cornerRadius = 14.dp,
+                    color = if (picked) ds.accent.copy(alpha = 0.18f).compositeOver(ds.card) else ds.bg,
+                    insideMargin = PaddingValues(horizontal = 4.dp, vertical = 12.dp),
+                    onClick = { onSelect(value) },
+                ) {
+                    Text(
+                        text,
+                        color = ds.text,
+                        fontSize = 13.sp,
+                        fontWeight = if (picked) FontWeight.SemiBold else FontWeight.Normal,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -453,12 +452,10 @@ internal fun ScheduleTermDialog(show: Boolean, year: String, current: String, on
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             listOf("3" to "第一学期", "12" to "第二学期").forEach { (code, label) ->
                 val picked = code == current
-                Card(
+                AppCard(
                     modifier = Modifier.fillMaxWidth().semantics { selected = picked },
-                    cornerRadius = 14.dp,
-                    insideMargin = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-                    colors = CardDefaults.defaultColors(color = if (picked) ds.accentSoft else ds.text.copy(alpha = 0.04f)),
-                    showIndication = true,
+                    insideMargin = PaddingValues(AppUiTokens.CardPadding),
+                    color = if (picked) ds.accent.copy(alpha = 0.18f).compositeOver(ds.card) else ds.bg,
                     onClick = { if (picked) onDismiss() else onPick(code) },
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

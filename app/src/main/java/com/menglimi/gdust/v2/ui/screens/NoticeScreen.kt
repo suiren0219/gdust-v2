@@ -124,8 +124,8 @@ fun NoticeScreen(
                     NoticeSource.ACADEMIC -> "教务处公告 · 此来源待在线验证"
                     NoticeSource.CAMPUS -> "学校官网新闻"
                 },
-                fontSize = 12.sp,
-                lineHeight = 18.sp,
+                fontSize = 13.sp,
+                lineHeight = 20.sp,
                 color = ds.sub,
                 modifier = Modifier.padding(vertical = 10.dp),
             )
@@ -153,16 +153,16 @@ fun NoticeScreen(
                             updatedAt > 0L -> "暂无$label"
                             else -> "$label 尚未加载"
                         },
-                        fontSize = 12.sp,
-                        lineHeight = 18.sp,
+                        fontSize = 13.sp,
+                        lineHeight = 20.sp,
                         color = if (error != null && !loading) ds.danger else ds.sub,
                     )
                     if (updatedLabel != null) {
                         Text(
                             if (loading || error != null) "保留上次结果 · $updatedLabel 更新"
                             else "上次更新 $updatedLabel",
-                            fontSize = 11.sp,
-                            lineHeight = 16.sp,
+                            fontSize = 13.sp,
+                            lineHeight = 20.sp,
                             color = ds.sub,
                         )
                     }
@@ -184,17 +184,17 @@ fun NoticeScreen(
 
             GlassCard {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("AI 总结", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ds.text)
+                    Text("AI 总结", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
                     Text(
                         if (store.hasLlm) "将当前来源的 ${notices.size} 条公告标题交给你配置的模型"
                         else "先到「设置 → 通知 AI 总结」填好模型配置",
-                        fontSize = 12.sp,
-                        lineHeight = 18.sp,
+                        fontSize = 13.sp,
+                        lineHeight = 20.sp,
                         color = ds.sub,
                     )
-                    summary?.let { Text(it, fontSize = 13.sp, lineHeight = 18.sp, color = ds.text) }
+                    summary?.let { Text(it, fontSize = 15.sp, lineHeight = 23.sp, color = ds.text) }
                     if (summaryError.isNotEmpty()) {
-                        Text(summaryError, fontSize = 12.sp, lineHeight = 18.sp, color = ds.danger)
+                        Text(summaryError, fontSize = 13.sp, lineHeight = 20.sp, color = ds.danger)
                     }
                     Button(
                         text = if (summarizing) "总结中…" else if (summary == null) "AI 总结当前公告" else "重新总结",
@@ -262,8 +262,8 @@ fun NoticeScreen(
                 else -> {
                     Text(
                         "打开浏览器后标为已读，仅作本机标记，不代表原文已加载或阅读。",
-                        fontSize = 11.sp,
-                        lineHeight = 16.sp,
+                        fontSize = 13.sp,
+                        lineHeight = 20.sp,
                         color = ds.sub,
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
@@ -286,7 +286,7 @@ fun NoticeScreen(
                     visibleNotices.forEach { notice ->
                         val unread = notice.readId !in readIds
                         GlassCard(
-                            modifier = Modifier.padding(bottom = 10.dp),
+                            modifier = Modifier.padding(bottom = 12.dp),
                             onClick = {
                                 val url = noticeWebUrl(notice.url)
                                 val failure = if (url == null) {
@@ -320,8 +320,9 @@ fun NoticeScreen(
                                     }
                                     Text(
                                         notice.title,
-                                        fontSize = 14.sp,
-                                        fontWeight = if (unread) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 17.sp,
+                                        lineHeight = 24.sp,
+                                        fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Medium,
                                         color = ds.text,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
@@ -333,16 +334,16 @@ fun NoticeScreen(
                                     val dateLabel = if (notice.time > 0L) timeFmt.format(Date(notice.time)) else "发布时间未知"
                                     Text(
                                         listOfNotNull(notice.issuer?.takeIf { it.isNotBlank() }, dateLabel).joinToString(" · "),
-                                        fontSize = 11.sp,
-                                        lineHeight = 16.sp,
+                                        fontSize = 13.sp,
+                                        lineHeight = 20.sp,
                                         color = ds.sub,
                                         modifier = Modifier.fillMaxWidth(),
                                     )
                                     if (notice.type.isNotBlank()) {
-                                        Text(notice.type, fontSize = 11.sp, lineHeight = 16.sp, color = ds.accent)
+                                        Text(notice.type, fontSize = 13.sp, lineHeight = 20.sp, color = ds.accent)
                                     }
                                     openErrors[notice]?.let {
-                                        Text(it, fontSize = 12.sp, lineHeight = 18.sp, color = ds.danger)
+                                        Text(it, fontSize = 13.sp, lineHeight = 20.sp, color = ds.danger)
                                     }
                                 }
                             }

@@ -5,96 +5,72 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.DashPathEffect
-import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.RectF
-import android.graphics.Shader
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.menglimi.gdust.v2.data.Store
 
 /**
- * 小部件画风 tokens：对齐 App 内 Nexio 卡片观感（大圆角、近实色卡底、细描边、单一强调色）。
- * 壁纸透过太多会显灰且文字对比不足，卡底改为 88–95% 不透明度的"实感玻璃"，
- * 只靠顶部高光与细描边暗示玻璃材质。注意：短名 [Color] 是 Compose 的，
- * Android graphics 色彩 API 走全限定名。
+ * 小部件画风 tokens：CZeroX 实底卡语言（纯色卡面、无描边、无阴影）。
+ * 卡片通过页面底与卡面的明度差分层；[glassCard] 保留旧函数名以兼容调用，
+ * 实现使用纯色 bitmap，不再包含玻璃渐变、顶部扫光或描边。
  */
 object WidgetStyle {
 
-    /** 主卡圆角，与 App 内课表卡一致。 */
-    val radius: Dp = 22.dp
+    /** 主卡圆角，与 CZeroX 卡片统一为 24dp。 */
+    val radius: Dp = 24.dp
 
-    // ── 色板：跟随系统深浅色；强调色用 HyperOS 蓝，危险色对齐 App 的 ds.danger ──
-    const val ACCENT_LIGHT = 0xFF3482FE.toInt()
+    // ── CZeroX 色板：强调色沿用 widget 既有浅/深色蓝，危险色按规范统一 ──
+    const val BACKGROUND_LIGHT = 0xFFF7F7F7.toInt()
+    const val CARD_LIGHT = 0xFFFFFFFF.toInt()
+    const val TEXT_LIGHT = 0xFF000000.toInt()
+    const val SUB_LIGHT = 0xFF666666.toInt()
+    const val BACKGROUND_DARK = 0xFF0E0E10.toInt()
+    const val CARD_DARK = 0xFF1C1C1E.toInt()
+    const val TEXT_DARK = 0xFFF2F2F7.toInt()
+    const val ACCENT_LIGHT = 0xFF3482FF.toInt()
     const val ACCENT_DARK = 0xFF7AB0FF.toInt()
-    const val DANGER = 0xFFE5484D.toInt()
+    const val DANGER = 0xFFEE4444.toInt()
+    const val DANGER_DARK = 0xFFFF6B6B.toInt()
 
     fun isDark(context: Context): Boolean =
         (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
 
     fun accent(dark: Boolean): Int = if (dark) ACCENT_DARK else ACCENT_LIGHT
+    fun danger(dark: Boolean): Int = if (dark) DANGER_DARK else DANGER
 
-    fun text(dark: Boolean): Color = if (dark) Color(0xFFF2F2F7) else Color(0xFF1C1C1E)
+    fun text(dark: Boolean): Color = if (dark) Color(TEXT_DARK) else Color(TEXT_LIGHT)
     fun sub(dark: Boolean): Color =
-        if (dark) Color(0xFFB7BAC1) else Color(0xFF63666E)
+        if (dark) Color.White.copy(alpha = 0.62f) else Color(SUB_LIGHT)
 
-    /** 强调色柔光底（节次胶囊 / 类型徽章 / 切换钮激活态）。 */
+    /** 强调色柔和底（节次胶囊 / 类型徽章 / 切换钮激活态）。 */
     fun accentSoft(dark: Boolean): Color =
-        Color(accent(dark)).copy(alpha = if (dark) 0.26f else 0.15f)
+        Color(accent(dark)).copy(alpha = if (dark) 0.24f else 0.14f)
 
-    /** 卡底 bitmap：竖向实感渐变 + 顶部高光 + 1px 细描边。 */
+    /** 卡底 bitmap：兼容旧调用名，但始终绘制纯色实底圆角卡。 */
     fun glassCard(context: Context, widthPx: Int, heightPx: Int, radiusPx: Float): Bitmap {
-        val dark = isDark(context)
-        val d = { dp: Float -> dp * context.resources.displayMetrics.density }
+        val cardColor = if (isDark(context)) CARD_DARK else CARD_LIGHT
         val bmp = Bitmap.createBitmap(widthPx.coerceAtLeast(1), heightPx.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
-        val rect = RectF(0f, 0f, widthPx.toFloat(), heightPx.toFloat())
-
-        // 深色卡贴近 App 的 #1A1C22，浅色为白瓷底；不再依赖壁纸透出
-        val baseTop = if (dark) android.graphics.Color.argb(242, 26, 28, 34) else android.graphics.Color.argb(247, 252, 253, 255)
-        val baseBottom = if (dark) android.graphics.Color.argb(230, 16, 18, 24) else android.graphics.Color.argb(236, 243, 245, 248)
-        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(0f, 0f, 0f, heightPx.toFloat(), baseTop, baseBottom, Shader.TileMode.CLAMP)
-        }
-        canvas.drawRoundRect(rect, radiusPx, radiusPx, fill)
-
-        // 顶部高光：贴着上缘的一条渐隐亮线
-        val highlight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(
-                0f, 0f, widthPx.toFloat(), 0f,
-                intArrayOf(
-                    android.graphics.Color.argb(0, 255, 255, 255),
-                    android.graphics.Color.argb(if (dark) 64 else 90, 255, 255, 255),
-                    android.graphics.Color.argb(0, 255, 255, 255),
-                ),
-                floatArrayOf(0f, 0.35f, 1f),
-                Shader.TileMode.CLAMP,
-            )
-            strokeWidth = d(1.4f)
-        }
-        val hlY = d(1.6f)
-        canvas.drawLine(d(10f), hlY, widthPx - d(10f), hlY, highlight)
-
-        // 细描边：内圈微亮做厚度，外圈压暗收边
-        val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = d(1.2f)
-        }
-        stroke.color = if (dark) android.graphics.Color.argb(46, 255, 255, 255) else android.graphics.Color.argb(70, 255, 255, 255)
-        val inset = stroke.strokeWidth / 2f
-        val inner = RectF(rect).apply { inset(inset, inset) }
-        canvas.drawRoundRect(inner, radiusPx - inset, radiusPx - inset, stroke)
-        stroke.color = android.graphics.Color.argb(24, 0, 0, 0)
-        val outer = RectF(rect).apply { inset(0.5f, 0.5f) }
-        canvas.drawRoundRect(outer, radiusPx - 0.5f, radiusPx - 0.5f, stroke)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cardColor }
+        canvas.drawRoundRect(
+            0f,
+            0f,
+            widthPx.toFloat(),
+            heightPx.toFloat(),
+            radiusPx,
+            radiusPx,
+            paint,
+        )
         return bmp
     }
 
     /**
-     * 电量走势图：折线 + 渐变面积 + 末点 + 刻度（纵轴上下界、横轴起止时间、
+     * 电量走势图：折线 + 纯色面积 + 末点 + 刻度（纵轴上下界、横轴起止时间、
      * 两条淡网格、预警红虚线）。左侧与底部留白给刻度文字。
      */
     fun trend(
@@ -108,14 +84,15 @@ object WidgetStyle {
         if (widthPx <= 0 || heightPx <= 0) return null
         val dark = isDark(context)
         val accent = accent(dark)
+        val danger = danger(dark)
         val d = { dp: Float -> dp * context.resources.displayMetrics.density }
         val bmp = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
-        val subText = if (dark) android.graphics.Color.argb(190, 183, 186, 193) else android.graphics.Color.argb(200, 99, 102, 110)
+        val subText = sub(dark).toArgb()
 
-        val labelW = d(26f)
-        val labelH = d(14f)
-        val topPad = d(11f)
+        val labelW = d(32f)
+        val labelH = d(16f)
+        val topPad = d(13f)
         val rightPad = d(4f)
         val plotLeft = labelW
         val plotRight = (widthPx - rightPad).coerceAtLeast(plotLeft + 1)
@@ -138,7 +115,7 @@ object WidgetStyle {
 
         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = subText
-            textSize = d(9f)
+            textSize = 11f * context.resources.displayMetrics.scaledDensity
         }
         if (samples.size < 2) {
             // 数据不足：只画基线 + 起止时间，等待采样积累
@@ -157,7 +134,7 @@ object WidgetStyle {
         }
         fun y(v: Double) = plotTop + (1 - ((v - lo) / span)).toFloat() * (plotBottom - plotTop)
 
-        // 面积渐变 + 折线
+        // 均匀填充面积 + 折线
         val path = Path()
         samples.forEachIndexed { i, s ->
             if (i == 0) path.moveTo(x(s.time), y(s.odd)) else path.lineTo(x(s.time), y(s.odd))
@@ -168,12 +145,7 @@ object WidgetStyle {
             close()
         }
         val areaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(
-                0f, plotTop, 0f, plotBottom,
-                android.graphics.Color.argb(64, android.graphics.Color.red(accent), android.graphics.Color.green(accent), android.graphics.Color.blue(accent)),
-                android.graphics.Color.argb(0, android.graphics.Color.red(accent), android.graphics.Color.green(accent), android.graphics.Color.blue(accent)),
-                Shader.TileMode.CLAMP,
-            )
+            color = accentSoft(dark).toArgb()
         }
         canvas.drawPath(area, areaPaint)
         val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -189,12 +161,12 @@ object WidgetStyle {
         if (warnTh.toDouble() > lo && warnTh.toDouble() < hi) {
             val wy = y(warnTh.toDouble())
             val warn = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = DANGER
+                color = danger
                 strokeWidth = d(1.2f)
                 pathEffect = DashPathEffect(floatArrayOf(d(3f), d(3f)), 0f)
             }
             canvas.drawLine(plotLeft, wy, plotRight, wy, warn)
-            textPaint.color = DANGER
+            textPaint.color = danger
             textPaint.textAlign = Paint.Align.LEFT
             canvas.drawText("%.0f".format(warnTh), d(1f), wy + d(3f), textPaint)
             textPaint.color = subText
@@ -202,8 +174,8 @@ object WidgetStyle {
 
         // 纵轴刻度：顶部 hi、底部 lo（取整显示）
         textPaint.textAlign = Paint.Align.LEFT
-        canvas.drawText("%.0f".format(kotlin.math.ceil(hi)), d(1f), plotTop + d(9f), textPaint)
-        canvas.drawText("%.0f".format(kotlin.math.floor(lo)), d(1f), plotBottom - d(2f), textPaint)
+        canvas.drawText("%.0f".format(kotlin.math.ceil(hi)), d(1f), plotTop + d(3f), textPaint)
+        canvas.drawText("%.0f".format(kotlin.math.floor(lo)), d(1f), plotBottom, textPaint)
 
         // 横轴：起止时间（覆盖 >48h 用 M/d，否则 HH:mm，由 Presentation 决定）
         val stats = WidgetPresentation.trendStats(samples, 0L, System.currentTimeMillis())
@@ -214,11 +186,11 @@ object WidgetStyle {
             canvas.drawText(stats.endLabel, plotRight, heightPx - d(2f), textPaint)
         }
 
-        // 末点：白边圆点 + 右上数值
+        // 末点：浅色卡用深色轮廓、深色卡用白色轮廓，保持与底色的对比
         val last = samples.last()
         val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
         canvas.drawCircle(x(last.time), y(last.odd), d(3f), dot)
-        dot.color = android.graphics.Color.WHITE
+        dot.color = if (dark) android.graphics.Color.WHITE else TEXT_LIGHT
         dot.style = Paint.Style.STROKE
         dot.strokeWidth = d(1.4f)
         canvas.drawCircle(x(last.time), y(last.odd), d(3f), dot)
@@ -258,7 +230,7 @@ object WidgetStyle {
         } else {
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = d(1.6f)
-            paint.color = if (dark) android.graphics.Color.argb(150, 183, 186, 193) else android.graphics.Color.argb(150, 99, 102, 110)
+            paint.color = sub(dark).toArgb()
             canvas.drawCircle(c, c, c - d(1.5f), paint)
         }
         return bmp

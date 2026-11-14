@@ -4,7 +4,6 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -24,7 +23,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -44,7 +42,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
@@ -55,26 +52,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.LocalUiStyle
-import com.menglimi.gdust.v2.ui.LocalWallpaperActive
-import com.menglimi.gdust.v2.ui.UiStyle
-import com.menglimi.gdust.v2.ui.importWallpaper
 import com.menglimi.gdust.v2.ui.pageBackground
-import com.menglimi.gdust.v2.ui.pageTextBacking
-import com.menglimi.gdust.v2.ui.secondaryTextColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import android.widget.Toast
-import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Alarm
-import top.yukonga.miuix.kmp.icon.extended.Background
 import top.yukonga.miuix.kmp.icon.extended.Backup
 import top.yukonga.miuix.kmp.icon.extended.BankCards
 import top.yukonga.miuix.kmp.icon.extended.Close
@@ -90,13 +79,11 @@ import top.yukonga.miuix.kmp.icon.extended.Months
 import top.yukonga.miuix.kmp.icon.extended.Notes
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Search
-import top.yukonga.miuix.kmp.icon.extended.Theme
 import top.yukonga.miuix.kmp.icon.extended.Timer
 import top.yukonga.miuix.kmp.icon.extended.Unlock
 import top.yukonga.miuix.kmp.icon.extended.Weeks
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * Adapted from NexioSchedule, revision 28a99a3:
@@ -114,7 +101,6 @@ fun SettingsScreen(
     onTodoReminder: () -> Unit = {},
     onChxNotifications: () -> Unit,
     onChxEntry: () -> Unit,
-    onWallpaperChanged: () -> Unit,
     onProfile: () -> Unit,
     onAbout: () -> Unit,
     onExportBackup: ManagedActivityResultLauncher<String, Uri?>,
@@ -123,7 +109,6 @@ fun SettingsScreen(
     onBack: () -> Unit,
     loggedIn: Boolean = true,
     chxSessionSaved: Boolean = false,
-    monetEnabled: MutableState<Boolean>,
     openSection: MutableState<String?>,
     syncing: Boolean = false,
     onGrades: () -> Unit = {},
@@ -132,12 +117,9 @@ fun SettingsScreen(
     onFiveEducation: () -> Unit = {},
 ) {
     val ds = LocalDs.current
-    val secondary = secondaryTextColor()
-    val onWallpaper = LocalWallpaperActive.current
+    val secondary = ds.sub
     val store = repo.store
     val scope = rememberCoroutineScope()
-    val styleState = LocalUiStyle.current
-    val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     var query by rememberSaveable { mutableStateOf("") }
 
@@ -168,21 +150,8 @@ fun SettingsScreen(
     var termWeeksText by remember { mutableStateOf(store.termWeeks.takeIf { it > 0 }?.toString() ?: "") }
     var termWeekText by remember { mutableStateOf(store.termCurrentWeek.takeIf { it > 0 }?.toString() ?: "") }
     var termSaved by remember { mutableStateOf(false) }
-    var wallpaperPath by remember { mutableStateOf(store.wallpaperPath) }
-    var wallpaperBlur by remember { mutableStateOf(store.wallpaperBlur) }
-    var wallpaperDim by remember { mutableStateOf(store.wallpaperDim) }
     var showWidgetPicker by rememberSaveable { mutableStateOf(false) }
 
-    val wallpaperLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) {
-            val path = importWallpaper(context, uri)
-            if (path.isNotBlank()) {
-                store.wallpaperPath = path
-                wallpaperPath = path
-                onWallpaperChanged()
-            }
-        }
-    }
     // 导入与恢复后的状态重载统一由宿主处理，不能在本页直接写 Store。
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(onImportBackup)
@@ -202,18 +171,7 @@ fun SettingsScreen(
         onClick = onProfile,
     )
     val groups = listOf(
-        SettingsSection("外观", listOf(
-            SettingsEntry(
-                id = "style", title = "界面风格", summary = "选择应用的整体外观", icon = MiuixIcons.Theme,
-                detail = styleState.value.label, onClick = { toggle("style") },
-                editor = {
-                    SegmentedChoice(
-                        options = UiStyle.entries.map { it to it.label }, selected = styleState.value,
-                        onSelect = { styleState.value = it },
-                    )
-                    Text(styleState.value.desc, fontSize = 13.sp, color = secondary)
-                },
-            ),
+        SettingsSection("通用", listOf(
             SettingsEntry(
                 id = "startTab", title = "启动页", summary = "下次打开时默认显示", icon = MiuixIcons.Home,
                 detail = when (startTabLocal) { 0 -> "今日"; 2 -> "电费"; 3 -> "待办"; else -> "课表" },
@@ -225,40 +183,6 @@ fun SettingsScreen(
                         selected = startTabLocal,
                         onSelect = { startTabLocal = it; store.startTab = it },
                     )
-                },
-            ),
-            SettingsEntry(
-                id = "monet", title = "莫奈取色", summary = "跟随系统壁纸配色", icon = MiuixIcons.Theme,
-                checked = monetEnabled.value,
-                onCheckedChange = { monetEnabled.value = it; store.monetEnabled = it },
-            ),
-            SettingsEntry(
-                id = "wallpaper", title = "课表壁纸", summary = "相册图片、模糊与压暗", icon = MiuixIcons.Background,
-                detail = if (wallpaperPath.isBlank()) "未设置" else "已设置",
-                onClick = { toggle("wallpaper") },
-                editor = {
-                    Button(if (wallpaperPath.isBlank()) "选择壁纸" else "更换壁纸") {
-                        wallpaperLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                    }
-                    if (wallpaperPath.isNotBlank()) {
-                        Text("模糊 ${wallpaperBlur.toInt()} dp", fontSize = 13.sp, color = secondary)
-                        androidx.compose.material3.Slider(
-                            value = wallpaperBlur,
-                            onValueChange = { wallpaperBlur = it; store.wallpaperBlur = it; onWallpaperChanged() },
-                            valueRange = 0f..40f, steps = 19,
-                        )
-                        Text("压暗 ${(wallpaperDim * 100).toInt()}%", fontSize = 13.sp, color = secondary)
-                        androidx.compose.material3.Slider(
-                            value = wallpaperDim,
-                            onValueChange = { wallpaperDim = it; store.wallpaperDim = it; onWallpaperChanged() },
-                            valueRange = 0f..0.85f, steps = 16,
-                        )
-                        Button("清除壁纸") {
-                            store.wallpaperPath = ""
-                            wallpaperPath = ""
-                            onWallpaperChanged()
-                        }
-                    }
                 },
             ),
         )),
@@ -549,8 +473,7 @@ fun SettingsScreen(
         }
         if (!showAccount && visibleGroups.isEmpty() && !showLogout) {
             Text("没有找到相关设置", fontSize = 14.sp, color = secondary,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp).pageTextBacking()
-                    .padding(if (onWallpaper) 12.dp else 0.dp))
+                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
         }
         Spacer(Modifier.navigationBarsPadding().height(110.dp))
     }
@@ -580,24 +503,19 @@ private data class SettingsEntry(
         listOf(title, summary.orEmpty(), keywords, group).any { it.contains(query, ignoreCase = true) }
 }
 
-/** Nexio SettingsEntryIcon geometry, using Miuix vectors and the app's Monet-aware colors. */
+/** 分组设置行统一使用主题文字与无底衬的线性图标。 */
 @Composable
 private fun SettingsPreference(entry: SettingsEntry) {
     val ds = LocalDs.current
     val accent = if (entry.danger) ds.danger else ds.accent
     val leading: @Composable () -> Unit = {
-        Box(Modifier.padding(end = 8.dp)) {
-            Box(
-                Modifier.size(28.dp).background(accent.copy(alpha = 0.13f), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(entry.icon, contentDescription = null, modifier = Modifier.size(22.dp), tint = accent)
-            }
+        Box(Modifier.padding(end = 12.dp).size(28.dp), contentAlignment = Alignment.Center) {
+            Icon(entry.icon, contentDescription = null, modifier = Modifier.size(22.dp), tint = accent)
         }
     }
     val titleColors = BasicComponentDefaults.titleColor(color = if (entry.danger) ds.danger else ds.text)
-    val summaryColors = BasicComponentDefaults.summaryColor(color = secondaryTextColor())
-    val margins = PaddingValues(start = 16.dp, end = 13.dp, top = 14.dp, bottom = 14.dp)
+    val summaryColors = BasicComponentDefaults.summaryColor(color = ds.sub)
+    val margins = PaddingValues(horizontal = AppUiTokens.CardPadding, vertical = 16.dp)
     when {
         entry.checked != null && entry.onCheckedChange != null -> SwitchPreference(
             title = entry.title, summary = entry.summary, titleColor = titleColors, summaryColor = summaryColors,
@@ -619,39 +537,41 @@ private fun SettingsPreference(entry: SettingsEntry) {
 
 @Composable
 private fun SettingsDetail(text: String) {
-    Text(text, fontSize = 14.sp, color = secondaryTextColor(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Text(text, fontSize = 13.sp, color = LocalDs.current.sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
-/** 59dp block from Nexio SettingsSearch.kt; filters only this page's real entries. */
+/** 在实底搜索卡中筛选本页的实际设置项。 */
 @Composable
 private fun SettingsSearchField(query: String, onQueryChange: (String) -> Unit) {
     val ds = LocalDs.current
-    val secondary = secondaryTextColor()
-    val searchSurface = MiuixTheme.colorScheme.surface.copy(alpha = 1f)
     val focusManager = LocalFocusManager.current
-    Row(
-        Modifier.fillMaxWidth().height(59.dp).padding(bottom = 12.dp)
-            .background(searchSurface, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    AppCard(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+        insideMargin = PaddingValues(horizontal = AppUiTokens.CardPadding, vertical = 4.dp),
     ) {
-        Icon(MiuixIcons.Search, contentDescription = null, modifier = Modifier.size(20.dp), tint = secondary)
-        Spacer(Modifier.width(10.dp))
-        BasicTextField(
-            value = query, onValueChange = onQueryChange, modifier = Modifier.weight(1f),
-            singleLine = true, textStyle = TextStyle(fontSize = 16.sp, color = ds.text),
-            cursorBrush = SolidColor(ds.accent),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
-            decorationBox = { input ->
-                Box {
-                    if (query.isEmpty()) Text("搜索设置", fontSize = 16.sp, color = secondary)
-                    input()
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(MiuixIcons.Search, contentDescription = null, modifier = Modifier.size(20.dp), tint = ds.sub)
+            Spacer(Modifier.width(12.dp))
+            BasicTextField(
+                value = query, onValueChange = onQueryChange, modifier = Modifier.weight(1f),
+                singleLine = true, textStyle = TextStyle(fontSize = 16.sp, color = ds.text),
+                cursorBrush = SolidColor(ds.accent),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
+                decorationBox = { input ->
+                    Box {
+                        if (query.isEmpty()) Text("搜索设置", fontSize = 16.sp, color = ds.sub)
+                        input()
+                    }
+                },
+            )
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(40.dp)) {
+                    Icon(MiuixIcons.Close, contentDescription = "清除搜索", modifier = Modifier.size(18.dp), tint = ds.sub)
                 }
-            },
-        )
-        if (query.isNotEmpty()) {
-            IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(40.dp)) {
-                Icon(MiuixIcons.Close, contentDescription = "清除搜索", modifier = Modifier.size(18.dp), tint = secondary)
             }
         }
     }

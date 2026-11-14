@@ -3,8 +3,11 @@ package com.menglimi.gdust.v2.ui.screens
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
+import android.view.Gravity
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.PermissionRequest
@@ -57,46 +60,71 @@ class TeachingWebActivity : ComponentActivity() {
             android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
         WebView.setWebContentsDebuggingEnabled(debuggable)
 
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val dark = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+        val shellBackgroundColor = (if (dark) 0xFF0E0E10 else 0xFFF7F7F7).toInt()
+        val shellTextColor = (if (dark) 0xFFF2F2F7 else 0xFF000000).toInt()
+        val secondary = (if (dark) 0x9EFFFFFF else 0xFF666666).toInt()
+        val accent = (if (dark) 0xFF7AB0FF else 0xFF3482FF).toInt()
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(shellBackgroundColor)
+        }
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            setBackgroundColor(0xFFF4F5F7.toInt())
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            setBackgroundColor(shellBackgroundColor)
         }
         val back = TextView(this).apply {
             text = "‹"
-            textSize = 26f
-            setPadding(dp(4), 0, dp(12), 0)
+            contentDescription = "返回"
+            textSize = 30f
+            setTextColor(shellTextColor)
+            gravity = Gravity.CENTER
+            minHeight = dp(48)
+            minWidth = dp(48)
             setOnClickListener { finishWithResult(RESULT_CANCELED) }
         }
         hostLabel = TextView(this).apply {
-            textSize = 12f
-            setTextColor(0xFF666666.toInt())
+            textSize = 13f
+            setTextColor(secondary)
+            setPadding(dp(16), 0, dp(16), dp(12))
         }
         val portal = TextView(this).apply {
             text = "门户"
-            textSize = 14f
-            setPadding(dp(8), dp(4), dp(8), dp(4))
+            textSize = 15f
+            setTextColor(shellTextColor)
+            gravity = Gravity.CENTER
+            minHeight = dp(48)
+            minWidth = dp(48)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
             setOnClickListener { web.loadUrl(PORTAL_ENTRY) }
         }
         val vpn = TextView(this).apply {
             text = "WebVPN"
-            textSize = 14f
-            setPadding(dp(8), dp(4), dp(8), dp(4))
+            textSize = 15f
+            setTextColor(shellTextColor)
+            gravity = Gravity.CENTER
+            minHeight = dp(48)
+            minWidth = dp(48)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
             setOnClickListener { web.loadUrl(VPN_LOGIN) }
         }
         val read = TextView(this).apply {
             text = "读取课表"
-            textSize = 14f
-            setPadding(dp(10), dp(4), dp(4), dp(4))
-            setTextColor(0xFF1A6BFF.toInt())
+            textSize = 15f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            gravity = Gravity.CENTER
+            minHeight = dp(48)
+            minWidth = dp(48)
+            setPadding(dp(8), dp(8), 0, dp(8))
+            setTextColor(accent)
             setOnClickListener { tryRead() }
         }
         bar.addView(back)
-        bar.addView(hostLabel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        bar.addView(portal)
-        bar.addView(vpn)
-        bar.addView(read)
+        bar.addView(portal, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        bar.addView(vpn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        bar.addView(read, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f))
         root.addView(
             bar,
             LinearLayout.LayoutParams(
@@ -104,6 +132,15 @@ class TeachingWebActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ),
         )
+
+        root.addView(
+            hostLabel,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+        )
+        androidx.core.view.WindowCompat.getInsetsController(window, root).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
 
         web = WebView(this)
         configure(web)

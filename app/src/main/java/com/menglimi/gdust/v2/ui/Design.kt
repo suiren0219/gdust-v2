@@ -1,93 +1,141 @@
 package com.menglimi.gdust.v2.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.haooz.softglass.backdrop.backdrops.LayerBackdrop
-import com.haooz.softglass.backdrop.drawBackdrop
-import com.haooz.softglass.backdrop.effects.blur
-import com.haooz.softglass.shape.ContinuousRoundedRectangle
 
-/** 设计令牌：页面取色唯一真源（玻璃引擎由 UiStyle 分派）。 */
+/** CZeroX tokens：页面只使用中性实底与高对比文字。 */
 data class Ds(
-    val bg: Color, val card: Color, val cardStroke: Color, val text: Color,
-    val sub: Color, val accent: Color, val accentSoft: Color, val breakBar: Color,
-    val danger: Color, val isDark: Boolean,
-)
+    val bg: Color,
+    val card: Color,
+    val cardStroke: Color,
+    val text: Color,
+    val sub: Color,
+    val accent: Color,
+    val accentSoft: Color,
+    val breakBar: Color,
+    val danger: Color,
+    val isDark: Boolean,
+) {
+    val brandBlue: Color get() = if (isDark) Color(0xFF4D8BFF) else Color(0xFF106DFD)
+    val success: Color get() = Color(0xFF36D267)
+    val successTint: Color get() = if (isDark) success.copy(alpha = 0.16f).compositeOver(card) else Color(0xFFDEFAE4)
+    val chartGreen: Color get() = if (isDark) Color(0xFF4ADE80) else Color(0xFF23C55E)
+}
 
 val LocalDs = staticCompositionLocalOf<Ds> { error("no Ds") }
-val LocalBackdrop = staticCompositionLocalOf<LayerBackdrop> { error("no backdrop") }
 
-@Composable
-fun dsFor(dark: Boolean): Ds = if (dark) Ds(
-    bg = Color(0xFF0D0D10), card = Color(0xFF1C1C21), cardStroke = Color(0x22FFFFFF),
-    text = Color(0xFFF2F2F7), sub = Color(0xFF9A9AA5), accent = Color(0xFF0A84FF),
-    accentSoft = Color(0x220A84FF), breakBar = Color(0xFF232329), danger = Color(0xFFFF6B6B), isDark = true,
-) else Ds(
-    bg = Color(0xFFF7F7FA), card = Color(0xFFFFFFFF), cardStroke = Color(0x0A000000),
-    text = Color(0xFF1C1C1E), sub = Color(0xFF8A8A8F), accent = Color(0xFF007AFF),
-    accentSoft = Color(0x14007AFF), breakBar = Color(0xFFECECF1), danger = Color(0xFFE5484D), isDark = false,
-)
-
-/**
- * 莫奈取色：拿系统壁纸色（Material You）当种子，经 MaterialKolor 生成完整色调方案。
- * API 33+ 无需权限、无需 AppCompat；取不到就回落默认 Ds。两套玻璃风格共用。
- */
-@Composable
-fun monetDs(dark: Boolean, base: Ds, enabled: Boolean): Ds {
-    if (!enabled || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) return base
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val system = if (dark) androidx.compose.material3.dynamicDarkColorScheme(ctx)
-    else androidx.compose.material3.dynamicLightColorScheme(ctx)
-    val scheme = com.materialkolor.scheme.SchemeTonalSpot(
-        sourceColorHct = com.materialkolor.hct.Hct.fromInt(system.primary.toArgb()),
-        isDark = dark,
-        contrastLevel = 0.0,
+fun dsFor(dark: Boolean): Ds = if (dark) {
+    Ds(
+        bg = Color(0xFF0E0E10),
+        card = Color(0xFF1C1C1E),
+        cardStroke = Color.Transparent,
+        text = Color(0xFFF2F2F7),
+        sub = Color.White.copy(alpha = 0.62f),
+        accent = Color(0xFF7AB0FF),
+        accentSoft = Color(0xFF7AB0FF).copy(alpha = 0.20f),
+        breakBar = Color(0xFF2A2A2C),
+        danger = Color(0xFFFF6B6B),
+        isDark = true,
     )
-    return base.copy(
-        bg = Color(scheme.background),
-        card = Color(scheme.surface),
-        text = Color(scheme.onSurface),
-        sub = Color(scheme.onSurfaceVariant),
-        accent = Color(scheme.primary),
-        accentSoft = Color(scheme.primary).copy(alpha = 0.14f),
-        breakBar = Color(scheme.surfaceContainerHigh),
-        danger = Color(scheme.error),
+} else {
+    Ds(
+        bg = Color(0xFFF7F7F7),
+        card = Color.White,
+        cardStroke = Color.Transparent,
+        text = Color.Black,
+        sub = Color(0xFF666666),
+        accent = Color(0xFF3482FF),
+        accentSoft = Color(0xFF3482FF).copy(alpha = 0.12f),
+        breakBar = Color(0xFFF0F0F0),
+        danger = Color(0xFFEE4444),
+        isDark = false,
     )
 }
 
-/** Material 排版统一（两套风格共用，颜色随 Ds）。 */
+/** Material 排版统一：主文字与页面底色保持高对比。 */
 @Composable
 fun WithTypography(ds: Ds, content: @Composable () -> Unit) {
     androidx.compose.material3.MaterialTheme(
-        colorScheme = if (ds.isDark) androidx.compose.material3.darkColorScheme(
-            background = ds.bg, surface = ds.card, primary = ds.accent,
-            onBackground = ds.text, onSurface = ds.text, onSurfaceVariant = ds.sub,
-            primaryContainer = ds.accentSoft, onPrimaryContainer = ds.accent,
-            error = ds.danger, outline = ds.cardStroke,
-        ) else androidx.compose.material3.lightColorScheme(
-            background = ds.bg, surface = ds.card, primary = ds.accent,
-            onBackground = ds.text, onSurface = ds.text, onSurfaceVariant = ds.sub,
-            primaryContainer = ds.accentSoft, onPrimaryContainer = ds.accent,
-            error = ds.danger, outline = ds.cardStroke,
-        ),
+        colorScheme = if (ds.isDark) {
+            androidx.compose.material3.darkColorScheme(
+                background = ds.bg,
+                surface = ds.card,
+                primary = ds.accent,
+                onBackground = ds.text,
+                onSurface = ds.text,
+                onSurfaceVariant = ds.sub,
+                primaryContainer = ds.accentSoft,
+                onPrimaryContainer = ds.accent,
+                error = ds.danger,
+                outline = ds.sub,
+                onPrimary = Color.Black,
+                surfaceTint = Color.Transparent,
+                surfaceContainer = ds.card,
+                surfaceContainerHigh = ds.card,
+                surfaceContainerHighest = ds.breakBar,
+                surfaceContainerLow = ds.card,
+                surfaceContainerLowest = ds.bg,
+                secondary = ds.accent,
+                onSecondary = Color.Black,
+                secondaryContainer = ds.accentSoft,
+                onSecondaryContainer = ds.text,
+                tertiary = ds.accent,
+                onTertiary = Color.Black,
+                tertiaryContainer = ds.accentSoft,
+                onTertiaryContainer = ds.text,
+                errorContainer = ds.danger.copy(alpha = 0.12f).compositeOver(ds.card),
+                onErrorContainer = ds.text,
+            )
+        } else {
+            androidx.compose.material3.lightColorScheme(
+                background = ds.bg,
+                surface = ds.card,
+                primary = ds.accent,
+                onBackground = ds.text,
+                onSurface = ds.text,
+                onSurfaceVariant = ds.sub,
+                primaryContainer = ds.accentSoft,
+                onPrimaryContainer = ds.accent,
+                error = ds.danger,
+                outline = ds.sub,
+                onPrimary = Color.Black,
+                surfaceTint = Color.Transparent,
+                surfaceContainer = ds.card,
+                surfaceContainerHigh = ds.card,
+                surfaceContainerHighest = ds.breakBar,
+                surfaceContainerLow = ds.card,
+                surfaceContainerLowest = ds.bg,
+                secondary = ds.accent,
+                onSecondary = Color.Black,
+                secondaryContainer = ds.accentSoft,
+                onSecondaryContainer = ds.text,
+                tertiary = ds.accent,
+                onTertiary = Color.Black,
+                tertiaryContainer = ds.accentSoft,
+                onTertiaryContainer = ds.text,
+                errorContainer = ds.danger.copy(alpha = 0.12f).compositeOver(ds.card),
+                onErrorContainer = ds.text,
+            )
+        },
         typography = androidx.compose.material3.Typography(
-            headlineLarge = androidx.compose.ui.text.TextStyle(fontSize = 35.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = ds.text),
-            titleMedium = androidx.compose.ui.text.TextStyle(fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, color = ds.text),
+            headlineLarge = androidx.compose.ui.text.TextStyle(
+                fontSize = 35.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                color = ds.text,
+            ),
+            titleMedium = androidx.compose.ui.text.TextStyle(
+                fontSize = 17.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                color = ds.text,
+            ),
             bodyLarge = androidx.compose.ui.text.TextStyle(fontSize = 16.sp, color = ds.text),
             bodySmall = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, color = ds.sub),
             labelSmall = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = ds.sub),
@@ -96,14 +144,14 @@ fun WithTypography(ds: Ds, content: @Composable () -> Unit) {
     )
 }
 
-/** 保留旧 BoxScope 调用签名，业务页与 AppCard 共用材质和圆角。 */
+/** 兼容旧页面命名；业务卡片统一走 CZeroX 实底 AppCard。 */
 @Composable
 fun GlassCard(
-    modifier: Modifier = Modifier,
+    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
     AppCard(modifier = modifier.fillMaxWidth(), onClick = onClick) {
-        Box(Modifier.padding(16.dp), content = content)
+        Box(androidx.compose.ui.Modifier.padding(20.dp), content = content)
     }
 }

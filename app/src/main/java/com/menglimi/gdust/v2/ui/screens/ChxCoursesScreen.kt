@@ -2,6 +2,7 @@ package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +23,8 @@ import com.menglimi.gdust.v2.data.ChxCourse
 import com.menglimi.gdust.v2.data.ChxCourseOverview
 import com.menglimi.gdust.v2.data.ChxCourseReadException
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.ui.AppCard
+import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -81,9 +84,9 @@ fun ChxCoursesScreen(
         if (state.loading) {
             Spacer(Modifier.height(12.dp))
             LinearProgressIndicator(colors = ProgressIndicatorDefaults.progressIndicatorColors(
-                foregroundColor = ds.accent, backgroundColor = ds.cardStroke,
+                foregroundColor = ds.accent, backgroundColor = ds.breakBar,
             ))
-            Text("正在读取课程与任务点进度…", fontSize = 12.sp, color = ds.sub,
+            Text("正在读取课程与任务点进度…", fontSize = 13.sp, color = ds.sub,
                 modifier = Modifier.padding(top = 8.dp))
         }
         if (state.authRequired) {
@@ -99,23 +102,20 @@ fun ChxCoursesScreen(
         val overview = state.overview
         if (overview != null) {
             if (state.stale) {
-                Text("以下为上次读取的结果，刷新尚未成功。", color = ds.danger, fontSize = 12.sp,
+                Text("以下为上次读取的结果，刷新尚未成功。", color = ds.danger, fontSize = 13.sp,
                     modifier = Modifier.padding(top = 8.dp))
             }
             val time = remember(overview.loadedAt) {
                 SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(overview.loadedAt))
             }
-            Text("最近读取 $time", fontSize = 12.sp, color = ds.sub, modifier = Modifier.padding(top = 12.dp))
+            Text("最近读取 $time", fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(top = 12.dp))
             overview.progressError?.let { message ->
                 Text(message, color = ds.danger, fontSize = 13.sp, lineHeight = 20.sp,
                     modifier = Modifier.padding(top = 8.dp))
             }
             SectionHeader("当前课程页 · ${overview.courses.size} 门")
-            SettingGroup {
-                overview.courses.forEachIndexed { index, course ->
-                    if (index > 0) SettingDivider()
-                    ChxCourseItem(course, onOpenCourse)
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap)) {
+                overview.courses.forEach { course -> ChxCourseItem(course, onOpenCourse) }
             }
         } else if (!state.loading && state.error == null) {
             Text("尚未读取课程，请刷新。", fontSize = 13.sp, color = ds.sub,
@@ -127,22 +127,36 @@ fun ChxCoursesScreen(
 @Composable
 private fun ChxCourseItem(course: ChxCourse, onOpenCourse: (String) -> Unit) {
     val ds = LocalDs.current
-    SettingOption(title = course.name, subtitle = course.description.takeIf { it.isNotBlank() },
-        onClick = { onOpenCourse(course.url) })
-    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        val progress = course.progress
-        if (progress == null) {
-            Text("任务点进度未知", fontSize = 13.sp, color = ds.sub)
-        } else {
-            val percent = BigDecimal.valueOf(progress.jobRate).stripTrailingZeros().toPlainString()
-            Text("任务点 ${progress.jobFinishCount} / ${progress.jobCount} · $percent%", fontSize = 13.sp, color = ds.sub)
-            LinearProgressIndicator(progress = (progress.jobRate / 100.0).toFloat(),
-                colors = ProgressIndicatorDefaults.progressIndicatorColors(
-                    foregroundColor = ds.accent, backgroundColor = ds.cardStroke,
-                ))
+    AppCard(
+        modifier = Modifier.fillMaxWidth(),
+        insideMargin = PaddingValues(AppUiTokens.CardPadding),
+        onClick = { onOpenCourse(course.url) },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(course.name, fontSize = 18.sp, lineHeight = 25.sp,
+                fontWeight = FontWeight.SemiBold, color = ds.text)
+            if (course.description.isNotBlank()) {
+                Text(course.description, fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub)
+            }
+            val progress = course.progress
+            if (progress == null) {
+                Text("任务点进度未知", fontSize = 13.sp, color = ds.sub)
+            } else {
+                val percent = BigDecimal.valueOf(progress.jobRate).stripTrailingZeros().toPlainString()
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("任务点完成率", fontSize = 13.sp, color = ds.sub)
+                    Text("$percent%", fontSize = 34.sp, lineHeight = 40.sp,
+                        fontWeight = FontWeight.Bold, color = ds.text)
+                    Text("任务点 ${progress.jobFinishCount} / ${progress.jobCount}", fontSize = 13.sp, color = ds.sub)
+                }
+                LinearProgressIndicator(progress = (progress.jobRate / 100.0).toFloat(),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                        foregroundColor = ds.accent, backgroundColor = ds.breakBar,
+                    ))
+            }
+            Text("点按课程进入学习通网页", fontSize = 13.sp, color = ds.sub)
         }
-        Text("点按课程进入学习通网页", fontSize = 12.sp, color = ds.sub)
     }
 }
 

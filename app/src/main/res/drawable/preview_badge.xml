@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 预览里的节次/类型胶囊：与 accentSoft 同色 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#2E7AB0FF" />
+    <solid android:color="@color/widget_accent_soft" />
     <corners android:radius="9dp" />
 </shape>

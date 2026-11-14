@@ -2,7 +2,12 @@ package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
@@ -18,7 +23,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.AuthFailed
@@ -26,6 +33,8 @@ import com.menglimi.gdust.v2.data.GradeLoadException
 import com.menglimi.gdust.v2.data.GradeReport
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.data.TeachingGrade
+import com.menglimi.gdust.v2.ui.AppCard
+import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
 import java.io.IOException
 import java.time.LocalDate
@@ -116,7 +125,7 @@ private fun GradeContent(repo: Repository, sessionVersion: Long, onBack: () -> U
                     modifier = Modifier.semantics { contentDescription = "起始学年" },
                 )
                 if (selection.valid) {
-                    Text("${year}–${year.toInt() + 1} 学年", fontSize = 12.sp, color = ds.sub)
+                    Text("${year}–${year.toInt() + 1} 学年", fontSize = 13.sp, color = ds.sub)
                 }
                 SegmentedChoice(
                     listOf("3" to "第一学期", "12" to "第二学期"),
@@ -141,7 +150,7 @@ private fun GradeContent(repo: Repository, sessionVersion: Long, onBack: () -> U
         }
         Text(message, fontSize = 13.sp, lineHeight = 19.sp,
             color = if (error != null && currentSession) ds.danger else ds.sub,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+            modifier = Modifier.padding(vertical = 8.dp))
 
         if (currentSession && (needsLogin || (!loading && visibleReport == null))) {
             Spacer(Modifier.height(8.dp))
@@ -156,46 +165,79 @@ private fun GradeContent(repo: Repository, sessionVersion: Long, onBack: () -> U
 
         if (visibleReport != null) {
             SectionHeader(if (error != null || loading) "上次查询结果" else "成绩明细")
-            SettingGroup {
-                if (visibleReport.entries.isEmpty()) {
-                    Text("该学期暂无成绩。", color = ds.sub, fontSize = 14.sp,
-                        modifier = Modifier.padding(20.dp))
-                } else {
-                    visibleReport.entries.forEachIndexed { index, grade ->
-                        if (index > 0) SettingDivider()
-                        SettingOption(
-                            title = grade.courseName.gradeText(),
-                            subtitle = "成绩 ${grade.score.gradeText()}\n学分 ${grade.credits.gradeText()} · 绩点 ${grade.gradePoint.gradeText()}",
-                            onClick = { selected = grade },
-                        )
+            if (visibleReport.entries.isEmpty()) {
+                AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
+                    Text("该学期暂无成绩。", color = ds.sub, fontSize = 14.sp)
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap)) {
+                    visibleReport.entries.chunked(2).forEach { row ->
+                        Row(
+                            Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                            horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap),
+                        ) {
+                            row.forEach { grade ->
+                                GradeCourseCard(grade, Modifier.weight(1f).fillMaxHeight()) { selected = grade }
+                            }
+                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                        }
                     }
                 }
             }
-            Text("成绩、学分和绩点均按教务原文展示，点按课程查看详情。", fontSize = 12.sp,
-                lineHeight = 18.sp, color = ds.sub, modifier = Modifier.padding(horizontal = 12.dp))
+            Text("成绩、学分和绩点均按教务原文展示，点按课程查看详情。", fontSize = 13.sp,
+                lineHeight = 20.sp, color = ds.sub, modifier = Modifier.padding(top = 12.dp))
         }
+    }
+}
+
+@Composable
+private fun GradeCourseCard(grade: TeachingGrade, modifier: Modifier, onClick: () -> Unit) {
+    val ds = LocalDs.current
+    AppCard(modifier, insideMargin = PaddingValues(AppUiTokens.CardPadding), onClick = onClick) {
+        Text(grade.courseName.gradeText(), color = ds.text, fontSize = 17.sp,
+            lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, minLines = 2, maxLines = 2,
+            overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(16.dp))
+        Text("成绩", color = ds.sub, fontSize = 13.sp)
+        Text(grade.score.gradeText(), color = ds.text, fontSize = 34.sp,
+            lineHeight = 40.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(12.dp))
+        Text("学分 ${grade.credits.gradeText()}", color = ds.sub, fontSize = 13.sp, lineHeight = 20.sp)
+        Text("绩点 ${grade.gradePoint.gradeText()}", color = ds.sub, fontSize = 13.sp, lineHeight = 20.sp)
     }
 }
 
 @Composable
 private fun GradeDetails(grade: TeachingGrade, onBack: () -> Unit) {
     SettingSubPage("成绩详情", "教务原文", onBack) {
-        SectionHeader("课程")
-        SettingGroup {
-            GradeDetailField("课程名称", grade.courseName)
-            GradeDetailField("课程代码", grade.courseCode)
-            GradeDetailField("学年", grade.yearLabel)
-            GradeDetailField("学期", grade.semesterLabel)
-            GradeDetailField("课程性质", grade.courseNature)
-            GradeDetailField("开课部门", grade.department)
-        }
         SectionHeader("成绩")
-        SettingGroup {
-            GradeDetailField("成绩", grade.score)
-            GradeDetailField("学分", grade.credits)
-            GradeDetailField("绩点", grade.gradePoint)
-            GradeDetailField("学分绩点", grade.creditGradePoint)
-            GradeDetailField("考试性质", grade.examType)
+        val metrics = listOf(
+            "成绩" to grade.score, "学分" to grade.credits,
+            "绩点" to grade.gradePoint, "学分绩点" to grade.creditGradePoint,
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap)) {
+            metrics.chunked(2).forEach { row ->
+                Row(
+                    Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap),
+                ) {
+                    row.forEach { (label, value) ->
+                        GradeMetricCard(label, value, Modifier.weight(1f).fillMaxHeight())
+                    }
+                }
+            }
+        }
+        SectionHeader("课程")
+        AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                GradeDetailField("课程名称", grade.courseName)
+                GradeDetailField("课程代码", grade.courseCode)
+                GradeDetailField("学年", grade.yearLabel)
+                GradeDetailField("学期", grade.semesterLabel)
+                GradeDetailField("课程性质", grade.courseNature)
+                GradeDetailField("开课部门", grade.department)
+                GradeDetailField("考试性质", grade.examType)
+            }
         }
         val optionalFields = listOf(
             "课程类别" to grade.courseCategory, "课程归属" to grade.courseAttribute,
@@ -205,19 +247,32 @@ private fun GradeDetails(grade: TeachingGrade, onBack: () -> Unit) {
         ).filter { it.second != null }
         if (optionalFields.isNotEmpty()) {
             SectionHeader("其他信息")
-            SettingGroup {
-                optionalFields.forEach { (label, value) -> GradeDetailField(label, value.orEmpty()) }
+            AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    optionalFields.forEach { (label, value) -> GradeDetailField(label, value.orEmpty()) }
+                }
             }
         }
     }
 }
 
 @Composable
+private fun GradeMetricCard(label: String, value: String, modifier: Modifier) {
+    val ds = LocalDs.current
+    AppCard(modifier, insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
+        Text(label, color = ds.sub, fontSize = 13.sp)
+        Spacer(Modifier.height(8.dp))
+        Text(value.gradeText(), color = ds.text, fontSize = 34.sp,
+            lineHeight = 40.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
 private fun GradeDetailField(label: String, value: String) {
     val ds = LocalDs.current
-    Column(Modifier.padding(horizontal = 20.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, color = ds.sub, fontSize = 12.sp)
-        Text(value.gradeText(), color = ds.text, fontSize = 15.sp, lineHeight = 22.sp)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, color = ds.sub, fontSize = 13.sp)
+        Text(value.gradeText(), color = ds.text, fontSize = 16.sp, lineHeight = 24.sp)
     }
 }
 

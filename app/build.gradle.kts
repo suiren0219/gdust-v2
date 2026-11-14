@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         applicationId = "com.menglimi.gdust.v2"
-        minSdk = 33  // 双风格共存：Glasmio 要求 33+，softglass 本身支持 26+
+        minSdk = 33
         targetSdk = 35
         versionCode = vCode
         versionName = vName
@@ -66,7 +66,7 @@ kotlin {
     }
 }
 
-// Glasmio（旧液态玻璃主题）也传递依赖官方 miuix-ui；与 vendor 进源码的 fork 重复，全局摘掉，
+// 排除外部子库传递的官方 miuix-ui，避免与 vendor 进源码的 fork 重复。
 // 官方 miuix-ui 的类由本项目源码顶替（同名同包同 API）。
 configurations.configureEach {
     exclude(group = "top.yukonga.miuix.kmp", module = "miuix-ui")
@@ -105,20 +105,12 @@ dependencies {
     // 只取二维码矩阵生成（Canvas 自绘，不引完整扫码 SDK）
     implementation("com.google.zxing:core:3.5.3")
 
-    // Nexio 作者的 HyperOS 柔光玻璃引擎（Apache-2.0，JitPack，纯 Kotlin 无 native）
-    // 风格一：HyperOS 柔光（只取 android 变体，根坐标会拉 jvm jar 导致 duplicate class）
-    implementation("com.github.HaoZai000.softglass:softglass-android:0.1.1")
-    // 风格二：iOS 27 液态玻璃（Apache-2.0，Maven 三模块同版本 0.1.2）
-    implementation("io.github.neoruaa.glasmio:glasmio-scaffold:0.1.2")
-    implementation("io.github.neoruaa.glasmio:glasmio-preference:0.1.2")
-    implementation("io.github.neoruaa.glasmio:glasmio-ui:0.1.2")
-
     // Miuix（小米 HyperOS 风格，Apache-2.0）：:miuix / :backdrop 两个 fork 已 vendor 进源码（移植来源见 NOTICE.md），
     // 因此**不再**依赖官方 miuix-ui / kyant backdrop 构件，只保留图标等独立子库并排除会带来重复类的 miuix-ui。
     implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.4") { excludeMiuixUi() }
     implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.4") { excludeMiuixUi() }
     implementation("top.yukonga.miuix.kmp:miuix-squircle-android:0.9.3") { excludeMiuixUi() }
-    // 液态玻璃用到的 capsule / shapes（Apache-2.0）
+    // vendor Miuix / backdrop 仍使用的连续圆角形状（Apache-2.0）
     implementation("io.github.kyant0:capsule:2.1.3")
     implementation("io.github.kyant0:shapes:1.2.1")
 
