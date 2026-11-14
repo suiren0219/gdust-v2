@@ -1,28 +1,10 @@
 package com.menglimi.gdust.v2.ui
 
-import androidx.compose.ui.graphics.Color
-import com.haooz.softglass.backdrop.drawBackdrop
-import com.haooz.softglass.backdrop.effects.blur
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import com.haooz.softglass.backdrop.backdrops.layerBackdrop
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,9 +15,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
@@ -85,10 +64,9 @@ fun AppRoot(
     showSettings: androidx.compose.runtime.MutableState<Boolean>,
     loggedIn: androidx.compose.runtime.MutableState<Boolean>,
     checked: androidx.compose.runtime.MutableState<Boolean>,
-    monetEnabled: androidx.compose.runtime.MutableState<Boolean>,
 ) {
     val scope = rememberCoroutineScope()
-    // loggedIn/checked 由 MainActivity（主题树外）持有：切风格重建主题树也不丢
+    // 登录与启动状态由 MainActivity 保存，配置重建后保留。
 
     var calendar by remember { mutableStateOf<CalendarInfo?>(repo.store.loadCalendar()) }
     var blocks by remember { mutableStateOf<List<CourseBlock>>(repo.store.loadBlocks()) }
@@ -99,7 +77,6 @@ fun AppRoot(
     var showWebImport by remember { mutableStateOf(false) }
     var webImportReport by remember { mutableStateOf<String?>(null) }
     var directFallbackMessage by remember { mutableStateOf<String?>(null) }
-    var wallpaperTick by remember { mutableStateOf(0) }
     var showProfile by remember { mutableStateOf(false) }
     var showNotices by remember { mutableStateOf(false) }
     var showReminder by remember { mutableStateOf(false) }
@@ -109,7 +86,6 @@ fun AppRoot(
     var showGrades by remember { mutableStateOf(false) }
     var showChxCourses by remember { mutableStateOf(false) }
     var webReturnVersion by remember { mutableIntStateOf(0) }
-    var showGlassEffect by remember { mutableStateOf(false) }
     val sessionVersion by repo.sessionVersion.collectAsState()
     val noticeFeed = remember(repo) { NoticeFeed(repo::portalSession, repo::notices) }
     val noticeState by noticeFeed.state.collectAsState()
@@ -303,7 +279,6 @@ fun AppRoot(
             showTodoReminder -> "todo_reminder"
             showChxNotifications -> "chx_notifications"
             showChxEntry -> "chx_entry"
-            showGlassEffect -> "glass_effect"
             showProfile -> "profile"
             showAbout -> "about"
             showSettings.value -> "settings"
@@ -355,10 +330,6 @@ fun AppRoot(
                 ChxEntryScreen(repo = repo, onBack = { showChxEntry = false },
                     onCourses = { showChxCourses = true })
             }
-            "glass_effect" -> {
-                androidx.activity.compose.BackHandler { showGlassEffect = false }
-                com.menglimi.gdust.v2.ui.screens.GlassEffectScreen(repo = repo, onBack = { showGlassEffect = false })
-            }
             "notices" -> {
                 androidx.activity.compose.BackHandler { showNotices = false }
                 NoticeScreen(
@@ -407,7 +378,6 @@ fun AppRoot(
                 onChxCourses = { showChxCourses = true },
                 onSchoolNotices = { showNotices = true; loadNotices() },
                 onFiveEducation = { openServiceWeb("http://172.16.1.232/index") },
-                onWallpaperChanged = { wallpaperTick++ },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },
                 onExportBackup = exportLauncher,
@@ -418,8 +388,6 @@ fun AppRoot(
                         .onSuccess { result ->
                             calendar = repo.store.loadCalendar()
                             blocks = repo.store.loadBlocks()
-                            monetEnabled.value = repo.store.monetEnabled
-                            wallpaperTick++
                             syncError = null
                             importReport = "备份已恢复：$result"
                         }
@@ -428,7 +396,6 @@ fun AppRoot(
                 onLogout = { logout() },
                 loggedIn = loggedIn.value,
                 chxSessionSaved = chxSessionSaved,
-                monetEnabled = monetEnabled,
                 openSection = openSection,
                 syncing = syncing,
                 onBack = { showSettings.value = false },
@@ -442,7 +409,6 @@ fun AppRoot(
                 notices = notices,
                 unreadCount = notices.count { it.readId !in readNoticeIds },
                 onImport = { showWebImport = true },
-                onGlassEffect = { showGlassEffect = true },
                 calendar = calendar,
                 blocks = blocks,
                 syncError = syncError,
@@ -457,7 +423,6 @@ fun AppRoot(
                         sync()
                     }
                 },
-                wallpaperTick = wallpaperTick,
             )
             else -> Box(Modifier.fillMaxSize().background(LocalDs.current.bg))
         }
@@ -543,78 +508,46 @@ private fun MainScaffold(
     blocks: List<CourseBlock>,
     syncError: String?,
     onSwitchTerm: (String) -> Unit = {},
-    wallpaperTick: Int = 0,
     onImport: () -> Unit = {},
-    onGlassEffect: () -> Unit = {},
 ) {
     val ds = LocalDs.current
-    // 壁纸：路径非空即启用；页面底色转透明，让壁纸透出来（tick 变化时重读）
-    val wallpaperPath = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperPath }
-    val wallpaperOn = wallpaperPath.isNotBlank()
-    androidx.compose.runtime.CompositionLocalProvider(LocalWallpaperActive provides wallpaperOn) {
-        // 新底栏是液态玻璃：内容层要先录进 layer backdrop，玻璃才有东西可采样
-        val glassBackdrop = com.haooz.softglass.backdrop.backdrops.rememberLayerBackdrop()
-        // 课程卡/顶栏的玻璃都采样这一层（单层，避免双录制把 RenderThread 干崩）
-        androidx.compose.runtime.CompositionLocalProvider(
-            com.menglimi.gdust.v2.ui.nexio.LocalPageLayerBackdrop provides glassBackdrop,
-        ) {
-        Box(Modifier.fillMaxSize()) {
-            // 采样层只录壁纸（卡片/顶栏在页面里采样它；录页面会形成 GPU 自采样反馈回路 → RenderThread SIGSEGV）
-            if (wallpaperOn) {
-                Box(Modifier.fillMaxSize().layerBackdrop(glassBackdrop)) {
-                    WallpaperBackdrop(
-                        path = wallpaperPath,
-                        blurDp = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperBlur },
-                        dim = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperDim },
-                    )
-                }
-            } else {
-                Box(Modifier.fillMaxSize().background(ds.bg))
+    Box(Modifier.fillMaxSize().background(ds.bg)) {
+        Crossfade(
+            targetState = tab,
+            animationSpec = tween(220),
+            label = "tabs",
+            modifier = Modifier.fillMaxSize(),
+        ) { page ->
+            when (page) {
+                0 -> TodayScreen(
+                    calendar = calendar,
+                    blocks = blocks,
+                    onOpenNotices = onOpenNotices,
+                    unreadCount = unreadCount,
+                    onOpenSchedule = { onTab(1) },
+                    onImport = onImport,
+                    hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
+                )
+                1 -> ScheduleScreen(
+                    repo = repo,
+                    calendar = calendar,
+                    blocks = blocks,
+                    syncError = syncError,
+                    onPrevWeek = {},
+                    onNextWeek = {},
+                    onSwitchTerm = onSwitchTerm,
+                    fullTermImported = repo.store.scheduleSource == "zf_term",
+                    onImport = onImport,
+                )
+                2 -> PowerScreen(repo)
+                else -> TodoScreen(repo)
             }
-            Box(Modifier.fillMaxSize()) {
-            Crossfade(
-                targetState = tab,
-                animationSpec = tween(220),
-                label = "tabs",
-                modifier = Modifier.fillMaxSize(),
-            ) { page ->
-                when (page) {
-                    0 -> TodayScreen(
-                        calendar = calendar,
-                        blocks = blocks,
-                        onOpenNotices = onOpenNotices,
-                        unreadCount = unreadCount,
-                        onOpenSchedule = { onTab(1) },
-                        onImport = onImport,
-                        hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
-                    )
-                    1 -> ScheduleScreen(
-                        repo = repo,
-                        calendar = calendar,
-                        blocks = blocks,
-                        syncError = syncError,
-                        onPrevWeek = {},
-                        onNextWeek = {},
-                        onSwitchTerm = onSwitchTerm,
-                        fullTermImported = repo.store.scheduleSource == "zf_term",
-                        onImport = onImport,
-                        onGlassEffect = onGlassEffect,
-                    )
-                    2 -> PowerScreen(repo)
-                    else -> TodoScreen(repo)
-                }
-            }
-            }
-
-        // 新 UI：Nexio 式浮动液态玻璃底栏（四个 tab + 设置）
-            com.menglimi.gdust.v2.ui.nexio.NexioBottomBar(
-                selectedTab = tab,
-                onTabSelected = onTab,
-                onSettings = onSettings,
-                backdrop = glassBackdrop,
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
         }
-        }
+        com.menglimi.gdust.v2.ui.nexio.NexioBottomBar(
+            selectedTab = tab,
+            onTabSelected = onTab,
+            onSettings = onSettings,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }

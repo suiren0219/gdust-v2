@@ -1,21 +1,24 @@
 package com.menglimi.gdust.v2.ui.screens
 
-import android.content.Context
+import android.content.res.Configuration
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -30,13 +33,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.menglimi.gdust.v2.data.Store
 import com.menglimi.gdust.v2.data.TodoGroups
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.screens.PageTitle
 import com.menglimi.gdust.v2.widget.WidgetData
 import com.menglimi.gdust.v2.widget.WidgetDataSource
 import com.menglimi.gdust.v2.widget.WidgetPreset
@@ -54,7 +65,6 @@ import kotlinx.coroutines.launch
 fun WidgetPreviewScreen(onBack: () -> Unit) {
     val ds = LocalDs.current
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     BackHandler { onBack() }
 
     val data = remember { WidgetDataSource.load(context) }
@@ -66,13 +76,14 @@ fun WidgetPreviewScreen(onBack: () -> Unit) {
             .fillMaxSize()
             .background(ds.bg)
             .statusBarsPadding()
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),
     ) {
         Spacer(Modifier.height(24.dp))
         PageTitle(title = "桌面小部件", onBack = onBack)
         M3Text(
-            "九款均为玻璃卡画风，跟随系统深浅色；预览使用你本机的真实数据。",
+            "课表、电量与待办，随时抬眼可见。点按预览添加到桌面。",
             fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp),
         )
 
@@ -108,9 +119,12 @@ private fun PresetRow(preset: WidgetPreset, preview: @Composable () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(ds.card)
-            .clickable {
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Button,
+                onClickLabel = "添加${preset.label}到桌面",
+            ) {
                 scope.launch {
                     val ok = pinWidget(context, preset)
                     Toast.makeText(
@@ -119,38 +133,41 @@ private fun PresetRow(preset: WidgetPreset, preview: @Composable () -> Unit) {
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
-            }
-            .padding(12.dp),
+            },
     ) {
         preview()
-        Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            M3Text(preset.label, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = ds.text)
-            Spacer(Modifier.weight(1f))
-            M3Text("点按添加 ›", fontSize = 12.sp, color = ds.accent)
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            M3Text(preset.label, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                color = ds.text, modifier = Modifier.weight(1f))
+            M3Text("添加到桌面", fontSize = 12.sp, color = ds.accent)
         }
     }
-    Spacer(Modifier.height(10.dp))
+    Spacer(Modifier.height(12.dp))
 }
 
-// ── 预览卡容器：玻璃底与桌面渲染同一张画法 ──────────────────────────────────
+// ── 预览卡容器：与桌面共用实底色与圆角，宽度受页面约束 ─────────────────────
 
 @Composable
-private fun PreviewCard(width: androidx.compose.ui.unit.Dp, height: androidx.compose.ui.unit.Dp, content: @Composable () -> Unit) {
-    val context = LocalContext.current
-    val dark = WidgetStyle.isDark(context)
-    val density = context.resources.displayMetrics.density
-    val bmp = remember(width, height, dark) {
-        WidgetStyle.glassCard(context, (width.value * density).toInt(), (height.value * density).toInt(), WidgetStyle.radius.value * density)
-    }
-    Box(
-        Modifier
-            .width(width)
-            .height(height)
-            .clip(RoundedCornerShape(WidgetStyle.radius)),
-    ) {
-        Image(bmp.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize())
-        Box(Modifier.padding(10.dp)) { content() }
+private fun widgetPreviewDark(): Boolean =
+    (LocalConfiguration.current.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
+private fun widgetCardColor(dark: Boolean) = Color(if (dark) WidgetStyle.CARD_DARK else WidgetStyle.CARD_LIGHT)
+
+@Composable
+private fun PreviewCard(width: Dp, height: Dp, content: @Composable () -> Unit) {
+    val dark = widgetPreviewDark()
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        Box(
+            Modifier.width(minOf(width, maxWidth)).height(height)
+                .clip(RoundedCornerShape(WidgetStyle.radius))
+                .background(widgetCardColor(dark)),
+        ) {
+            Box(Modifier.fillMaxSize().padding(10.dp)) { content() }
+        }
     }
 }
 
@@ -159,11 +176,14 @@ private fun wsc(dark: Boolean) = WidgetStyle.sub(dark)
 private fun wac(dark: Boolean) = Color(WidgetStyle.accent(dark))
 
 @Composable
-private fun MiniBadge(text: String, dark: Boolean, width: androidx.compose.ui.unit.Dp? = null) {
-    var m = Modifier.clip(RoundedCornerShape(9.dp)).background(wac(dark).copy(alpha = if (dark) 0.26f else 0.15f))
-    if (width != null) m = m.width(width)
+private fun MiniBadge(text: String, dark: Boolean, width: Dp? = null, danger: Boolean = false) {
+    val foreground = if (danger) Color(WidgetStyle.danger(dark)) else wac(dark)
+    val background = if (danger) foreground.copy(alpha = 0.12f) else WidgetStyle.accentSoft(dark)
+    var m = Modifier.clip(RoundedCornerShape(9.dp)).background(background.compositeOver(widgetCardColor(dark)))
+    if (width != null) m = m.width(width * LocalDensity.current.fontScale.coerceAtLeast(1f))
     Box(m.padding(horizontal = 7.dp, vertical = 3.dp), contentAlignment = Alignment.Center) {
-        M3Text(text, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = wac(dark))
+        M3Text(text, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = foreground, maxLines = 1,
+            overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -171,7 +191,7 @@ private fun MiniBadge(text: String, dark: Boolean, width: androidx.compose.ui.un
 
 @Composable
 fun SchedulePreview(data: WidgetData, shape: WidgetPresentation.Shape) {
-    val dark = WidgetStyle.isDark(LocalContext.current)
+    val dark = widgetPreviewDark()
     val size = when (shape) {
         WidgetPresentation.Shape.WIDE -> 340.dp to 170.dp
         WidgetPresentation.Shape.MEDIUM -> 180.dp to 180.dp
@@ -181,19 +201,26 @@ fun SchedulePreview(data: WidgetData, shape: WidgetPresentation.Shape) {
     PreviewCard(size.first, size.second) {
         when (shape) {
             WidgetPresentation.Shape.WIDE -> Column {
-                Row(Modifier.fillMaxWidth()) {
-                    M3Text(WidgetPresentation.scheduleTitle(data), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = wtc(dark))
-                    Spacer(Modifier.weight(1f))
-                    M3Text(WidgetPresentation.scheduleSummary(data), fontSize = 10.sp, color = wsc(dark))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    M3Text(WidgetPresentation.scheduleTitle(data), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                        color = wtc(dark), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    M3Text(WidgetPresentation.scheduleSummary(data), fontSize = 11.sp, color = wsc(dark))
                 }
                 Spacer(Modifier.height(6.dp))
-                data.lessons.take(3).forEach { b ->
+                data.lessons.take(4).forEach { b ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                         MiniBadge(WidgetPresentation.sectionLabel(b), dark, 36.dp)
                         Spacer(Modifier.width(8.dp))
-                        M3Text(b.name, fontSize = 12.sp, color = wtc(dark), maxLines = 1)
-                        Spacer(Modifier.weight(1f))
-                        M3Text(b.room, fontSize = 10.sp, color = wsc(dark), maxLines = 1)
+                        M3Text(b.name, fontSize = 12.sp, color = wtc(dark), maxLines = 1,
+                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Spacer(Modifier.width(6.dp))
+                        M3Text(b.room, fontSize = 11.sp, color = wsc(dark), maxLines = 1,
+                            overflow = TextOverflow.Ellipsis, modifier = Modifier.width(76.dp))
+                    }
+                }
+                if (data.lessons.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        M3Text(WidgetPresentation.scheduleEmpty(data), fontSize = 12.sp, color = wsc(dark))
                     }
                 }
             }
@@ -202,35 +229,49 @@ fun SchedulePreview(data: WidgetData, shape: WidgetPresentation.Shape) {
                 M3Text(
                     if (data.scope == WidgetData.Scope.TOMORROW) "下一节 · 明天"
                     else next?.let { "下一节 · " + com.menglimi.gdust.v2.ui.schedule.ScheduleTimes.start(it.startSection) } ?: "下一节",
-                    fontSize = 10.sp, color = wsc(dark),
+                    fontSize = 11.sp, color = wsc(dark),
                 )
                 Spacer(Modifier.height(6.dp))
-                M3Text(next?.name ?: WidgetPresentation.scheduleEmpty(data), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = wtc(dark))
+                M3Text(next?.name ?: WidgetPresentation.scheduleEmpty(data), fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                    color = wtc(dark), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.weight(1f))
                 if (next != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         MiniBadge(WidgetPresentation.sectionLabel(next), dark)
                         Spacer(Modifier.width(8.dp))
-                        M3Text(next.room, fontSize = 10.sp, color = wsc(dark), maxLines = 1)
+                        M3Text(next.room, fontSize = 11.sp, color = wsc(dark), maxLines = 1,
+                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     }
                     M3Text(WidgetPresentation.nextCountdown(data.scope, next, data.now.toLocalTime()), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = wac(dark))
+                } else {
+                    M3Text(WidgetPresentation.scheduleSummary(data), fontSize = 11.sp, color = wsc(dark))
                 }
             }
             WidgetPresentation.Shape.TALL -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 MiniBadge(data.week?.let { "第 $it 周" } ?: "课表", dark)
                 Spacer(Modifier.weight(1f))
-                M3Text("${data.lessons.size}", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = wtc(dark))
-                M3Text(if (data.scope == WidgetData.Scope.TOMORROW) "明天课程" else "剩余课程", fontSize = 9.sp, color = wsc(dark))
+                when {
+                    data.scope == WidgetData.Scope.NO_DATA -> {
+                        M3Text("—", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = wtc(dark))
+                        M3Text("待导入", fontSize = 11.sp, color = wsc(dark))
+                    }
+                    data.lessons.isEmpty() -> M3Text("无课", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = wtc(dark))
+                    else -> {
+                        M3Text("${data.lessons.size}", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = wtc(dark))
+                        M3Text(if (data.scope == WidgetData.Scope.TOMORROW) "明天课程" else "剩余课程", fontSize = 11.sp, color = wsc(dark))
+                    }
+                }
                 Spacer(Modifier.weight(1f))
-                M3Text(WidgetPresentation.tallFootnote(data), fontSize = 9.sp, color = wsc(dark), maxLines = 2)
+                M3Text(WidgetPresentation.tallFootnote(data), fontSize = 11.sp, color = wsc(dark), maxLines = 2)
             }
             else -> Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                 val next = data.lessons.firstOrNull()
                 if (next != null) {
                     MiniBadge(WidgetPresentation.sectionLabel(next), dark)
                     Spacer(Modifier.width(8.dp))
-                    M3Text(next.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = wtc(dark), maxLines = 1)
-                    Spacer(Modifier.weight(1f))
+                    M3Text(next.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = wtc(dark), maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Spacer(Modifier.width(8.dp))
                     M3Text(WidgetPresentation.nextCountdown(data.scope, next, data.now.toLocalTime()), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = wac(dark))
                 } else {
                     M3Text(WidgetPresentation.scheduleEmpty(data), fontSize = 12.sp, color = wsc(dark))
@@ -245,12 +286,11 @@ fun SchedulePreview(data: WidgetData, shape: WidgetPresentation.Shape) {
 @Composable
 fun PowerPreview(data: WidgetData, days: Int, shape: WidgetPresentation.Shape) {
     val context = LocalContext.current
-    val dark = WidgetStyle.isDark(context)
-    val density = context.resources.displayMetrics.density
-    val samples = remember(days) { WidgetDataSource.trend(context, days) }
+    val dark = widgetPreviewDark()
+    val samples = remember(context, days) { WidgetDataSource.trend(context, days) }
     val stats = WidgetPresentation.trendStats(samples, data.lastSampleAt, data.now.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli())
     val low = WidgetPresentation.powerLow(data.odd, data.warnTh)
-    val valueColor = if (low) Color(WidgetStyle.DANGER) else wac(dark)
+    val valueColor = if (low) Color(WidgetStyle.danger(dark)) else wtc(dark)
     val size = when (shape) {
         WidgetPresentation.Shape.WIDE -> 340.dp to 170.dp
         WidgetPresentation.Shape.MEDIUM -> 180.dp to 180.dp
@@ -261,58 +301,71 @@ fun PowerPreview(data: WidgetData, days: Int, shape: WidgetPresentation.Shape) {
         when (shape) {
             WidgetPresentation.Shape.WIDE -> Column(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxWidth()) {
-                    M3Text(data.roomName.ifEmpty { "宿舍电量" }, fontSize = 10.sp, color = wsc(dark))
-                    Spacer(Modifier.weight(1f))
+                    M3Text(data.roomName.ifEmpty { "宿舍电量" }, fontSize = 11.sp, color = wsc(dark),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Spacer(Modifier.width(6.dp))
                     MiniBadge(if (days == 7) "七天" else "半月", dark)
                 }
-                Row(verticalAlignment = Alignment.Bottom) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                     M3Text(WidgetPresentation.powerValue(data.odd), fontSize = 28.sp, fontWeight = FontWeight.Bold, color = valueColor)
                     M3Text(" 度", fontSize = 11.sp, color = wsc(dark))
                     Spacer(Modifier.weight(1f))
-                    M3Text(WidgetPresentation.rateLabel(stats), fontSize = 10.sp, color = wsc(dark))
+                    M3Text(WidgetPresentation.rateLabel(stats), fontSize = 11.sp, color = wsc(dark))
                 }
                 Spacer(Modifier.weight(1f))
                 if (samples.size >= 2) {
-                    val bmp = remember(samples, days) {
-                        WidgetStyle.trend(context, samples, (320 * density).toInt(), (72 * density).toInt(), days, data.warnTh)
-                    }
-                    bmp?.let { Image(it.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxWidth().height(72.dp)) }
+                    PreviewTrend(samples, days, data.warnTh, 72.dp, dark)
                 }
             }
             WidgetPresentation.Shape.MEDIUM -> Column(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxWidth()) {
-                    M3Text(data.roomName.ifEmpty { "宿舍电量" }, fontSize = 10.sp, color = wsc(dark))
-                    Spacer(Modifier.weight(1f))
-                    M3Text(stats?.updatedLabel.orEmpty(), fontSize = 9.sp, color = wsc(dark))
+                    M3Text(data.roomName.ifEmpty { "宿舍电量" }, fontSize = 11.sp, color = wsc(dark),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Spacer(Modifier.width(6.dp))
+                    M3Text(stats?.updatedLabel.orEmpty(), fontSize = 11.sp, color = wsc(dark))
                 }
                 Row(verticalAlignment = Alignment.Bottom) {
                     M3Text(WidgetPresentation.powerValue(data.odd), fontSize = 26.sp, fontWeight = FontWeight.Bold, color = valueColor)
-                    M3Text(" 度", fontSize = 10.sp, color = wsc(dark))
+                    M3Text(" 度", fontSize = 11.sp, color = wsc(dark))
                 }
                 Spacer(Modifier.weight(1f))
                 if (samples.size >= 2) {
-                    val bmp = remember(samples, days) {
-                        WidgetStyle.trend(context, samples, (160 * density).toInt(), (34 * density).toInt(), days, data.warnTh)
-                    }
-                    bmp?.let { Image(it.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxWidth().height(34.dp)) }
+                    PreviewTrend(samples, days, data.warnTh, 48.dp, dark)
                 }
             }
             WidgetPresentation.Shape.TALL -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 MiniBadge("电量", dark)
                 Spacer(Modifier.weight(1f))
                 M3Text(WidgetPresentation.powerValue(data.odd), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = valueColor)
-                M3Text("度 · " + data.roomName.ifEmpty { "宿舍" }, fontSize = 8.sp, color = wsc(dark), maxLines = 2)
+                M3Text("度 · " + data.roomName.ifEmpty { "宿舍" }, fontSize = 11.sp, color = wsc(dark), maxLines = 2)
                 Spacer(Modifier.weight(1f))
-                M3Text(if (days == 7) "近 7 天" else "近半月", fontSize = 8.sp, color = wsc(dark))
+                M3Text(if (days == 7) "近 7 天" else "近半月", fontSize = 11.sp, color = wsc(dark))
             }
             else -> Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                 MiniBadge("电量", dark)
                 Spacer(Modifier.width(8.dp))
                 M3Text(WidgetPresentation.powerValue(data.odd), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = valueColor)
-                M3Text(" 度", fontSize = 10.sp, color = wsc(dark))
+                M3Text(" 度", fontSize = 11.sp, color = wsc(dark))
                 Spacer(Modifier.weight(1f))
-                M3Text(if (days == 7) "近 7 天" else "近半月", fontSize = 9.sp, color = wsc(dark))
+                M3Text(if (days == 7) "近 7 天" else "近半月", fontSize = 11.sp, color = wsc(dark))
             }
+        }
+    }
+}
+
+@Composable
+private fun PreviewTrend(samples: List<Store.Sample>, days: Int, warnThreshold: Float, height: Dp, dark: Boolean) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxWidth().height(height)) {
+        val widthPx = with(density) { maxWidth.roundToPx() }
+        val heightPx = with(density) { height.roundToPx() }
+        val bitmap = remember(context, samples, days, warnThreshold, dark, widthPx, heightPx, density.fontScale) {
+            WidgetStyle.trend(context, samples, widthPx, heightPx, days, warnThreshold)
+        }
+        bitmap?.let {
+            Image(it.asImageBitmap(), contentDescription = "电量走势", contentScale = ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize())
         }
     }
 }
@@ -321,9 +374,9 @@ fun PowerPreview(data: WidgetData, days: Int, shape: WidgetPresentation.Shape) {
 
 @Composable
 fun TodoPreview(groups: TodoGroups, shape: WidgetPresentation.Shape) {
-    val dark = WidgetStyle.isDark(LocalContext.current)
+    val dark = widgetPreviewDark()
     val items = remember(groups) { WidgetPresentation.pendingTodos(groups, System.currentTimeMillis()) }
-    val danger = Color(WidgetStyle.DANGER)
+    val danger = Color(WidgetStyle.danger(dark))
     val size = when (shape) {
         WidgetPresentation.Shape.WIDE -> 340.dp to 170.dp
         WidgetPresentation.Shape.MEDIUM -> 180.dp to 180.dp
@@ -337,10 +390,10 @@ fun TodoPreview(groups: TodoGroups, shape: WidgetPresentation.Shape) {
                     M3Text("待办", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = wtc(dark))
                     if (groups.overdue.isNotEmpty()) {
                         Spacer(Modifier.width(6.dp))
-                        MiniBadge("${groups.overdue.size} 逾期", dark)
+                        MiniBadge("${groups.overdue.size} 逾期", dark, danger = true)
                     }
                     Spacer(Modifier.weight(1f))
-                    M3Text("共 ${items.size} 项", fontSize = 10.sp, color = wsc(dark))
+                    M3Text("共 ${items.size} 项", fontSize = 11.sp, color = wsc(dark))
                 }
                 Spacer(Modifier.height(4.dp))
                 items.take(4).forEach { item ->
@@ -348,7 +401,7 @@ fun TodoPreview(groups: TodoGroups, shape: WidgetPresentation.Shape) {
                         M3Text(if (item.overdue) "◆" else "○", fontSize = 11.sp, color = if (item.overdue) danger else wac(dark))
                         Spacer(Modifier.width(8.dp))
                         M3Text(item.todo.text, fontSize = 12.sp, color = wtc(dark), maxLines = 1, modifier = Modifier.weight(1f))
-                        M3Text(item.dueLabel, fontSize = 10.sp, color = if (item.overdue) danger else wsc(dark))
+                        M3Text(item.dueLabel, fontSize = 11.sp, color = if (item.overdue) danger else wsc(dark))
                     }
                 }
                 if (items.isEmpty()) {
@@ -358,33 +411,33 @@ fun TodoPreview(groups: TodoGroups, shape: WidgetPresentation.Shape) {
                 }
             }
             WidgetPresentation.Shape.MEDIUM -> Column(Modifier.fillMaxSize()) {
-                M3Text("待办", fontSize = 10.sp, color = wsc(dark))
+                M3Text("待办", fontSize = 11.sp, color = wsc(dark))
                 Row(verticalAlignment = Alignment.Bottom) {
                     M3Text("${items.size}", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = wtc(dark))
-                    M3Text(" 项", fontSize = 10.sp, color = wsc(dark))
+                    M3Text(" 项", fontSize = 11.sp, color = wsc(dark))
                 }
-                if (groups.overdue.isNotEmpty()) M3Text("${groups.overdue.size} 项逾期", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = danger)
+                if (groups.overdue.isNotEmpty()) M3Text("${groups.overdue.size} 项逾期", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = danger)
                 Spacer(Modifier.weight(1f))
                 items.firstOrNull()?.let { n ->
-                    M3Text(n.todo.text, fontSize = 10.sp, color = wtc(dark), maxLines = 1)
-                    M3Text(n.dueLabel, fontSize = 9.sp, color = if (n.overdue) danger else wsc(dark))
-                } ?: M3Text("暂无待办", fontSize = 10.sp, color = wsc(dark))
+                    M3Text(n.todo.text, fontSize = 11.sp, color = wtc(dark), maxLines = 1)
+                    M3Text(n.dueLabel, fontSize = 11.sp, color = if (n.overdue) danger else wsc(dark))
+                } ?: M3Text("暂无待办", fontSize = 11.sp, color = wsc(dark))
             }
             WidgetPresentation.Shape.TALL -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 M3Text("待办", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = wtc(dark))
                 Spacer(Modifier.weight(1f))
                 M3Text("${items.size}", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = wtc(dark))
-                M3Text("条待办", fontSize = 9.sp, color = wsc(dark))
+                M3Text("条待办", fontSize = 11.sp, color = wsc(dark))
                 Spacer(Modifier.weight(1f))
-                if (groups.overdue.isNotEmpty()) M3Text("${groups.overdue.size} 逾期", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = danger)
-                else M3Text(if (groups.today.size > 0) "今日 ${groups.today.size} 项" else "无逾期", fontSize = 9.sp, color = wsc(dark))
+                if (groups.overdue.isNotEmpty()) M3Text("${groups.overdue.size} 逾期", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = danger)
+                else M3Text(if (groups.today.size > 0) "今日 ${groups.today.size} 项" else "无逾期", fontSize = 11.sp, color = wsc(dark))
             }
             else -> Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                 MiniBadge("${items.size}", dark, 30.dp)
                 Spacer(Modifier.width(8.dp))
                 items.firstOrNull()?.let { n ->
                     M3Text(n.todo.text, fontSize = 12.sp, color = wtc(dark), maxLines = 1, modifier = Modifier.weight(1f))
-                    M3Text(n.dueLabel, fontSize = 10.sp, color = if (n.overdue) danger else wsc(dark))
+                    M3Text(n.dueLabel, fontSize = 11.sp, color = if (n.overdue) danger else wsc(dark))
                 } ?: M3Text("暂无待办", fontSize = 12.sp, color = wsc(dark))
             }
         }

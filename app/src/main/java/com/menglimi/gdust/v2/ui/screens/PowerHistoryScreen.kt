@@ -86,7 +86,7 @@ fun PowerHistoryScreen(repo: Repository, onBack: () -> Unit) {
     val today = LocalDate.now()
 
     SettingSubPage("电量历史", "本机采样按天汇总 · 最多保留 30 天", onBack) {
-        AppCard(Modifier.fillMaxWidth(), insideMargin = androidx.compose.foundation.layout.PaddingValues(14.dp)) {
+        AppCard(Modifier.fillMaxWidth(), insideMargin = androidx.compose.foundation.layout.PaddingValues(AppUiTokens.CardPadding)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 MonthArrow("上个月") { month = month.minusMonths(1) }
                 Text(
@@ -128,7 +128,7 @@ fun PowerHistoryScreen(repo: Repository, onBack: () -> Unit) {
 
         Spacer(Modifier.height(12.dp))
         val stat = byDay[selected]
-        AppCard(Modifier.fillMaxWidth(), insideMargin = androidx.compose.foundation.layout.PaddingValues(16.dp)) {
+        AppCard(Modifier.fillMaxWidth(), insideMargin = androidx.compose.foundation.layout.PaddingValues(AppUiTokens.CardPadding)) {
             Text("${selected.monthValue} 月 ${selected.dayOfMonth} 日", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = ds.text)
             if (stat == null) {
                 Text("这一天没有本机采样记录。", fontSize = 13.sp, color = secondary, modifier = Modifier.padding(top = 6.dp))
@@ -145,15 +145,15 @@ fun PowerHistoryScreen(repo: Repository, onBack: () -> Unit) {
                     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             Instant.ofEpochMilli(sample.time).atZone(ZoneId.systemDefault()).toLocalTime().format(timeFormat),
-                            fontSize = 12.sp, color = secondary, modifier = Modifier.weight(1f),
+                            fontSize = 13.sp, color = secondary, modifier = Modifier.weight(1f),
                         )
                         Text(
                             "%.1f 度".format(sample.odd),
                             fontSize = 13.sp, color = ds.text,
                         )
                         Text(
-                            delta?.let { if (it >= 0) " +%.1f" else " %.1f".format(it) } ?: "",
-                            fontSize = 12.sp,
+                            delta?.let { " %+.1f".format(it) } ?: "",
+                            fontSize = 13.sp,
                             color = if ((delta ?: 0.0) < 0) ds.danger else secondary,
                         )
                     }
@@ -164,7 +164,7 @@ fun PowerHistoryScreen(repo: Repository, onBack: () -> Unit) {
         Text(
             "数据由本机按采样间隔记录（设置 → 电量采样间隔），仅保留最近 30 天；" +
                 "换机、重装或清数据后历史随之清空。学校接口自带的近 7 日用电在电量页单独展示。",
-            fontSize = 12.sp, lineHeight = 17.sp, color = secondary,
+            fontSize = 13.sp, lineHeight = 17.sp, color = secondary,
         )
     }
 }
@@ -223,7 +223,7 @@ private fun DayCell(
     }
     Column(
         modifier
-            .height(52.dp)
+            .height(60.dp * androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceAtLeast(1f))
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
             .background(background)
             .clickable(role = Role.Button, onClick = onClick)
@@ -237,13 +237,13 @@ private fun DayCell(
     ) {
         Text(
             "${date.dayOfMonth}",
-            fontSize = 12.sp,
+            fontSize = 13.sp,
             fontWeight = if (isToday || isSelected) FontWeight.Bold else FontWeight.Normal,
-            color = if (isToday || isSelected) ds.accent else ds.text,
+            color = ds.text,
         )
         Text(
             odd?.let { "%.0f".format(it) } ?: "",
-            fontSize = 9.sp,
+            fontSize = 11.sp,
             color = secondaryTextColor(),
             maxLines = 1,
         )
@@ -254,14 +254,14 @@ private fun DayCell(
 private fun MonthArrow(description: String, enabled: Boolean = true, onClick: () -> Unit) {
     val ds = LocalDs.current
     Box(
-        Modifier.size(36.dp).clip(CircleShape)
+        Modifier.size(48.dp).clip(CircleShape)
             .background(ds.text.copy(alpha = if (enabled) 0.08f else 0.03f))
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
         Text(if (description == "上个月") "‹" else "›", fontSize = 20.sp,
-            color = if (enabled) ds.text else ds.sub.copy(alpha = 0.4f))
+            color = if (enabled) ds.text else ds.sub)
     }
 }
 
@@ -269,6 +269,6 @@ private fun MonthArrow(description: String, enabled: Boolean = true, onClick: ()
 private fun LegendDot(color: Color, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(color))
-        Text(label, fontSize = 11.sp, color = secondaryTextColor(), modifier = Modifier.padding(start = 4.dp))
+        Text(label, fontSize = 13.sp, color = secondaryTextColor(), modifier = Modifier.padding(start = 4.dp))
     }
 }

@@ -14,8 +14,8 @@
 - **三种登录方式**：账号密码直连（票据自动续租）/ 钉钉扫码（SSE + App 自绘二维码，免验证码）/ 网页登录（兼容备用）。教务会话持久化，12 小时自动同步，失效才提醒重登
 - **宿舍水电**：完美校园接口直连，剩余电量大字 + 今日/近 7 日/当月用量 + 走势图（点按查看任意采样点）+ 低电量/掉电速率双预警（后台 15 分钟巡检，同类 12h 冷却）
 - **通知 AI 总结**：自填任意 OpenAI 兼容端点，把学校公告提炼成要点
-- **桌面小组件 ×9**：课表数据（今日条子 4×2 / 下一节 2×2 / 周进度 1×2）、宿舍电量（走势+七天/半月切换 4×2 / 大字+迷你走势 2×2 / 竖条 1×2）、待办条子（列表 4×2 / 概览 2×2 / 计数 1×2），玻璃卡画风，数据全部本机缓存，不打网络
-- **Nexio 界面**：基于 [NexioSchedule](https://github.com/HaoZai000/NexioSchedule) `1.7.0-1113`（`28a99a3`）移植的 Miuix 页面与 SoftGlass 底栏，保留柔光/液态两种材质
+- **桌面小组件 ×9**：课表数据（今日条子 4×2 / 下一节 2×2 / 周进度 1×2）、宿舍电量（走势+七天/半月切换 4×2 / 大字+迷你走势 2×2 / 竖条 1×2）、待办条子（列表 4×2 / 概览 2×2 / 计数 1×2），实底卡片，数据全部本机缓存，不打网络
+- **CZeroX 界面**：实底卡片语言，可读性优先，App 与桌面小部件共用同一套色板与间距；组件体系基于 Miuix（Apache-2.0，部分 vendor 进源码）。早期版本曾移植 [NexioSchedule](https://github.com/HaoZai000/NexioSchedule) 的页面与玻璃底栏，CZeroX 改版已移除全部玻璃实现，移植记录保留在 [NOTICE.md](NOTICE.md)
 - **更多**：莫奈动态取色、课表壁纸（模糊/压暗可调）、卡片字号/高度/圆角/对齐/文字颜色可调、点课程卡看详情、备份与恢复（SAF）、待办
 
 ## 隐私
@@ -26,7 +26,7 @@
 
 ## 技术栈
 
-Kotlin · Jetpack Compose · Material 3 · [softglass](https://github.com/HaoZai000/softglass)（Apache-2.0）· [Glasmio](https://github.com/neoruaa/Glasmio)（Apache-2.0）· Glance · WorkManager · OkHttp/OkHttp-SSE · ZXing · [MaterialKolor](https://github.com/jordond/MaterialKolor)（MIT）
+Kotlin · Jetpack Compose · Material 3 · [Miuix](https://github.com/miuix-kotlin-multiplatform/miuix)（Apache-2.0，部分 vendor 进源码）· Glance · WorkManager · OkHttp/OkHttp-SSE · ZXing · [MaterialKolor](https://github.com/jordond/MaterialKolor)（MIT）
 
 ## 构建
 
@@ -49,4 +49,8 @@ Kotlin · Jetpack Compose · Material 3 · [softglass](https://github.com/HaoZai
 
 ## 协议
 
-闭源自用，仅供学习交流，请勿二次分发或商用。界面移植自 [NexioSchedule](https://github.com/HaoZai000/NexioSchedule)（已与上游作者沟通），来源与第三方许可见 [NOTICE.md](NOTICE.md)；课表、今日、设置等页面为适配广科数据的移植，电费与待办按同一组件体系实现，并非 Nexio 原有功能。
+本项目以 **[GNU AGPL-3.0](LICENSE)** 发布：可自由使用、修改与分发，衍生作品须同样以 AGPL-3.0 开源；若作为网络服务提供，也必须向使用者提供对应源码。
+
+历史版本曾移植 [NexioSchedule](https://github.com/HaoZai000/NexioSchedule)（AGPL-3.0）的界面实现，这些提交仍保留在 git 历史中并同样按 AGPL-3.0 提供；当前 CZeroX 界面为独立重写。第三方依赖与出处见 [NOTICE.md](NOTICE.md)。
+
+> 本项目为个人学习项目，与广东科技学院官方无关；使用本 App 产生的账号、课表与水电数据均只保存在你自己的设备上。

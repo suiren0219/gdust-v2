@@ -2,7 +2,6 @@ package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -51,12 +50,11 @@ import com.menglimi.gdust.v2.data.PowerRoom
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.data.Store
 import com.menglimi.gdust.v2.data.isNetworkDown
+import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.LocalWallpaperActive
 import com.menglimi.gdust.v2.ui.pageBackground
-import com.menglimi.gdust.v2.ui.pageTextBacking
 import com.menglimi.gdust.v2.ui.secondaryTextColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -78,7 +76,6 @@ fun PowerScreen(repo: Repository) {
     val ds = LocalDs.current
     val secondary = secondaryTextColor()
     val preferenceSummary = BasicComponentDefaults.summaryColor(color = secondary)
-    val onWallpaper = LocalWallpaperActive.current
     val scope = rememberCoroutineScope()
     val store = repo.store
 
@@ -148,10 +145,7 @@ fun PowerScreen(repo: Repository) {
             .padding(horizontal = AppUiTokens.PagePadding),
     ) {
         Spacer(Modifier.height(24.dp))
-        Column(
-            Modifier.fillMaxWidth().padding(bottom = 24.dp)
-                .pageTextBacking().padding(if (onWallpaper) 12.dp else 0.dp),
-        ) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("宿舍电费", fontSize = AppUiTokens.TitleSize, fontWeight = AppUiTokens.TitleWeight, color = ds.text,
                     modifier = Modifier.weight(1f).semantics { heading() })
@@ -170,7 +164,7 @@ fun PowerScreen(repo: Repository) {
         if (msg.isNotEmpty()) {
             GlassCard {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("查询未完成", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.danger)
+                    Text("查询未完成", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = ds.danger)
                     Text(msg, fontSize = 14.sp, color = secondary)
                     if (hasBinding && !editingBinding) Button("重新查询", enabled = !busy) { refresh() }
                 }
@@ -193,7 +187,7 @@ fun PowerScreen(repo: Repository) {
                             fontWeight = FontWeight.Bold,
                             color = if (detail?.odd?.let { it < store.warnThreshold } == true) ds.danger else ds.text,
                         )
-                        Text("度", fontSize = 17.sp, color = secondary, modifier = Modifier.padding(start = 8.dp, bottom = 10.dp))
+                        Text("度", fontSize = 18.sp, color = secondary, modifier = Modifier.padding(start = 8.dp, bottom = 10.dp))
                     }
                     Text(
                         when {
@@ -208,19 +202,21 @@ fun PowerScreen(repo: Repository) {
                 }
             }
             Spacer(Modifier.height(12.dp))
-            GlassCard {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    PowerMetric("今日用电", detail?.todayUse?.let { "%.1f 度".format(it) } ?: "--", Modifier.weight(1f))
-                    PowerMetric("预计可用", daysLeft?.let { "约 %.0f 天".format(it) } ?: "--", Modifier.weight(1f), warn = daysLeft?.let { it < 3 } == true)
-                    PowerMetric("预警电量", "%.0f 度".format(store.warnThreshold), Modifier.weight(1f))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap)) {
+                AppCard(Modifier.weight(1f), insideMargin = androidx.compose.foundation.layout.PaddingValues(AppUiTokens.CardPadding)) {
+                    PowerMetric("今日用电", detail?.todayUse?.let { "%.1f".format(it) } ?: "—", unit = "度")
+                }
+                AppCard(Modifier.weight(1f), insideMargin = androidx.compose.foundation.layout.PaddingValues(AppUiTokens.CardPadding)) {
+                    PowerMetric("预计可用", daysLeft?.let { "%.0f".format(it) } ?: "—", unit = "天",
+                        warn = daysLeft?.let { it < 3 } == true)
                 }
             }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(AppUiTokens.CardGap))
 
             // 最近几小时折线（App 自采样序列）
             GlassCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("电量走势", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                    Text("电量走势", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = ds.text)
                     SegmentedChoice(
                         options = listOf(1 to "1 天", 3 to "3 天", 7 to "7 天", 30 to "30 天"),
                         selected = chartDays,
@@ -246,7 +242,7 @@ fun PowerScreen(repo: Repository) {
                     )
                     Text(
                         "采样间隔 $sampleIntervalLocal 分钟，保留最近 30 天；预警线 ${store.warnThreshold.toInt()} 度。",
-                        fontSize = 12.sp, lineHeight = 17.sp, color = secondary,
+                        fontSize = 13.sp, lineHeight = 17.sp, color = secondary,
                     )
                 }
             }
@@ -281,8 +277,8 @@ fun PowerScreen(repo: Repository) {
                 GlassCard {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("近 7 日用电", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text, modifier = Modifier.weight(1f))
-                            Text("峰值 %.1f 度".format(maxUse), fontSize = 12.sp, color = secondary)
+                            Text("近 7 日用电", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = ds.text, modifier = Modifier.weight(1f))
+                            Text("峰值 %.1f 度".format(maxUse), fontSize = 13.sp, color = secondary)
                         }
                         Text(
                             "每日用电量（度）",
@@ -290,7 +286,7 @@ fun PowerScreen(repo: Repository) {
                         )
                         // 7 根等宽柱随可用宽度分配空间，兼容窄屏与统一页面边距。
                         Row(
-                            Modifier.fillMaxWidth().height(112.dp),
+                            Modifier.fillMaxWidth().height(144.dp * androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceAtLeast(1f)),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.Bottom,
                         ) {
@@ -314,7 +310,7 @@ fun PowerScreen(repo: Repository) {
                                 ) {
                                     Text(
                                         "%.1f".format(use),
-                                        fontSize = 9.sp,
+                                        fontSize = 11.sp,
                                         fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
                                         color = if (isToday || use >= maxUse) ds.accent else secondary,
                                         maxLines = 1,
@@ -324,13 +320,6 @@ fun PowerScreen(repo: Repository) {
                                             .padding(top = 3.dp)
                                             .width(if (isToday) 30.dp else 26.dp)
                                             .height((66f * ratio).coerceAtLeast(8f).dp)
-                                            .then(
-                                                if (isToday) Modifier.border(
-                                                    1.5.dp,
-                                                    Color.White.copy(alpha = 0.75f),
-                                                    androidx.compose.foundation.shape.RoundedCornerShape(7.dp),
-                                                ) else Modifier
-                                            )
                                             .background(
                                                 when {
                                                     isToday -> ds.accent
@@ -342,7 +331,7 @@ fun PowerScreen(repo: Repository) {
                                     )
                                     Text(
                                         if (isToday) "今天" else dayName,
-                                        fontSize = 9.sp,
+                                        fontSize = 11.sp,
                                         fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
                                         color = if (isToday) ds.accent else secondary,
                                         maxLines = 1,
@@ -352,7 +341,7 @@ fun PowerScreen(repo: Repository) {
                                     )
                                     if (dayDate.isNotBlank()) {
                                         Text(
-                                            dayDate, fontSize = 8.sp, color = secondary,
+                                            dayDate, fontSize = 11.sp, color = secondary,
                                             maxLines = 1, softWrap = false,
                                             overflow = androidx.compose.ui.text.style.TextOverflow.Visible,
                                         )
@@ -378,7 +367,7 @@ fun PowerScreen(repo: Repository) {
             }
             GlassCard {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("采样间隔", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                    Text("采样间隔", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = ds.text)
                     Text("每 $sampleIntervalLocal 分钟记录电量，后台最低 15 分钟巡检。", fontSize = 14.sp, color = secondary)
                     SegmentedChoice(
                         options = listOf(15, 30, 60, 120).map { it to "${it}分" },
@@ -401,7 +390,7 @@ fun PowerScreen(repo: Repository) {
         } else {
             GlassCard {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text(if (hasBinding) "重新绑定宿舍" else "绑定宿舍", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                    Text(if (hasBinding) "重新绑定宿舍" else "绑定宿舍", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = ds.text)
                     Text("使用完美校园水电账号查询，选定房间后保存到本机。", fontSize = 14.sp, color = secondary)
                     InputField(account, { account = it; rooms = emptyList() }, "水电账号（完美校园 outid）")
                     InputField(code, { code = it; rooms = emptyList() }, "学校代码（广科 1000145）", KeyboardType.Number)
@@ -474,7 +463,7 @@ fun PowerScreen(repo: Repository) {
         // 历史记录入口放在绑定分支之外：本机采样历史不依赖是否已绑定房间。
         GlassCard {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("查询历史记录", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                Text("查询历史记录", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = ds.text)
                 Text("按日历查看每天的电量与采样明细，保留最近 30 天。", fontSize = 13.sp, color = secondary)
                 Button("打开历史记录", onClick = { showHistory = true })
             }
@@ -489,7 +478,7 @@ fun PowerScreen(repo: Repository) {
 
 /**
  * 电量走势图（不引图表库）：
- * Y 轴刻度数值 + X 轴时间刻度 + 网格线 + 面积渐变 + 预警阈值虚线 + 最新值标签。
+ * Y 轴刻度数值 + X 轴时间刻度 + 网格线 + 纯色面积 + 预警阈值虚线 + 最新值标签。
  * 数据点不足时退化为提示文案，不画空轴。
  */
 @Composable
@@ -540,9 +529,9 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.End,
             ) {
-                Text("%.0f".format(hi), fontSize = 10.sp, color = secondary)
-                Text("%.0f".format((lo + hi) / 2f), fontSize = 10.sp, color = secondary)
-                Text("%.0f".format(lo), fontSize = 10.sp, color = secondary)
+                Text("%.0f".format(hi), fontSize = 12.sp, color = secondary)
+                Text("%.0f".format((lo + hi) / 2f), fontSize = 12.sp, color = secondary)
+                Text("%.0f".format(lo), fontSize = 12.sp, color = secondary)
             }
             Canvas(
                 Modifier
@@ -590,7 +579,7 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
                         px += seg * 2
                     }
                 }
-                // 面积渐变（从折线到底部），然后折线
+                // 轻量纯色面积衬底，折线与数值保持清晰。
                 val pts = values.mapIndexed { i, v -> Offset(x(i), y(v)) }
                 val area = Path().apply {
                     moveTo(pts.first().x, h - 10f)
@@ -600,10 +589,7 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
                 }
                 drawPath(
                     area,
-                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                        0f to ds.accent.copy(alpha = 0.18f),
-                        1f to ds.accent.copy(alpha = 0f),
-                    ),
+                    color = ds.accent.copy(alpha = 0.10f),
                 )
                 val line = Path().apply {
                     moveTo(pts.first().x, pts.first().y)
@@ -624,7 +610,7 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
         // X 轴时间刻度
         Row(Modifier.fillMaxWidth().padding(start = 40.dp, top = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             xLabels.forEach { (_, label) ->
-                Text(label, fontSize = 10.sp, color = secondary)
+                Text(label, fontSize = 12.sp, color = secondary)
             }
         }
         // 最新值 / 选中点详情
@@ -637,7 +623,7 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
                 Text(
                     "平均变化 %.1f 度/小时".format(kotlin.math.abs(values.last() - values.first()) /
                         ((samples.last().time - samples.first().time) / 3600000f).coerceAtLeast(0.25f)),
-                    fontSize = 12.sp, color = secondary, modifier = Modifier.weight(1f),
+                    fontSize = 13.sp, color = secondary, modifier = Modifier.weight(1f),
                 )
                 if (selectedIndex in values.indices) {
                     Box(
@@ -645,7 +631,7 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
                             .clickable(role = Role.Button) { selectedIndex = -1 }
                             .padding(horizontal = 8.dp),
                         contentAlignment = Alignment.Center,
-                    ) { Text("回到最新", fontSize = 12.sp, color = ds.accent) }
+                    ) { Text("回到最新", fontSize = 13.sp, color = ds.accent) }
                 }
             }
         }
@@ -654,11 +640,13 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
 
 /** 页面专用信息列，与余额卡分离，窄屏也能保留完整标签。 */
 @Composable
-private fun PowerMetric(label: String, value: String, modifier: Modifier = Modifier, warn: Boolean = false) {
+private fun PowerMetric(label: String, value: String, unit: String, warn: Boolean = false) {
     val ds = LocalDs.current
-    val secondary = secondaryTextColor()
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, fontSize = 12.sp, color = secondary)
-        Text(value, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = if (warn) ds.danger else ds.text)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(label, fontSize = 13.sp, color = ds.sub)
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(value, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = if (warn) ds.danger else ds.text)
+            Text(unit, fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(start = 5.dp, bottom = 5.dp))
+        }
     }
 }

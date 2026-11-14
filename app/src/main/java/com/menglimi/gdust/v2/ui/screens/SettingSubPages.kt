@@ -9,12 +9,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,7 +29,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.pageBackground
 
 /** 作者署名与主页（改这里一处即可）。 */
 internal const val APP_AUTHOR = "穗稔"
@@ -39,7 +40,6 @@ internal const val APP_GITHUB = "https://github.com/suiren0219"
 /** 设置二级页通用骨架：同款左缘右滑返回手势。 */
 @Composable
 internal fun SettingSubPage(title: String, subtitle: String, onBack: () -> Unit, content: @Composable () -> Unit) {
-    val ds = LocalDs.current
     val density = androidx.compose.ui.platform.LocalDensity.current
     val threshold = with(density) { 96.dp.toPx() }
     var backPx by remember { mutableStateOf(0f) }
@@ -65,15 +65,15 @@ internal fun SettingSubPage(title: String, subtitle: String, onBack: () -> Unit,
     Column(
         Modifier
             .fillMaxSize()
-            .background(ds.bg)
+            .background(pageBackground())
             .statusBarsPadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = AppUiTokens.PagePadding),
     ) {
         Spacer(Modifier.height(24.dp))
         PageTitle(title = title, subtitle = subtitle, onBack = onBack)
         content()
-        Spacer(Modifier.height(110.dp))
+        Spacer(Modifier.navigationBarsPadding().height(110.dp))
     }
     }
 }
@@ -119,14 +119,14 @@ fun ProfileScreen(repo: Repository, onBack: () -> Unit) {
         SettingGroup {
             Text(
                 "所有数据只存本机加密存储：登录凭证、水电绑定、课表缓存。\n无自建服务器、无账号体系、无遥测；密码不落盘。",
-                fontSize = 12.sp, lineHeight = 17.sp, color = ds.sub,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub,
+                modifier = Modifier.padding(AppUiTokens.CardPadding),
             )
         }
         Spacer(Modifier.height(10.dp))
         Text(
             "版本 $version · 作者 $APP_AUTHOR",
-            fontSize = 11.sp, color = ds.sub,
+            fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub,
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp).wrapContentSize(Alignment.Center),
         )
     }
@@ -178,11 +178,11 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         SectionHeader("本版更新")
         SettingGroup {
-            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(AppUiTokens.CardPadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 UpdateItem("真实学期课表", "教务学期导入按每门课的实际周次保存，分段开课、单双周、调课独立保留")
                 UpdateItem("电量图表", "走势图加坐标轴刻度与时间轴、预警阈值虚线，点按查看任意采样点")
                 UpdateItem("登录一次保持", "门户与教务会话本机加密保存；断网不掉登录，只有学校端失效才要求重登")
-                UpdateItem("交互", "课表左右滑翻周、设置左滑返回、电费下拉刷新、启动页自选、莫奈取色")
+                UpdateItem("交互", "课表左右滑翻周、设置左滑返回、电费下拉刷新、启动页自选")
             }
         }
         Spacer(Modifier.height(10.dp))
@@ -190,14 +190,14 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
         SettingGroup {
             Text(
                 "课表/校历/通知 → 学校门户（smart-admin-api）\n整学期课表 → 正方教务（经 WebVPN 或校内网）\n水电 → 完美校园智能水电接口\nAI 总结 → 你自填的 OpenAI 兼容端点",
-                fontSize = 12.sp, lineHeight = 17.sp, color = ds.sub,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub,
+                modifier = Modifier.padding(AppUiTokens.CardPadding),
             )
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            "广科课程表 · 由 $APP_AUTHOR 制作 · 闭源自用\n界面移植自 HaoZai000/NexioSchedule 1.7.0-1113",
-            fontSize = 11.sp, color = ds.sub,
+            "广科课程表 · 由 $APP_AUTHOR 制作 · 闭源自用\n感谢 Miuix 提供界面组件",
+            fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub,
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp).wrapContentSize(Alignment.Center),
         )
     }
@@ -208,6 +208,6 @@ private fun UpdateItem(title: String, desc: String) {
     val ds = LocalDs.current
     Column {
         Text("• $title", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ds.text)
-        Text(desc, fontSize = 11.sp, lineHeight = 15.sp, color = ds.sub, modifier = Modifier.padding(start = 14.dp, top = 2.dp))
+        Text(desc, fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub, modifier = Modifier.padding(start = 14.dp, top = 2.dp))
     }
 }

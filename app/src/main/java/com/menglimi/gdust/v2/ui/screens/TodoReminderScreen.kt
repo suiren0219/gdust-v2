@@ -44,7 +44,6 @@ fun TodoReminderScreen(repo: Repository, onBack: () -> Unit) {
                     onSwitch = { on -> save { store.todoReminderEnabled = on } },
                 )
             }
-            Spacer(Modifier.height(10.dp))
             SectionHeader("提醒规则")
             SettingGroup {
                 SettingOption(title = "提前提醒时间",
@@ -58,7 +57,6 @@ fun TodoReminderScreen(repo: Repository, onBack: () -> Unit) {
                         onSelect = { save { store.todoReminderLead = it } },
                     )
                 }
-                SettingDivider()
                 SettingOption(
                     title = "只提醒作业与考试",
                     subtitle = "关闭后，带截止时间的普通事项也会提醒",
@@ -66,7 +64,6 @@ fun TodoReminderScreen(repo: Repository, onBack: () -> Unit) {
                     onSwitch = { on -> save { store.todoReminderOnlyDatedTypes = on } },
                 )
             }
-            Spacer(Modifier.height(10.dp))
             SectionHeader("权限与测试")
             SettingGroup {
                 SettingOption(
@@ -75,7 +72,6 @@ fun TodoReminderScreen(repo: Repository, onBack: () -> Unit) {
                     detail = if (LessonReminderAlarms.canScheduleExact(ctx)) "已授权" else "去授权",
                     onClick = { LessonReminderAlarms.openExactAlarmSettings(ctx) },
                 )
-                SettingDivider()
                 SettingOption(
                     title = "通知权限",
                     subtitle = "用于接收待办到期提醒",
@@ -88,7 +84,6 @@ fun TodoReminderScreen(repo: Repository, onBack: () -> Unit) {
                         }
                     },
                 )
-                SettingDivider()
                 SettingOption(
                     title = "测试提醒",
                     subtitle = "发一条示例待办通知",
@@ -104,11 +99,10 @@ fun TodoReminderScreen(repo: Repository, onBack: () -> Unit) {
                     },
                 )
             }
-            Spacer(Modifier.height(10.dp))
             Text(
                 "截止时间由作业/考试导入或手动设置；当前待办页支持文本里写「作业」「考试」自动分类。\n" +
                     "HyperOS 需允许自启动与精确定时，闹钟才不会被系统清理。",
-                fontSize = 12.sp, lineHeight = 17.sp, color = ds.sub,
+                fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
             )
             Spacer(Modifier.height(96.dp))
         }
