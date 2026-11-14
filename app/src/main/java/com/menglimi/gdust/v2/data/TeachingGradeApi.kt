@@ -149,19 +149,27 @@ internal fun parseGradePage(body: String): TeachingGradePage {
             }
         }
     }
-    val items = obj.get("items")?.takeIf { it.isJsonArray }?.asJsonArray ?: failGrade(GradeFailure.STRUCTURE)
+    // 兼容顶层 items 与 data.items / data.rows 包装（不同正方版本结构不一）。
+    val items = runCatching {
+        obj.get("items")?.takeIf { it.isJsonArray }?.asJsonArray
+            ?: obj.getAsJsonObject("data")?.let { data ->
+                data.get("items")?.takeIf { it.isJsonArray }?.asJsonArray
+                    ?: data.get("rows")?.takeIf { it.isJsonArray }?.asJsonArray
+            }
+    }.getOrNull() ?: failGrade(GradeFailure.STRUCTURE)
     if (items.size() > GRADE_PAGE_SIZE) failGrade(GradeFailure.INCOMPLETE)
     val entries = items.map { element ->
         if (!element.isJsonObject) failGrade(GradeFailure.STRUCTURE)
         val item = element.asJsonObject
+        // 课程名与成绩必须存在；教师、学分等字段缺失不应让整页无法识别。
         TeachingGrade(
-            year = item.gradeString("xnm"), semester = item.gradeString("xqm"),
-            yearLabel = item.gradeString("xnmmc"), semesterLabel = item.gradeString("xqmmc"),
-            courseCode = item.gradeString("kch"), courseName = item.gradeString("kcmc"),
-            courseNature = item.gradeString("kcxzmc"), score = item.gradeString("cj"),
-            credits = item.gradeString("xf"), gradePoint = item.gradeString("jd"),
-            creditGradePoint = item.gradeString("xfjd"), examType = item.gradeString("ksxz"),
-            department = item.gradeString("kkbmmc"), courseCategory = item.optionalGradeString("kclbmc"),
+            year = item.optionalGradeString("xnm").orEmpty(), semester = item.optionalGradeString("xqm").orEmpty(),
+            yearLabel = item.optionalGradeString("xnmmc").orEmpty(), semesterLabel = item.optionalGradeString("xqmmc").orEmpty(),
+            courseCode = item.optionalGradeString("kch").orEmpty(), courseName = item.gradeString("kcmc"),
+            courseNature = item.optionalGradeString("kcxzmc").orEmpty(), score = item.gradeString("cj"),
+            credits = item.optionalGradeString("xf").orEmpty(), gradePoint = item.optionalGradeString("jd").orEmpty(),
+            creditGradePoint = item.optionalGradeString("xfjd").orEmpty(), examType = item.optionalGradeString("ksxz").orEmpty(),
+            department = item.optionalGradeString("kkbmmc").orEmpty(), courseCategory = item.optionalGradeString("kclbmc"),
             courseAttribute = item.optionalGradeString("kcgsmc"), assessmentMethod = item.optionalGradeString("khfsmc"),
             teachingClass = item.optionalGradeString("jxbmc"), teacher = item.optionalGradeString("jsxm"),
             degreeCourse = item.optionalGradeString("sfxwkc"), courseMark = item.optionalGradeString("kcbj"),

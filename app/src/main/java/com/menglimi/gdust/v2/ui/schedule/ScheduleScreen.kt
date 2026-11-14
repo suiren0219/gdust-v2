@@ -334,7 +334,10 @@ private fun WeekGrid(
         (1..7).filter { !smartHideWeekend || it <= 5 || blocks.any { block -> block.day == it } }
     }
     val dates = remember(termStart, week, days) { days.associateWith { ScheduleTimes.dateAt(termStart, week, it) } }
-    val totalSections = maxOf(ScheduleTimes.TOTAL_SECTIONS, blocks.maxOfOrNull { it.endSection } ?: 1)
+    // 广科作息只有 10 节；11/12 节按 Nexio 保留刻度，本地没有课就不显示这两行。
+    val maxCourseSection = blocks.maxOfOrNull { it.endSection } ?: 0
+    val totalSections = maxOf(ScheduleTimes.slots.size, maxCourseSection)
+        .coerceAtMost(ScheduleTimes.TOTAL_SECTIONS)
     val gridHeight = remember(rowHeight, totalSections) { ScheduleLayout.sectionY(totalSections, rowHeight) + rowHeight }
     val currentSection = remember(dates, today, time) {
         if (dates.values.any { it == today }) ScheduleTimes.currentSection(time) else null

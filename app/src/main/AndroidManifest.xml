@@ -70,6 +70,7 @@
 
         <receiver
             android:name=".widget.ScheduleWideReceiver"
+            android:label="课表 · 今日条子"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -81,6 +82,7 @@
 
         <receiver
             android:name=".widget.ScheduleMediumReceiver"
+            android:label="课表 · 下一节"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -92,6 +94,7 @@
 
         <receiver
             android:name=".widget.ScheduleTallReceiver"
+            android:label="课表 · 周进度"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -103,6 +106,7 @@
 
         <receiver
             android:name=".widget.PowerWideReceiver"
+            android:label="宿舍电量 · 走势"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -114,6 +118,7 @@
 
         <receiver
             android:name=".widget.PowerMediumReceiver"
+            android:label="宿舍电量 · 大字"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -125,6 +130,7 @@
 
         <receiver
             android:name=".widget.PowerTallReceiver"
+            android:label="宿舍电量 · 竖条"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -136,6 +142,7 @@
 
         <receiver
             android:name=".widget.TodoWideReceiver"
+            android:label="待办 · 条子列表"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -147,6 +154,7 @@
 
         <receiver
             android:name=".widget.TodoMediumReceiver"
+            android:label="待办 · 概览"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -158,6 +166,7 @@
 
         <receiver
             android:name=".widget.TodoTallReceiver"
+            android:label="待办 · 计数"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

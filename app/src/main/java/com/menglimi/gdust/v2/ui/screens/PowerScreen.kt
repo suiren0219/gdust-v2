@@ -97,6 +97,7 @@ fun PowerScreen(repo: Repository) {
     var roomQueryAccount by remember { mutableStateOf("") }
     var roomQueryCode by remember { mutableStateOf(0) }
     var updatedAt by remember { mutableStateOf<Long?>(null) }
+    var showHistory by remember { mutableStateOf(false) }
 
     fun refresh() {
         if (!hasBinding || busy) return
@@ -122,6 +123,11 @@ fun PowerScreen(repo: Repository) {
 
     LaunchedEffect(Unit) { refresh() }
     val samples = remember(detail, busy, roomName) { store.loadSamples().sortedBy { it.time } }
+    // 历史记录是独立子页（日历视图），返回时回到电量页。
+    if (showHistory) {
+        PowerHistoryScreen(repo, onBack = { showHistory = false })
+        return
+    }
     // 走势图展示跨度（天）：1/3/7/30，实际点数=天数×每天采样数
     var chartDays by remember { mutableStateOf(1) }
     val pullState = remember { androidx.compose.material3.pulltorefresh.PullToRefreshState() }
@@ -220,9 +226,16 @@ fun PowerScreen(repo: Repository) {
                         selected = chartDays,
                         onSelect = { chartDays = it },
                     )
-                    // 先按时间窗口过滤，再检查空态，不能对空集合调用 min/max。
+                    // 先按时间窗口过滤（0 值多为查询异常或欠费，画进曲线会变成陡降），再检查空态。
                     val cutoff = System.currentTimeMillis() - chartDays * 24L * 3600 * 1000
-                    val ranged = samples.filter { it.time >= cutoff }.takeLast(240)
+                    val rangedRaw = samples.filter { it.time >= cutoff && it.odd > 0 }
+                    // 30 天视图按时间等间隔抽稀到约 200 点；原来的 takeLast(240) 会截掉最早几天。
+                    val ranged = if (rangedRaw.size <= 240) rangedRaw else {
+                        val step = (rangedRaw.size - 1).toDouble() / 199
+                        (0..199).map { i ->
+                            rangedRaw[(i * step).toInt().coerceAtMost(rangedRaw.lastIndex)]
+                        }.distinct()
+                    }
                     val coveredHours = if (ranged.size >= 2) {
                         ((ranged.last().time - ranged.first().time) / 3600000.0).coerceAtLeast(0.0)
                     } else 0.0
@@ -238,8 +251,6 @@ fun PowerScreen(repo: Repository) {
                 }
             }
             Spacer(Modifier.height(12.dp))
-
-            // 接口自带近 7 日（竖柱状）：明确「哪一天 · 多少度 · 哪天是今天」
             val week = detail?.weekUse.orEmpty()
             if (week.isNotEmpty()) {
                 val maxUse = week.maxOf { it.second }.coerceAtLeast(0.1)
@@ -459,6 +470,16 @@ fun PowerScreen(repo: Repository) {
             }
         }
 
+        Spacer(Modifier.height(12.dp))
+        // 历史记录入口放在绑定分支之外：本机采样历史不依赖是否已绑定房间。
+        GlassCard {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("查询历史记录", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                Text("按日历查看每天的电量与采样明细，保留最近 30 天。", fontSize = 13.sp, color = secondary)
+                Button("打开历史记录", onClick = { showHistory = true })
+            }
+        }
+
         Spacer(Modifier.navigationBarsPadding().height(110.dp))
     }
     } // PullToRefreshBox
@@ -491,14 +512,19 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
     val hi = (maxV + (maxV - minV).coerceAtLeast(1f) * 0.1f).let { kotlin.math.ceil(it * 2f) / 2f }
     val span = (hi - lo).coerceAtLeast(0.5f)
 
-    // 横轴时间刻度：取首/1/3、2/3/尾共 3~4 个采样点标 HH:mm
+    // 横轴刻度：跨度超过 48 小时显示日期（MM-dd），否则显示时刻（HH:mm）。
+    // 之前固定 HH:mm，选 7/30 天时标签只有时刻，看起来和「几天」对不上。
     val xLabels = remember(samples) {
         val n = samples.size
         val idx = when {
             n <= 4 -> samples.indices.toList()
             else -> listOf(0, n / 3, n * 2 / 3, n - 1).distinct()
         }
-        val fmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.CHINA)
+        val spanHours = (samples.last().time - samples.first().time) / 3600000.0
+        val fmt = java.text.SimpleDateFormat(
+            if (spanHours > 48) "MM-dd" else "HH:mm",
+            java.util.Locale.CHINA,
+        )
         idx.map { i -> i to fmt.format(java.util.Date(samples[i].time)) }
     }
     // 点按选中：点最近的数据点查看具体时间与数值（-1 = 未选中，显示最新值标签）

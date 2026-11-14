@@ -3,6 +3,7 @@
 package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -30,6 +32,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +67,8 @@ import com.menglimi.gdust.v2.ui.LocalWallpaperActive
 import com.menglimi.gdust.v2.ui.pageBackground
 import com.menglimi.gdust.v2.ui.pageTextBacking
 import com.menglimi.gdust.v2.ui.secondaryTextColor
+import com.menglimi.gdust.v2.widget.LocalWidgetTodoId
+import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Checkbox
@@ -98,8 +103,65 @@ fun TodoScreen(repo: Repository) {
     }
     val nowMs = System.currentTimeMillis()
     val groups = groupTodos(items, nowMs)
-    // 已完成默认折叠：条目多时不再刷屏；勾选框重新打开某条时它会回到未完成区
+    val pendingAll = groups.overdue + groups.today + groups.thisWeek + groups.later + groups.noDue
+    val exams = pendingAll.filter { it.kind == TodoKind.EXAM }.sortedBy { it.dueAt }
+    val byCourse = pendingAll.filter { it.kind != TodoKind.EXAM }
+        .groupBy { it.course.ifBlank { "其他" } }
+        .entries
+        .sortedWith(
+            compareBy(
+                { it.key == "其他" },
+                { e -> e.value.filter { t -> t.dueAt > 0L }.minOfOrNull { t -> t.dueAt } ?: Long.MAX_VALUE },
+                { it.key },
+            ),
+        )
+        .map { it.key to it.value.sortedWith(compareBy({ it.dueAt <= 0L }, { it.dueAt })) }
+    // 已完成默认折叠；小部件的旧卡片仍可定位已经完成的同一个 ID。
     var doneExpanded by rememberSaveable { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val widgetTodo = LocalWidgetTodoId.current
+    val requestedId = widgetTodo?.value
+    var highlightedId by remember { mutableStateOf<Long?>(null) }
+    // 索引与下方 LazyColumn 的标题/输入/分组布局一一对应，避免只滚到当前已可见的条目。
+    val targetIndex = requestedId?.let { id ->
+        var index = 2
+        var found: Int? = null
+        if (exams.isNotEmpty()) {
+            index++
+            val offset = exams.indexOfFirst { it.id == id }
+            if (offset >= 0) found = index + offset
+            index += exams.size
+        }
+        byCourse.forEach { (_, courseItems) ->
+            index++
+            val offset = courseItems.indexOfFirst { it.id == id }
+            if (offset >= 0) found = index + offset
+            index += courseItems.size
+        }
+        if (groups.pendingCount == 0) index++
+        val doneOffset = groups.completed.indexOfFirst { it.id == id }
+        if (doneOffset >= 0 && doneExpanded) found = index + 1 + doneOffset
+        found
+    }
+    LaunchedEffect(requestedId, targetIndex, items) {
+        val id = requestedId ?: return@LaunchedEffect
+        val target = items.firstOrNull { it.id == id }
+        if (target == null) {
+            widgetTodo?.value = null
+        } else if (target.done && !doneExpanded) {
+            doneExpanded = true
+        } else if (targetIndex != null) {
+            listState.scrollToItem(targetIndex)
+            highlightedId = id
+            widgetTodo?.value = null
+        }
+    }
+    LaunchedEffect(highlightedId) {
+        if (highlightedId != null) {
+            delay(3_000L)
+            highlightedId = null
+        }
+    }
     val startOfToday = java.time.Instant.ofEpochMilli(nowMs)
         .atZone(java.time.ZoneId.systemDefault())
         .toLocalDate().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
@@ -113,16 +175,15 @@ fun TodoScreen(repo: Repository) {
         draft = ""
         focusManager.clearFocus()
     }
-    fun toggleTodo(id: Long) {
-        items = store.updateTodos { current ->
-            current.map { if (it.id == id) it.copy(done = !it.done) else it }
-        }
+    fun setDone(id: Long, done: Boolean) {
+        items = store.setTodoDone(id, done)
     }
     fun deleteTodo(id: Long) {
         items = store.updateTodos { current -> current.filterNot { it.id == id } }
     }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize().background(pageBackground()).statusBarsPadding().imePadding(),
         contentPadding = PaddingValues(start = AppUiTokens.PagePadding, end = AppUiTokens.PagePadding, top = 24.dp, bottom = 104.dp + bottomInset),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -177,27 +238,16 @@ fun TodoScreen(repo: Repository) {
         }
 
         // 考试优先独立成段（跨课程、按截止时间排序）
-        val pendingAll = groups.overdue + groups.today + groups.thisWeek + groups.later + groups.noDue
-        val exams = pendingAll.filter { it.kind == TodoKind.EXAM }.sortedBy { it.dueAt }
         if (exams.isNotEmpty()) {
             item(key = "head-exam") { TodoGroupHeading("考试", exams.size, emphasize = true) }
             items(exams, key = { "exam-${it.id}" }) { exam ->
-                TodoItemCard(exam, onToggle = { toggleTodo(exam.id) }, onDelete = { deleteTodo(exam.id) })
+                TodoItemCard(exam, onToggle = { setDone(exam.id, it) }, onDelete = { deleteTodo(exam.id) },
+                    highlighted = highlightedId == exam.id)
             }
         }
 
         // 课程优先分组：课程名作组头，组内有截止按时间升序、无截止垫底；
         // 课程按「组内最早截止」排序，没截止的课靠后，无课程的归「其他」垫底。
-        val byCourse = pendingAll.filter { it.kind != TodoKind.EXAM }
-            .groupBy { it.course.ifBlank { "其他" } }
-            .entries
-            .sortedWith(
-                compareBy(
-                    { it.key == "其他" },
-                    { e -> e.value.filter { t -> t.dueAt > 0L }.minOfOrNull { t -> t.dueAt } ?: Long.MAX_VALUE },
-                    { it.key },
-                ),
-            )
         byCourse.forEach { (course, courseItems) ->
             item(key = "head-course-$course") {
                 val overdue = courseItems.count { it.dueAt in 1 until startOfToday }
@@ -209,10 +259,11 @@ fun TodoScreen(repo: Repository) {
                 )
             }
             items(
-                courseItems.sortedWith(compareBy({ it.dueAt <= 0L }, { it.dueAt })),
+                courseItems,
                 key = { "todo-${it.id}" },
             ) { item ->
-                TodoItemCard(item, onToggle = { toggleTodo(item.id) }, onDelete = { deleteTodo(item.id) })
+                TodoItemCard(item, onToggle = { setDone(item.id, it) }, onDelete = { deleteTodo(item.id) },
+                    highlighted = highlightedId == item.id)
             }
         }
         if (groups.pendingCount == 0) {
@@ -241,7 +292,8 @@ fun TodoScreen(repo: Repository) {
             }
             if (doneExpanded) {
                 items(groups.completed, key = { "done-${it.id}" }) { item ->
-                    TodoItemCard(item, onToggle = { toggleTodo(item.id) }, onDelete = { deleteTodo(item.id) })
+                    TodoItemCard(item, onToggle = { setDone(item.id, it) }, onDelete = { deleteTodo(item.id) },
+                        highlighted = highlightedId == item.id)
                 }
                 item(key = "clear-done") {
                     TextButton(text = "清理已完成（${groups.completed.size}）",
@@ -272,10 +324,12 @@ private fun TodoGroupHeading(
 }
 
 @Composable
-private fun TodoItemCard(item: Todo, onToggle: () -> Unit, onDelete: () -> Unit) {
+private fun TodoItemCard(item: Todo, onToggle: (Boolean) -> Unit, onDelete: () -> Unit, highlighted: Boolean = false) {
     val colors = MiuixTheme.colorScheme
     val summary = secondaryTextColor()
-    AppCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
+    AppCard(modifier = Modifier.fillMaxWidth().then(
+        if (highlighted) Modifier.border(2.dp, colors.primary, RoundedCornerShape(16.dp)) else Modifier,
+    ), cornerRadius = 16.dp) {
         Column(Modifier.fillMaxWidth().padding(start = 4.dp, top = 6.dp, end = 6.dp, bottom = 6.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 val (label, tint) = when (item.kind) {
@@ -292,7 +346,7 @@ private fun TodoItemCard(item: Todo, onToggle: () -> Unit, onDelete: () -> Unit)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(
                     modifier = Modifier.weight(1f).heightIn(min = 56.dp)
-                        .toggleable(value = item.done, role = Role.Checkbox, onValueChange = { onToggle() })
+                        .toggleable(value = item.done, role = Role.Checkbox, onValueChange = onToggle)
                         .semantics { stateDescription = if (item.done) "已完成" else "待完成" }
                         .padding(top = 2.dp, bottom = 2.dp, end = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,

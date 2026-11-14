@@ -29,13 +29,25 @@ class TeachingGradesTest {
 
     @Test
     fun missingRequiredFieldsFailInsteadOfDroppingTheRecord() {
-        for (field in gradeFixture().keySet()) {
+        // 课程名与成绩是识别一条成绩的最低要求；缺失必须报错，不能静默丢记录。
+        for (field in listOf("kcmc", "cj")) {
             val item = gradeFixture().apply { remove(field) }
             val error = assertThrows(GradeLoadException::class.java) {
                 parseGradePage(gradePageFixture(listOf(gradeFixture("valid"), item)))
             }
             assertEquals(GradeFailure.STRUCTURE, error.reason)
         }
+    }
+
+    @Test
+    fun missingOptionalFieldsKeepTheRecordWithBlankValues() {
+        // 教师、学分等字段个别缺失（不同学期/记录）不应让整页「格式无法识别」。
+        val item = gradeFixture().apply { remove("jsxm"); remove("xf"); remove("kkbmmc") }
+        val grade = parseGradePage(gradePageFixture(listOf(item))).entries.single()
+        assertEquals("", grade.teacher.orEmpty())
+        assertEquals("", grade.credits)
+        assertEquals("", grade.department)
+        assertEquals("测试课程 C001", grade.courseName)
     }
 
     @Test

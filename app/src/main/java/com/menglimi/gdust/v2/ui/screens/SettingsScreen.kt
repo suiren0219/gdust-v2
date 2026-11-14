@@ -493,6 +493,7 @@ fun SettingsScreen(
     val backEdge = with(density) { 32.dp.toPx() }
     var backPx by remember { mutableStateOf(Float.NaN) }
 
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier
             .fillMaxSize()
@@ -551,53 +552,15 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp).pageTextBacking()
                     .padding(if (onWallpaper) 12.dp else 0.dp))
         }
-        WidgetPickerDialog(show = showWidgetPicker, onDismiss = { showWidgetPicker = false })
         Spacer(Modifier.navigationBarsPadding().height(110.dp))
+    }
+    if (showWidgetPicker) {
+        WidgetPreviewScreen(onBack = { showWidgetPicker = false })
+    }
     }
 }
 
 private data class SettingsSection(val title: String, val entries: List<SettingsEntry>)
-
-/** "添加桌面小部件"选择弹窗：列出 9 款，点按走系统 requestPinAppWidget。 */
-@Composable
-private fun WidgetPickerDialog(show: Boolean, onDismiss: () -> Unit) {
-    val ds = LocalDs.current
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    WindowDialog(
-        show = show,
-        title = "添加桌面小部件",
-        summary = "按住 launcher 弹出的确认框即可添加",
-        onDismissRequest = onDismiss,
-        backgroundColor = ds.card,
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(max = 420.dp)
-                .verticalScroll(rememberScrollState()),
-        ) {
-            com.menglimi.gdust.v2.widget.WidgetPresets.ALL.forEach { preset ->
-                BasicComponent(
-                    title = preset.label,
-                    titleColor = BasicComponentDefaults.titleColor(color = ds.text),
-                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                    onClick = {
-                        scope.launch {
-                            val ok = com.menglimi.gdust.v2.widget.pinWidget(context, preset)
-                            Toast.makeText(
-                                context,
-                                if (ok) "请在桌面确认添加" else "当前桌面不支持一键添加，请长按桌面手动添加",
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        }
-                        onDismiss()
-                    },
-                )
-            }
-        }
-    }
-}
 
 private data class SettingsEntry(
     val id: String,

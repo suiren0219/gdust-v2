@@ -162,7 +162,15 @@ class Store(context: Context) {
     fun loadTodos(): List<Todo> = parseTodos(plain.getString("todos", "[]").orEmpty(), gson)
 
     fun updateTodos(transform: (List<Todo>) -> List<Todo>): List<Todo> = synchronized(todoLock) {
-        transform(loadTodos()).also { plain.edit().putString("todos", gson.toJson(it)).commit() }
+        val current = loadTodos()
+        transform(current).also { updated ->
+            if (updated != current) plain.edit().putString("todos", gson.toJson(updated)).commit()
+        }
+    }
+
+    /** 按稳定 ID 设置完成态；与同步共用锁内最新快照，重复 callback 不反转状态。 */
+    fun setTodoDone(id: Long, done: Boolean): List<Todo> = updateTodos { current ->
+        current.map { if (it.id == id && it.done != done) it.copy(done = done) else it }
     }
 
     fun addTodo(
@@ -1108,14 +1116,36 @@ class Repository(context: Context) {
         if (updates.isEmpty()) {
             return "同步完成：扫了 $scanned 门课${failSuffix(failed, firstFail)}，学习通里没有作业"
         }
+        var merged = 0
         store.updateTodos { current ->
             val byId = current.associateBy { it.id }.toMutableMap()
+            // 通知监听写入的条目与 web 清单是两套 id（时间戳 vs workId），但文本/课程相同；
+            // 同步时按归一化文本合并，避免同一条作业出现两次。
+            fun norm(s: String) = s.filter { it.isLetterOrDigit() }.lowercase()
+            fun sameTask(a: Todo, b: Todo): Boolean {
+                if (a.id == b.id) return false
+                if (a.source != "chaoxing" || b.source != "chaoxing") return false
+                if (a.course.isNotBlank() && b.course.isNotBlank() && a.course != b.course) return false
+                val x = norm(a.text)
+                val y = norm(b.text)
+                return x.isNotEmpty() && y.isNotEmpty() && (x.contains(y) || y.contains(x))
+            }
+            // 先合并不在本轮清单里的通知条目（id 不在 updates 中）
+            val others = current.filter { it.id !in updates.keys }
+            val consumed = mutableSetOf<Long>()
             for ((id, todo) in updates) {
                 val existing = byId[id]
                 if (existing == null) {
-                    added++
-                    // 未交的作业排前面：截止时间近的优先
-                    byId[id] = todo
+                    val dup = others.firstOrNull { it.id !in consumed && sameTask(it, todo) }
+                    if (dup != null) {
+                        consumed += dup.id
+                        byId.remove(dup.id)
+                        byId[id] = todo.copy(done = todo.done || dup.done, dueAt = todo.dueAt.takeIf { it > 0 } ?: dup.dueAt)
+                        merged++
+                    } else {
+                        added++
+                        byId[id] = todo
+                    }
                 } else {
                     updated++
                     // 完成态只置 true 不回退（手动勾选的保持勾选）；
@@ -1129,10 +1159,27 @@ class Repository(context: Context) {
                     )
                 }
             }
+            // 兜底：清单里已存在的作业，若还有重复的通知条目，也一并合并
+            val webTodos = byId.values.filter { it.id in updates.keys }
+            for (n in others) {
+                if (n.id in consumed) continue
+                val target = webTodos.firstOrNull { sameTask(it, n) }
+                if (target != null) {
+                    val t = byId[target.id] ?: continue
+                    byId[target.id] = t.copy(
+                        done = t.done || n.done,
+                        dueAt = t.dueAt.takeIf { it > 0 } ?: n.dueAt,
+                    )
+                    byId.remove(n.id)
+                    merged++
+                }
+            }
             byId.values.toList()
         }
         return "同步完成：扫了 $scanned 门课${failSuffix(failed, firstFail)}，" +
-            "新增 $added 条、更新 $updated 条，未交 $pending 条"
+            "新增 $added 条、更新 $updated 条" +
+            (if (merged > 0) "、合并 $merged 条通知重复" else "") +
+            "，未交 $pending 条"
     }
 
     private fun failSuffix(failed: Int, firstFail: String?): String =

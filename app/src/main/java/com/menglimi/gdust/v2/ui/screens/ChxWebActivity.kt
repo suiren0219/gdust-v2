@@ -290,7 +290,11 @@ class ChxWebActivity : ComponentActivity() {
                         when {
                             saveCookieIfAny() -> "学习通会话已保存，返回后可检查是否有效。"
                             teachingSaved -> ""
-                            else -> "尚未取得可验证的学习通会话。"
+                            // 还停在 CAS 登录页：说明还没完成登录，给出明确下一步而不是含糊的「没成功」
+                            ChxSso.isLoginUrl(url) ->
+                                "还停在统一认证登录页：完成扫码或账号登录后会自动跳转并保存会话。"
+                            else -> "尚未取得可验证的学习通会话。若网页里已登录成功，请点刷新后再关闭；" +
+                                "若页面空白，可能是学校统一认证暂时不可达。"
                         },
                     )
                 }
