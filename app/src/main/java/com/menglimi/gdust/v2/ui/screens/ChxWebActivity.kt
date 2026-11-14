@@ -280,7 +280,19 @@ class ChxWebActivity : ComponentActivity() {
                     }
                     return
                 }
-                pageMessage = if (saveCookieIfAny()) "会话已保存，返回后可检查是否有效。" else "尚未取得可验证的学习通会话。"
+                // 教务网页登录落地即保存入口：学习通联动完成后，「网页登录导入」可直接读取学期课表
+                val teachingSaved = ChxSso.isTeachingWebEntry(url) &&
+                    runCatching { repo.store.saveWebImport(url) }.isSuccess
+                pageMessage = buildString {
+                    if (teachingSaved) append("教务网页入口已保存，可在「网页登录导入」直接读取学期课表。")
+                    append(
+                        when {
+                            saveCookieIfAny() -> "学习通会话已保存，返回后可检查是否有效。"
+                            teachingSaved -> ""
+                            else -> "尚未取得可验证的学习通会话。"
+                        },
+                    )
+                }
             }
         }
         view.webChromeClient = object : WebChromeClient() {

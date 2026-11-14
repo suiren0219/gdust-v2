@@ -51,4 +51,20 @@ class ChxSessionCookieTest {
             assertTrue(url, url.startsWith("https://cas.gdust.edu.cn/lyuapServer/login?service="))
         }
     }
+
+    @Test fun teachingWebEntryMatchesSaveWebImportWhitelist() {
+        listOf(
+            "https://gkjx.gdust.edu.cn/xsdt",
+            "http://gkjx.gdust.edu.cn/xsdt", // 教务公网入口实测只有 HTTP
+            "https://webvpn.gdust.edu.cn/http/portal",
+            "http://172.16.254.1/",
+            "https://portal.gdust.edu.cn/index",
+        ).forEach { assertTrue(it, ChxSso.isTeachingWebEntry(it)) }
+        listOf(
+            "https://chaoxing.com",
+            "https://evil.org/?url=gdust.edu.cn",
+            "ftp://172.16.254.1",
+            "",
+        ).forEach { assertFalse(it, ChxSso.isTeachingWebEntry(it)) }
+    }
 }

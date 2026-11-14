@@ -88,6 +88,20 @@ object ChxSso {
             (passport && (path.isEmpty() || path == "/mlogin"))
     }
 
+    /**
+     * 教务网页入口白名单：学习通联动里登录过教务网页后，落地页可直接作为
+     * 「网页登录导入」的持久入口。教务公网入口实测只有 HTTP（443 无响应），
+     * 内网与加速域同理；fetchWithCookieHeader 会按同域发 Cookie。
+     * 按 host 精确判断，query 里伪装的 gdust.edu.cn 不能绕过。
+     */
+    fun isTeachingWebEntry(url: String): Boolean {
+        val uri = parseUrl(url) ?: return false
+        if (uri.userInfo != null) return false
+        val host = uri.host?.lowercase(Locale.ROOT) ?: return false
+        return (uri.scheme == "http" && (host == "172.16.254.1" || host == "gkjx.gdust.edu.cn")) ||
+            (uri.scheme == "https" && (host == "gdust.edu.cn" || host.endsWith(".gdust.edu.cn")))
+    }
+
     /** URL 仅限定可信页面范围，不能单独证明学校已经退出。 */
     internal fun isSchoolLogoutUrl(url: String): Boolean {
         val uri = parseUrl(url) ?: return false

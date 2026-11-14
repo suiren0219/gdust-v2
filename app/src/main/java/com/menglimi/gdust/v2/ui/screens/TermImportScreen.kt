@@ -126,6 +126,18 @@ fun TermImportScreen(
                         "扫码登录不用走这里——回登录页点「生成登录二维码」，直接、免验证码。",
                     color = ds.sub, fontSize = 13.sp, lineHeight = 18.sp,
                 )
+                // 学习通联动时登录过教务网页的话，这里可以直接读取，不必再登录一次
+                if (remember {
+                        val savedPage = repo.store.loadWebImportPage()
+                        savedPage.isNotBlank() && !CookieManager.getInstance().getCookie(savedPage).isNullOrBlank()
+                    }
+                ) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "检测到已保存的学校认证会话，打开后可直接「读取学期课表」。",
+                        color = ds.accent, fontSize = 12.sp, lineHeight = 17.sp,
+                    )
+                }
                 Spacer(Modifier.height(16.dp))
                 InputField(year, { year = it }, "起始学年，如 2026", KeyboardType.Number)
                 Spacer(Modifier.height(10.dp))

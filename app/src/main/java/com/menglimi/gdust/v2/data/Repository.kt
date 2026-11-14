@@ -421,6 +421,15 @@ class Store(context: Context) {
         return { plain.unregisterOnSharedPreferenceChangeListener(observer) }
     }
 
+    /** 联动会话保存/清除时回调（chx_cookie_at 在 plain prefs，写 Secure 不触发重组，以它为准）。 */
+    fun observeChxSession(listener: () -> Unit): () -> Unit {
+        val observer = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "chx_cookie_at") listener()
+        }
+        plain.registerOnSharedPreferenceChangeListener(observer)
+        return { plain.unregisterOnSharedPreferenceChangeListener(observer) }
+    }
+
     /** 上次成功同步整学期的时间戳（用于 App 打开时判断要不要顺手续租刷新）。 */
     var lastSyncAt: Long
         get() = plain.getLong("last_sync_at", 0L)
@@ -459,11 +468,9 @@ class Store(context: Context) {
     val hasPowerBinding: Boolean get() = powerAccount.isNotEmpty() && powerRoomVerify.isNotEmpty()
     val hasLlm: Boolean get() = llmBase.isNotEmpty() && llmKey.isNotEmpty() && llmModel.isNotEmpty()
 
-    /** 手动网页备用导入后复用 WebView 自己的持久 CookieManager 会话。 */
+    /** 手动网页备用导入后复用 WebView 自己的持久 CookieManager 会话；白名单见 ChxSso.isTeachingWebEntry。 */
     fun saveWebImport(pageUrl: String) {
-        val httpsSchool = pageUrl.startsWith("https://") && pageUrl.contains("gdust.edu.cn")
-        val internal = pageUrl.startsWith("http://172.16.254.1")
-        require(httpsSchool || internal) { "只保存学校域名的网页入口" }
+        require(ChxSso.isTeachingWebEntry(pageUrl)) { "只保存学校域名的网页入口" }
         plain.edit().putString("web_import_page", pageUrl).apply()
     }
 

@@ -112,6 +112,12 @@ fun AppRoot(
         }
         onDispose { stop() }
     }
+    // 联动状态是 plain prefs，静态读取不会重组；观察保存/清除事件保持设置页文案同步
+    var chxSessionSaved by remember { mutableStateOf(repo.store.hasChxSession) }
+    DisposableEffect(repo) {
+        val stop = repo.store.observeChxSession { chxSessionSaved = repo.store.hasChxSession }
+        onDispose { stop() }
+    }
     DisposableEffect(noticeFeed) {
         onDispose { noticeFeed.clear() }
     }
@@ -366,6 +372,7 @@ fun AppRoot(
                 },
                 onLogout = { logout() },
                 loggedIn = loggedIn.value,
+                chxSessionSaved = chxSessionSaved,
                 monetEnabled = monetEnabled,
                 openSection = openSection,
                 syncing = syncing,
