@@ -1,56 +1,113 @@
 package com.menglimi.gdust.v2.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
-/**
- * 学习通只读入口。
- *
- * 目前只做一件事：用 CAS 单点后拿到的 Cookie 探活。
- * 作业/考试清单的接口与字段尚无 HAR 证据，按红线不在这里凭空写端点——
- * 上一个版本的通知监听负责「新作业提醒」，全量清单等抓到作业页请求后再补。
- */
+/** 学习通只读探活；不扩展尚无协议证据的作业/考试端点。 */
 class ChxApi {
-
     private val ua =
         "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
-    private fun client() = OkHttpClient.Builder()
-        .followRedirects(true)
-        .followSslRedirects(true)
+    // 不把手工 Cookie 请求头跟随跳转发给其它主机；已知登录跳转直接判失效，其余保留未知。
+    private val client = OkHttpClient.Builder()
+        .followRedirects(false)
+        .followSslRedirects(false)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    /**
-     * 会话是否仍然有效：拉首页，如果被踢回登录页或响应体是登录表单，判失效。
-     * 网络故障一律按「未知」处理，由调用方保留 Cookie，不轻易登出。
-     */
+    /** true = 已有肯定证据；false = 明确未登录；null = 无法确认，不应清理候选会话。 */
     suspend fun probe(cookie: String): Boolean? = withContext(Dispatchers.IO) {
-        if (cookie.isBlank()) return@withContext false
-        val req = Request.Builder()
-            .url(ChxSso.HOME)
-            .header("User-Agent", ua)
-            .header("Cookie", cookie)
-            .get()
-            .build()
-        runCatching {
-            client().newCall(req).execute().use { resp ->
-                val finalUrl = resp.request.url.toString().lowercase()
-                // 被重定向到 passport/login 一律视为失效
-                if (finalUrl.contains("passport") || finalUrl.contains("login")) return@use false
-                if (!resp.isSuccessful) return@use null
-                val body = resp.body?.string().orEmpty()
-                when {
-                    body.isBlank() -> null
-                    // 未登录时首页会渲染成登录引导页
-                    body.contains("用户登录") || body.contains("扫码登录") -> false
-                    else -> true
+        if (!ChxSso.hasSessionCookie(cookie)) return@withContext false
+        try {
+            val request = Request.Builder()
+                .url(ChxSso.HOME)
+                .header("User-Agent", ua)
+                .header("Cookie", cookie)
+                .get()
+                .build()
+            client.newCall(request).readProbe()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            currentCoroutineContext().ensureActive()
+            null
+        }
+    }
+
+    // 读取响应也在 OkHttp 回调线程上完成，取消时关闭请求（包括正在读取的 body）。
+    private suspend fun Call.readProbe(): Boolean? = suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { cancel() }
+        enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (continuation.isActive) continuation.resumeWithException(e)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val result = response.use {
+                        val body = if (it.isSuccessful) it.peekBody(512L * 1024).string() else null
+                        sessionEvidence(it.code, it.request.url.toString(), body, it.header("Location"))
+                    }
+                    if (continuation.isActive) continuation.resume(result)
+                } catch (e: Exception) {
+                    if (continuation.isActive) continuation.resumeWithException(e)
                 }
             }
-        }.getOrNull()
+        })
+    }
+
+    companion object {
+        /** 纯判定便于回归：200/非登录 HTML 本身不是有效会话证据。 */
+        internal fun sessionEvidence(status: Int, url: String, body: String?, location: String? = null): Boolean? {
+            val parsed = url.toHttpUrlOrNull() ?: return null
+            val home = ChxSso.HOME.toHttpUrlOrNull() ?: return null
+            if (parsed.scheme != "https" || parsed.host != home.host || parsed.port != 443 ||
+                parsed.encodedPath != home.encodedPath
+            ) return null
+            if (status == 401) return false
+            if (status in 300..399) {
+                val target = location?.let(parsed::resolve)?.toString() ?: return null
+                return if (ChxSso.isLoginUrl(target)) false else null
+            }
+            if (status !in 200..299 || body.isNullOrBlank()) return null
+            val markup = body.replace(Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL), "")
+                .replace(Regex("<(script|style)\\b[^>]*>.*?</\\1\\s*>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), "")
+            val inputs = Regex("<input\\b[^>]*>", RegexOption.IGNORE_CASE).findAll(markup)
+                .map { attributes(it.value) }.toList()
+            // 明确的交互式登录表单才判失效，正文提到“登录”不够。
+            val loginForm = inputs.any { it["type"].equals("password", ignoreCase = true) } &&
+                (markup.contains("用户登录") || markup.contains("扫码登录") || markup.contains("统一身份认证"))
+            if (loginForm) return false
+            // 本地已有 HAR 的 interaction 页：服务端生成的 checkUserToken + 学生页结构。
+            // 不解析/记录身份值；模板占位、空 token、维护页和未知页面全部保持未知。
+            val token = inputs.firstOrNull { it["id"] == "checkUserToken" }?.get("value").orEmpty()
+            val positive = Regex("[a-fA-F0-9]{32}").matches(token) && token.any { it != '0' } &&
+                inputs.any { it["id"] == "stuPageHeader" } &&
+                inputs.any { it["id"] == "loadStuJobInfo" }
+            return if (positive) true else null
+        }
+
+        private fun attributes(tag: String): Map<String, String> =
+            Regex("([A-Za-z][A-Za-z0-9_-]*)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))")
+                .findAll(tag).associate { match ->
+                    match.groupValues[1].lowercase(java.util.Locale.ROOT) to
+                        match.groups.drop(2).firstNotNullOf { it?.value }
+                }
     }
 }

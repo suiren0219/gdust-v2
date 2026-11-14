@@ -36,6 +36,7 @@ import com.menglimi.gdust.v2.data.Notice
 import com.menglimi.gdust.v2.data.NoticeCategory
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.data.matches
+import com.menglimi.gdust.v2.data.readId
 import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.ui.pageBackground
@@ -54,6 +55,9 @@ fun NoticeScreen(
     notices: List<Notice>,
     loading: Boolean,
     error: String?,
+    readIds: Set<String>,
+    updatedAt: Long,
+    onMarkRead: (List<Notice>) -> Unit,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
 ) {
@@ -67,6 +71,7 @@ fun NoticeScreen(
     var summaryError by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(NoticeCategory.ALL) }
     val visibleNotices = notices.filter { it.matches(category) }
+    val unreadCount = notices.count { it.readId !in readIds }
 
     val timeFmt = remember { SimpleDateFormat("MM-dd HH:mm", Locale.CHINA) }
 
@@ -95,7 +100,12 @@ fun NoticeScreen(
                 when {
                     loading -> "正在更新门户公告…"
                     error != null -> error
-                    notices.isNotEmpty() -> "共 ${visibleNotices.size} 条相关公告"
+                    notices.isNotEmpty() -> "共 ${visibleNotices.size} 条相关公告" +
+                        (updatedAt.takeIf { it > 0 }?.let {
+                            val fmt = SimpleDateFormat("HH:mm", Locale.CHINA)
+                            " · ${fmt.format(Date(it))} 更新"
+                        } ?: "") +
+                        if (unreadCount > 0) "，$unreadCount 条未读" else ""
                     else -> "门户公告尚未加载"
                 },
                 fontSize = 12.sp,
@@ -103,8 +113,16 @@ fun NoticeScreen(
                 modifier = Modifier.weight(1f),
                 maxLines = 2,
             )
-            Button(text = if (loading) "更新中…" else "刷新", enabled = !loading) {
-                onRefresh()
+            top.yukonga.miuix.kmp.basic.Button(
+                onClick = { onRefresh() },
+                enabled = !loading,
+                insideMargin = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            ) {
+                top.yukonga.miuix.kmp.basic.Text(
+                    if (loading) "更新中…" else "刷新",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                )
             }
         }
 
@@ -162,16 +180,27 @@ fun NoticeScreen(
                 Text("当前没有匹配的${if (category == NoticeCategory.EXAM) "考试" else "教务"}公告。", fontSize = 13.sp, color = ds.sub)
             }
         } else {
-            // 打开页面即把最新公告时间记为已读水位
-            androidx.compose.runtime.LaunchedEffect(notices) {
-                val maxTime = notices.maxOf { it.time }
-                if (maxTime > store.lastNoticeReadAt) store.lastNoticeReadAt = maxTime
+            if (unreadCount > 0) {
+                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                    top.yukonga.miuix.kmp.basic.Button(
+                        onClick = { onMarkRead(notices) },
+                        insideMargin = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    ) {
+                        top.yukonga.miuix.kmp.basic.Text(
+                            "全部标为已读",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
             }
             visibleNotices.forEach { n ->
-                val unread = n.time > store.lastNoticeReadAt
+                val unread = n.readId !in readIds
                 GlassCard(
                     modifier = Modifier.padding(bottom = 10.dp),
                     onClick = {
+                        // 先打开原文；成功与否不再影响已读标记，由用户自己控制
                         runCatching {
                             context.startActivity(
                                 android.content.Intent(
@@ -180,7 +209,7 @@ fun NoticeScreen(
                                 )
                             )
                         }
-                        if (n.time > store.lastNoticeReadAt) store.lastNoticeReadAt = n.time
+                        if (unread) onMarkRead(listOf(n))
                     },
                 ) {
                     Column {

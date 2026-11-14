@@ -5,6 +5,17 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
 
 /**
  * 本机存储（v2）：凭据/会话/课表缓存/待办/设置全部只在本机。
@@ -389,10 +400,26 @@ class Store(context: Context) {
         get() = plain.getString("last_reminder_key", "") ?: ""
         set(v) = plain.edit().putString("last_reminder_key", v).apply()
 
-    /** 通知已读水位线：晚于该时间的公告算未读。 */
-    var lastNoticeReadAt: Long
-        get() = plain.getLong("notice_read_at", 0L)
-        set(v) = plain.edit().putLong("notice_read_at", v).apply()
+    /** 逐条已读按学校账号隔离；旧全局水位无法辨别实际阅读情况，不继承。 */
+    fun readNoticeIds(account: String = jobNumber): Set<String> {
+        val key = noticeReadStorageKey(account) ?: return emptySet()
+        return plain.getStringSet(key, emptySet()).orEmpty().toSet()
+    }
+
+    fun markNoticesRead(account: String, notices: List<Notice>) {
+        if (account != jobNumber) return
+        val key = noticeReadStorageKey(account) ?: return
+        plain.edit().putStringSet(key, readNoticeIds(account) + notices.map { it.readId })
+            .remove("notice_read_at").apply()
+    }
+
+    fun observeNoticeReads(listener: () -> Unit): () -> Unit {
+        val observer = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key?.startsWith("notice_read_ids_") == true) listener()
+        }
+        plain.registerOnSharedPreferenceChangeListener(observer)
+        return { plain.unregisterOnSharedPreferenceChangeListener(observer) }
+    }
 
     /** 上次成功同步整学期的时间戳（用于 App 打开时判断要不要顺手续租刷新）。 */
     var lastSyncAt: Long
@@ -448,15 +475,16 @@ class Store(context: Context) {
         secure.edit().remove("token").apply()
     }
 
-    fun logout() {
-        clearPortalSession()
-        secure.edit().remove("ticket").remove("job").remove("name").remove("chx_cookie").apply()
+    var webLogoutPending: Boolean
+        get() = plain.getBoolean("web_logout_pending", false)
+        set(value) = plain.edit().putBoolean("web_logout_pending", value).apply()
+
+    internal fun clearAccountSession() {
+        secure.edit().remove("token").remove("ticket").remove("job").remove("name")
+            .remove("chx_cookie").apply()
         plain.edit().remove("blocks").remove("calendar").remove("schedule_source")
-            .remove("web_import_page").remove("chx_cookie_at").apply()
-        android.webkit.CookieManager.getInstance().removeAllCookies {
-            android.webkit.CookieManager.getInstance().flush()
-        }
-        android.webkit.WebStorage.getInstance().deleteAllData()
+            .remove("web_import_page").remove("chx_cookie_at").remove("last_sync_at")
+            .remove("notice_read_at").putBoolean("web_logout_pending", true).apply()
     }
 
     // ── 备份与恢复：只含课表/校历/待办/采样/偏好；不含登录凭证与密码 ──
@@ -527,7 +555,14 @@ class Store(context: Context) {
 /** 会话门面：所有数据操作的唯一入口。 */
 class Repository(context: Context) {
 
+    private val app = context.applicationContext
     val store = Store(context)
+    private val sessionGuard = SessionGuard()
+    private val mutableSessionVersion = MutableStateFlow(0L)
+    val sessionVersion = mutableSessionVersion.asStateFlow()
+    private val authenticationMutex = Mutex()
+    private val webCleanupMutex = Mutex()
+    private val chxSessionMutex = Mutex()
     private val api = GdustApi()
     private val teachingSso = TeachingSsoClient()
     /** 学习通只读接口（当前只有探活；作业清单等抓到 HAR 再补）。 */
@@ -535,60 +570,154 @@ class Repository(context: Context) {
     /** 登录后教务会话 Cookie 持久化在这里；后续同步、续租、定时任务共用。 */
     val teachingCookies = PersistentCookieJar(context)
 
-    /** 校历：优先本机缓存；没有再找门户；都没有就给可操作提示。 */
-    private suspend fun resolveCalendar(): CalendarInfo {
-        store.loadCalendar()?.let { return it }
-        if (store.portalToken.isNotBlank()) {
-            runCatching { api.calendar(store.portalToken, store.jobNumber) }.getOrNull()?.let { return it }
+    internal fun portalSession(): PortalSession? {
+        val version = sessionGuard.current()
+        return sessionGuard.withCurrent(version) {
+            if (!store.hasSession || store.webLogoutPending) null
+            else PortalSession(store.jobNumber, store.portalToken, version)
         }
+    }
+
+    fun isCurrentSession(version: Long): Boolean = sessionGuard.current() == version
+
+    private fun teachingSessionJar(version: Long) = object : okhttp3.CookieJar {
+        override fun loadForRequest(url: okhttp3.HttpUrl) = sessionGuard.withCurrent(version) {
+            teachingCookies.loadForRequest(url)
+        }
+        override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
+            sessionGuard.withCurrent(version) { teachingCookies.saveFromResponse(url, cookies) }
+        }
+    }
+
+    private fun resetAccountSession(): Long {
+        val version = sessionGuard.invalidate()
+        sessionGuard.withCurrent(version) {
+            teachingCookies.clear()
+            store.clearAccountSession()
+            lastSsoTicket = null
+            mutableSessionVersion.value = version
+        }
+        return version
+    }
+
+    /** 本机退出：立刻隔离旧请求，随后等待 WebView 完成清理。个人偏好与手动待办保留。 */
+    suspend fun logout(): Boolean = withContext(NonCancellable + Dispatchers.Main.immediate) {
+        resetAccountSession()
+        com.menglimi.gdust.v2.work.ScheduleSyncWorker.cancel(app)
+        com.menglimi.gdust.v2.work.LessonReminderWorker.cancel(app)
+        val cleared = clearWebLoginData()
+        try {
+            com.menglimi.gdust.v2.widget.TodayWidget().refreshAll(app)
+        } catch (_: Exception) { /* 小组件刷新失败不阻止本机退出。 */ }
+        cleared
+    }
+
+    private suspend fun clearWebLoginData(): Boolean = webCleanupMutex.withLock {
+        withContext(Dispatchers.Main.immediate) {
+            try {
+                val cm = android.webkit.CookieManager.getInstance()
+                val completed = withTimeoutOrNull(5_000L) {
+                    suspendCancellableCoroutine { continuation ->
+                        cm.removeAllCookies {
+                            if (continuation.isActive) continuation.resume(true)
+                        }
+                    }
+                } == true
+                cm.flush()
+                android.webkit.WebStorage.getInstance().deleteAllData()
+                val cleared = completed && !cm.hasCookies()
+                store.webLogoutPending = !cleared
+                cleared
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
+
+    private suspend fun beginLogin(): Long {
+        val version = resetAccountSession()
+        check(clearWebLoginData()) { "旧网页会话尚未清除，请重试退出后再登录。" }
+        sessionGuard.withCurrent(version) { }
+        return version
+    }
+
+    /** 校历：优先本机缓存；没有再找门户；都没有就给可操作提示。 */
+    private suspend fun resolveCalendar(version: Long): CalendarInfo {
+        sessionGuard.withCurrent(version) { store.loadCalendar() }?.let { return it }
+        val portal = portalSession()
+        if (portal != null) {
+            try {
+                return api.calendar(portal.token, portal.account)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) { }
+        }
+        sessionGuard.withCurrent(version) { }
         error("本机还没有校历。请先用「网页登录导入」填一次学期设置（或重新登录门户），再同步。")
     }
 
     /** 账号密码快捷同步：优先复用现存正方 Cookie，明确认证失效时才用加密保存的 CAS ticket 续换。 */
     suspend fun syncTermWithLogin(): Pair<CalendarInfo, List<CourseBlock>> {
-        val cal = resolveCalendar()
-        val hasTeachingCookie = listOf("172.16.254.1", "gkjx.gdust.edu.cn", "webvpn.gdust.edu.cn")
-            .any(teachingCookies::hasSessionFor)
+        val version = sessionGuard.current()
+        val jar = teachingSessionJar(version)
+        val cal = resolveCalendar(version)
+        val hasTeachingCookie = sessionGuard.withCurrent(version) {
+            listOf("172.16.254.1", "gkjx.gdust.edu.cn", "webvpn.gdust.edu.cn")
+                .any(teachingCookies::hasSessionFor)
+        }
         val blocks = if (hasTeachingCookie) {
             try {
-                teachingSso.fetchWithCookies(cal, teachingCookies)
+                teachingSso.fetchWithCookies(cal, jar)
             } catch (e: AuthFailed) {
-                val ticket = store.casTicket
+                val ticket = sessionGuard.withCurrent(version) {
+                    store.casTicket.also { if (it.isNotBlank()) teachingCookies.clear() }
+                }
                 if (ticket.isBlank()) throw e
-                teachingCookies.clear()
-                teachingSso.loginAndFetch(ticket, cal, teachingCookies)
+                teachingSso.loginAndFetch(ticket, cal, jar)
             }
         } else {
-            val ticket = store.casTicket
+            val ticket = sessionGuard.withCurrent(version) { store.casTicket }
             require(ticket.isNotBlank()) { "本机登录凭证不含 CAS 票据，请重新登录一次后再同步" }
-            teachingSso.loginAndFetch(ticket, cal, teachingCookies)
+            teachingSso.loginAndFetch(ticket, cal, jar)
         }
-        store.saveCalendar(cal)
-        store.saveBlocks(blocks, "zf_term")
-        store.lastSyncAt = System.currentTimeMillis()
+        sessionGuard.withCurrent(version) {
+            store.saveCalendar(cal)
+            store.saveBlocks(blocks, "zf_term")
+            store.lastSyncAt = System.currentTimeMillis()
+        }
         return cal to blocks
     }
 
     /** 已有持久化 Cookie 时直接拉学期课表；OkHttp 没有则回退到网页登录留下的会话（后台定时任务走这条）。 */
     suspend fun syncTermWithCookies(): Pair<CalendarInfo, List<CourseBlock>> {
-        val cal = resolveCalendar()
-        val hasDirectCookie = listOf("172.16.254.1", "gkjx.gdust.edu.cn", "webvpn.gdust.edu.cn")
-            .any(teachingCookies::hasSessionFor)
+        val version = sessionGuard.current()
+        val cal = resolveCalendar(version)
+        val hasDirectCookie = sessionGuard.withCurrent(version) {
+            listOf("172.16.254.1", "gkjx.gdust.edu.cn", "webvpn.gdust.edu.cn")
+                .any(teachingCookies::hasSessionFor)
+        }
         val blocks = if (hasDirectCookie) {
-            teachingSso.fetchWithCookies(cal, teachingCookies)
+            teachingSso.fetchWithCookies(cal, teachingSessionJar(version))
         } else {
-            // 网页登录会话在 WebView 的 CookieManager 里；同进程可读，按当初登录页域名取
-            val page = store.loadWebImportPage()
-            val webCookie = page.takeIf { it.isNotBlank() }
-                ?.let { android.webkit.CookieManager.getInstance().getCookie(it).orEmpty() }
+            val (page, webCookie) = withContext(Dispatchers.Main.immediate) {
+                sessionGuard.withCurrent(version) {
+                    val page = store.loadWebImportPage()
+                    page to page.takeIf(String::isNotBlank)
+                        ?.let { android.webkit.CookieManager.getInstance().getCookie(it).orEmpty() }
+                }
+            }
             if (webCookie.isNullOrBlank()) {
                 throw IllegalStateException("教务会话已失效（本机无可用会话），请重新登录一次。")
             }
             teachingSso.fetchWithCookieHeader(cal, page, webCookie)
         }
-        store.saveCalendar(cal)
-        store.saveBlocks(blocks, "zf_term")
-        store.lastSyncAt = System.currentTimeMillis()
+        sessionGuard.withCurrent(version) {
+            store.saveCalendar(cal)
+            store.saveBlocks(blocks, "zf_term")
+            store.lastSyncAt = System.currentTimeMillis()
+        }
         return cal to blocks
     }
 
@@ -603,19 +732,21 @@ class Repository(context: Context) {
 
     /** 教务会话是否还活着（轻量探测，供续租与定时任务决定是否要重登）。 */
     suspend fun teachingSessionAlive(): Boolean = runCatching {
-        teachingSso.probe(teachingCookies)
-    }.getOrDefault(false)
+        teachingSso.probe(teachingSessionJar(sessionGuard.current()))
+    }.onFailure { if (it is CancellationException) throw it }.getOrDefault(false)
 
     suspend fun isSessionAlive(): Boolean {
-        if (!store.hasSession) return false
+        val session = portalSession() ?: return false
         return try {
-            api.calendar(store.portalToken, store.jobNumber)
-            true
-        } catch (e: kotlinx.coroutines.CancellationException) {
+            api.calendar(session.token, session.account)
+            sessionGuard.withCurrent(session.version) { true }
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (e is AuthFailed) store.clearPortalSession()
-            shouldKeepSession(true, e)
+            sessionGuard.withCurrent(session.version) {
+                if (e is AuthFailed && portalSession() == session) store.clearPortalSession()
+                shouldKeepSession(true, e)
+            }
         }
     }
 
@@ -626,23 +757,27 @@ class Repository(context: Context) {
      * 再用同一 ticket 换门户 TOKEN（失败不阻塞课表同步，只是校历/公告暂不可用）。
      * 验证码错误以 AuthFailed(30001) 抛出，调用方换码重试。
      */
-    suspend fun login(account: String, password: String, code: String, uuid: String) {
+    suspend fun login(account: String, password: String, code: String, uuid: String) = authenticationMutex.withLock {
+        val version = beginLogin()
         val ticket = api.login(account, password, code, uuid)
-        store.casTicket = ticket
-        applySessions(account, ticket)
+        sessionGuard.withCurrent(version) { store.casTicket = ticket }
+        applySessions(account, ticket, version = version)
     }
 
     /** 扫码拿 ticket 后的收尾。同一 clientId 的 SSE 重复投递不能把一张一次性票再换一次。 */
     private var lastSsoTicket: String? = null
 
-    suspend fun finishSso(rawTicket: String) {
+    suspend fun finishSso(rawTicket: String) = authenticationMutex.withLock {
         val ticket = rawTicket.trim()
         require(ticket.isNotBlank()) { "登录票据为空，请重新扫码" }
-        if (ticket == lastSsoTicket) return
-        lastSsoTicket = ticket
-        store.casTicket = ticket
+        if (ticket == lastSsoTicket) return@withLock
+        val version = beginLogin()
+        sessionGuard.withCurrent(version) {
+            lastSsoTicket = ticket
+            store.casTicket = ticket
+        }
         // 钉钉票是移动端 SSO 体系：先换门户（必须成功），教务拿不到不算登录失败
-        applySessions("", ticket, portalFirst = true)
+        applySessions("", ticket, portalFirst = true, version = version)
     }
 
     /**
@@ -653,7 +788,12 @@ class Repository(context: Context) {
      * 每次换票对网络类失败重试一次（学校网关偶发超时）；失败原因不再吞掉，
      * 两个渠道都失败时把真实原因拼进提示，便于定位。
      */
-    private suspend fun applySessions(fallbackJob: String, ticket: String, portalFirst: Boolean = false) {
+    private suspend fun applySessions(
+        fallbackJob: String,
+        ticket: String,
+        portalFirst: Boolean = false,
+        version: Long,
+    ) {
         var teachingOk = false
         var token = ""
         var portalError: Throwable? = null
@@ -661,20 +801,30 @@ class Repository(context: Context) {
 
         // 一次性票：门户与教务共用，重试只针对「网络没发出去」的情形，不重放已成功换到的会话
         suspend fun exchangePortal() {
+            sessionGuard.withCurrent(version) { }
             runCatching { api.exchangeToken(ticket) }
                 .onSuccess { token = it }
                 .onFailure { e ->
+                    if (e is CancellationException) throw e
                     if (e.isNetworkDown() && token.isBlank()) {
+                        sessionGuard.withCurrent(version) { }
                         runCatching { api.exchangeToken(ticket) }
                             .onSuccess { token = it }
-                            .onFailure { portalError = it }
+                            .onFailure {
+                                if (it is CancellationException) throw it
+                                portalError = it
+                            }
                     } else portalError = e
                 }
         }
         suspend fun openTeaching() {
-            runCatching { teachingSso.openSession(ticket, teachingCookies) }
+            sessionGuard.withCurrent(version) { }
+            runCatching { teachingSso.openSession(ticket, teachingSessionJar(version)) }
                 .onSuccess { teachingOk = it != null }
-                .onFailure { teachingError = it }
+                .onFailure {
+                    if (it is CancellationException) throw it
+                    teachingError = it
+                }
             if (!teachingOk && teachingError == null) teachingError = IllegalStateException("教务未接受票据")
         }
 
@@ -687,14 +837,19 @@ class Repository(context: Context) {
             exchangePortal()
         }
 
+        sessionGuard.withCurrent(version) { }
         if (token.isNotBlank()) {
-            val (job, name) = runCatching { api.userInfo(token) }.getOrDefault(fallbackJob to "")
-            store.portalToken = token
-            store.jobNumber = job.ifBlank { fallbackJob }
-            store.realName = name
-            if (!teachingOk) {
-                // 门户会话有效即可进入课表（整学期导入可走网页路线）；教务失败降级为提示
-                android.util.Log.i("gdust-sso", "教务会话未建立：${teachingError?.message ?: "票据已被门户使用"}")
+            val (job, name) = try {
+                api.userInfo(token)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                fallbackJob to ""
+            }
+            sessionGuard.withCurrent(version) {
+                store.portalToken = token
+                store.jobNumber = job.ifBlank { fallbackJob }
+                store.realName = name
             }
         }
         if (!teachingOk && token.isBlank()) {
@@ -709,63 +864,70 @@ class Repository(context: Context) {
 
     /** 同步门户实际返回的课程；单周响应不能推断其他周。 */
     suspend fun syncSchedule(): Pair<CalendarInfo, List<CourseBlock>> {
-        val raw = api.calendar(store.portalToken, store.jobNumber)
-        val cal = raw.copy(
-            startDate = store.termStartDate.ifBlank { raw.startDate },
-            allWeek = if (store.termWeeks > 0) store.termWeeks else raw.allWeek,
-            week = if (store.termCurrentWeek > 0) store.termCurrentWeek else raw.week,
-        )
-        // 已有真实学期课表时，门户快照不参与覆盖；更新应重新读取正方学期响应。
-        if (store.scheduleSource == "zf_term") {
-            return requireNotNull(store.loadCalendar()) to store.loadBlocks()
+        val session = portalSession() ?: error("请先登录学校门户")
+        val raw = api.calendar(session.token, session.account)
+        val cal = sessionGuard.withCurrent(session.version) {
+            raw.copy(
+                startDate = store.termStartDate.ifBlank { raw.startDate },
+                allWeek = if (store.termWeeks > 0) store.termWeeks else raw.allWeek,
+                week = if (store.termCurrentWeek > 0) store.termCurrentWeek else raw.week,
+            )
         }
-        val blocks = mergeLessons(api.lessons(store.portalToken, store.jobNumber))
-        store.saveCalendar(cal)
-        store.saveBlocks(blocks)
+        // 已有真实学期课表时，门户快照不参与覆盖；更新应重新读取正方学期响应。
+        val imported = sessionGuard.withCurrent(session.version) {
+            if (store.scheduleSource == "zf_term") requireNotNull(store.loadCalendar()) to store.loadBlocks()
+            else null
+        }
+        if (imported != null) return imported
+        val blocks = mergeLessons(api.lessons(session.token, session.account))
+        sessionGuard.withCurrent(session.version) {
+            store.saveCalendar(cal)
+            store.saveBlocks(blocks)
+        }
         return cal to blocks
     }
 
-    suspend fun notices() = api.notices(store.portalToken, store.jobNumber)
+    suspend fun notices(): List<Notice> = notices(portalSession() ?: error("请先登录学校门户"))
 
-    /** 学习通会话探活：true 有效 / false 失效 / null 网络原因未知（不清 Cookie）。 */
-    suspend fun chxSessionAlive(): Boolean? {
-        if (store.chxCookie.isBlank()) return false
-        val alive = chxApi.probe(store.chxCookie)
-        if (alive == false) store.clearChxCookie()
-        return alive
+    internal suspend fun notices(session: PortalSession): List<Notice> {
+        if (session != portalSession()) throw CancellationException("登录状态已变更")
+        val result = api.notices(session.token, session.account)
+        if (session != portalSession()) throw CancellationException("登录状态已变更")
+        return result
     }
 
-    /** 清理学习通与学校 CAS 的 WebView 会话，不影响教务站点自己的 Cookie。 */
-    fun clearChxSession() {
-        store.clearChxCookie()
-        val cookieManager = android.webkit.CookieManager.getInstance()
-        listOf(
-            "https://chaoxing.com",
-            "https://passport2.chaoxing.com",
-            "https://passport.chaoxing.com",
-            "https://i.chaoxing.com",
-            "https://mooc2-ans.chaoxing.com",
-            "http://gdkjxy.fysso.chaoxing.com",
-            "http://gdkjxy.fanya.chaoxing.com",
-            "https://cas.gdust.edu.cn",
-        ).forEach { url ->
-            cookieManager.getCookie(url).orEmpty()
-                .split(';')
-                .map { it.trim().substringBefore('=') }
-                .filter(String::isNotBlank)
-                .forEach { name ->
-                    cookieManager.setCookie(url, "$name=; Max-Age=0; Path=/")
-                    if (url.contains("chaoxing.com")) {
-                        cookieManager.setCookie(url, "$name=; Max-Age=0; Path=/; Domain=.chaoxing.com")
-                    }
-                }
+    /** 学习通会话探活；迟到的旧结果不能清除新保存的会话。 */
+    suspend fun chxSessionAlive(): Boolean? = chxSessionMutex.withLock {
+        val version = sessionGuard.current()
+        val cookie = sessionGuard.withCurrent(version) { store.chxCookie }
+        if (!ChxSso.hasSessionCookie(cookie)) return@withLock false
+        val alive = chxApi.probe(cookie)
+        withContext(Dispatchers.Main.immediate) {
+            sessionGuard.withCurrent(version) {
+                if (store.chxCookie != cookie) throw CancellationException("学习通会话已变更")
+                if (alive == false) store.clearChxCookie()
+                alive
+            }
         }
-        cookieManager.flush()
     }
 
-    suspend fun summarize() = api.summarize(
-        store.llmBase, store.llmKey, store.llmModel, notices(),
-    )
+    /** 只清理学习通和 CAS 的已知网页存储范围，返回本机清理结果。 */
+    suspend fun clearChxSession(): Boolean = withContext(NonCancellable + Dispatchers.Main.immediate) {
+        store.clearChxCookie()
+        ChxWebSession.clear()
+    }
+
+    suspend fun summarize(): String {
+        val session = portalSession() ?: error("请先登录学校门户")
+        return summarize(notices(session), session)
+    }
+
+    internal suspend fun summarize(notices: List<Notice>, session: PortalSession): String {
+        if (session != portalSession()) throw CancellationException("登录状态已变更")
+        val result = api.summarize(store.llmBase, store.llmKey, store.llmModel, notices)
+        if (session != portalSession()) throw CancellationException("登录状态已变更")
+        return result
+    }
 
     // 水电（无需登录态）
     suspend fun powerRooms(account: String, code: Int) = api.powerRooms(account, code)

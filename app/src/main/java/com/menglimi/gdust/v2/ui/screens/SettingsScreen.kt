@@ -281,7 +281,7 @@ fun SettingsScreen(
         SettingsSection("服务", listOf(
             SettingsEntry(
                 id = "chx", title = "学习通联动", summary = "通过学校统一身份认证连接", icon = MiuixIcons.Link,
-                detail = if (store.hasChxSession) "已联动" else "未联动", onClick = onChxEntry,
+                detail = if (store.hasChxSession) "已保存，待验证" else "未联动", onClick = onChxEntry,
             ),
             SettingsEntry(
                 id = "chxNotifications", title = "学习通通知待办", summary = "从推送识别作业与考试", icon = MiuixIcons.Messages,

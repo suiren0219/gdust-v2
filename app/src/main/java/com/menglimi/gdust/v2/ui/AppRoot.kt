@@ -56,6 +56,12 @@ import com.menglimi.gdust.v2.ui.screens.ReminderScreen
 import com.menglimi.gdust.v2.ui.screens.ChxNotificationScreen
 import com.menglimi.gdust.v2.ui.screens.ChxEntryScreen
 import com.menglimi.gdust.v2.data.Notice
+import com.menglimi.gdust.v2.data.NoticeFeed
+import com.menglimi.gdust.v2.data.readId
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 @Composable
@@ -87,10 +93,28 @@ fun AppRoot(
     var showChxNotifications by remember { mutableStateOf(false) }
     var showChxEntry by remember { mutableStateOf(false) }
     var showGlassEffect by remember { mutableStateOf(false) }
-    var notices by remember { mutableStateOf<List<Notice>>(emptyList()) }
-    var noticesLoading by remember { mutableStateOf(false) }
-    var noticesError by remember { mutableStateOf<String?>(null) }
+    val sessionVersion by repo.sessionVersion.collectAsState()
+    val noticeFeed = remember(repo) { NoticeFeed(repo::portalSession, repo::notices) }
+    val noticeState by noticeFeed.state.collectAsState()
+    val notices = noticeState.notices
+    val noticesLoading = noticeState.loading
+    val noticesError = noticeState.error
+    val noticeAccount = repo.store.jobNumber
+    var readNoticeIds by remember(noticeAccount) { mutableStateOf(repo.store.readNoticeIds(noticeAccount)) }
+    var syncJob by remember { mutableStateOf<Job?>(null) }
+    var loggingOut by remember { mutableStateOf(false) }
+    var logoutFailed by remember { mutableStateOf(repo.store.webLogoutPending) }
     var showAbout by remember { mutableStateOf(false) }
+
+    DisposableEffect(repo, noticeAccount) {
+        val stop = repo.store.observeNoticeReads {
+            readNoticeIds = repo.store.readNoticeIds(noticeAccount)
+        }
+        onDispose { stop() }
+    }
+    DisposableEffect(noticeFeed) {
+        onDispose { noticeFeed.clear() }
+    }
     // 备份导出：SAF 建文档，写入后提示
     val context = androidx.compose.ui.platform.LocalContext.current
     val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -119,7 +143,8 @@ fun AppRoot(
         }
         syncing = true
         syncError = null
-        scope.launch {
+        val version = repo.sessionVersion.value
+        syncJob = scope.launch {
             val result = when {
                 // 已有教务会话（网页或直连）→ 拉整学期
                 repo.hasTeachingSession() -> runCatching { repo.syncTermWithCookies() }
@@ -127,6 +152,10 @@ fun AppRoot(
                 repo.store.hasSession -> runCatching { repo.syncSchedule() }
                 // 只有票据 → 尝试换教务会话
                 else -> runCatching { repo.syncTermWithLogin() }
+            }
+            if (!repo.isCurrentSession(version)) {
+                syncing = false
+                return@launch
             }
             result
                 .onSuccess { (cal, list) -> calendar = cal; blocks = list; syncError = null }
@@ -148,21 +177,53 @@ fun AppRoot(
                     }
                 }
             syncing = false
+            syncJob = null
         }
     }
 
-    fun loadNotices() {
-        if (!repo.store.hasSession) {
-            noticesError = "请先登录学校门户后再获取教务通知。"
-            return
-        }
-        noticesLoading = true
-        noticesError = null
+    fun loadNotices() { noticeFeed.refresh(scope) }
+
+    fun logout() {
+        if (loggingOut) return
+        loggingOut = true
+        logoutFailed = false
+        noticeFeed.clear()
+        syncJob?.cancel()
+        syncing = false
+        blocks = emptyList()
+        calendar = null
+        syncError = null
+        netDown = false
+        needLogin = false
+        directFallbackMessage = null
+        webImportReport = null
+        importReport = null
+        showNotices = false
+        showWebImport = false
+        showChxEntry = false
+        showProfile = false
+        showSettings.value = false
+        loggedIn.value = false
         scope.launch {
-            runCatching { repo.notices() }
-                .onSuccess { notices = it }
-                .onFailure { noticesError = it.message ?: "公告加载失败，请检查网络后重试。" }
-            noticesLoading = false
+            try {
+                logoutFailed = !repo.logout()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                logoutFailed = true
+            } finally {
+                loggingOut = false
+            }
+        }
+    }
+
+    LaunchedEffect(sessionVersion) {
+        if (sessionVersion != 0L && !repo.store.hasSession) {
+            noticeFeed.clear()
+            syncJob?.cancel()
+            syncing = false
+            calendar = repo.store.loadCalendar()
+            blocks = repo.store.loadBlocks()
         }
     }
 
@@ -250,6 +311,9 @@ fun AppRoot(
                     notices = notices,
                     loading = noticesLoading,
                     error = noticesError,
+                    readIds = readNoticeIds,
+                    updatedAt = noticeState.updatedAt,
+                    onMarkRead = { items -> repo.store.markNoticesRead(noticeAccount, items) },
                     onBack = { showNotices = false },
                     onRefresh = { loadNotices() },
                 )
@@ -300,14 +364,7 @@ fun AppRoot(
                         }
                         .onFailure { syncError = it.message ?: "导入失败" }
                 },
-                onLogout = {
-                    repo.store.logout()
-                    blocks = emptyList()
-                    calendar = null
-                    syncError = null
-                    loggedIn.value = false
-                    showSettings.value = false
-                },
+                onLogout = { logout() },
                 loggedIn = loggedIn.value,
                 monetEnabled = monetEnabled,
                 openSection = openSection,
@@ -321,6 +378,7 @@ fun AppRoot(
                 onSettings = { showSettings.value = true },
                 onOpenNotices = { showNotices = true; loadNotices() },
                 notices = notices,
+                unreadCount = notices.count { it.readId !in readNoticeIds },
                 onImport = { showWebImport = true },
                 onGlassEffect = { showGlassEffect = true },
                 calendar = calendar,
@@ -343,6 +401,23 @@ fun AppRoot(
         }
     }
 
+    if (logoutFailed && !loggingOut) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { logoutFailed = false },
+            title = { androidx.compose.material3.Text("退出未完全完成") },
+            text = { androidx.compose.material3.Text("本机账号数据已隔离，但网页会话清理未确认。可重试清理，不影响重新登录。") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { logoutFailed = false; logout() }) {
+                    androidx.compose.material3.Text("重试清理")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { logoutFailed = false }) {
+                    androidx.compose.material3.Text("稍后处理")
+                }
+            },
+        )
+    }
     if (webImportReport != null) InfoDialog("网页登录导入完成", webImportReport!!, onDismiss = { webImportReport = null })
     if (directFallbackMessage != null) {
         androidx.compose.material3.AlertDialog(
@@ -390,6 +465,7 @@ private fun MainScaffold(
     onSettings: () -> Unit,
     onOpenNotices: () -> Unit = {},
     notices: List<Notice> = emptyList(),
+    unreadCount: Int = 0,
     calendar: CalendarInfo?,
     blocks: List<CourseBlock>,
     syncError: String?,
@@ -434,7 +510,7 @@ private fun MainScaffold(
                         calendar = calendar,
                         blocks = blocks,
                         onOpenNotices = onOpenNotices,
-                        unreadCount = notices.count { it.time > repo.store.lastNoticeReadAt },
+                        unreadCount = unreadCount,
                         onOpenSchedule = { onTab(1) },
                         onImport = onImport,
                         hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
