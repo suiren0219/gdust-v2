@@ -1,6 +1,7 @@
 package com.menglimi.gdust.v2.data
 
 import com.google.gson.JsonParser
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.CookieJar
@@ -51,9 +52,9 @@ class TeachingSsoClient {
     suspend fun openSession(ticket: String, jar: CookieJar): String? = withContext(Dispatchers.IO) {
         if (ticket.isBlank()) return@withContext null
         for (base in bases) {
-            if (runCatching { exchangeTicket(ticket, base, jar, connectSec = 8, readSec = 12) }.isSuccess) {
-                return@withContext base
-            }
+            val result = runCatching { exchangeTicket(ticket, base, jar, connectSec = 8, readSec = 12) }
+                .onFailure { if (it is CancellationException) throw it }
+            if (result.isSuccess) return@withContext base
         }
         null
     }
@@ -68,8 +69,10 @@ class TeachingSsoClient {
         var lastError: Throwable? = null
         for (base in bases) {
             val r = runCatching { exchangeTicket(ticket, base, jar) }
+                .onFailure { if (it is CancellationException) throw it }
             if (r.isSuccess) {
                 val fetched = runCatching { fetchKbList(base, calendar, jar) }
+                    .onFailure { if (it is CancellationException) throw it }
                 if (fetched.isSuccess) return@withContext fetched.getOrThrow()
                 lastError = fetched.exceptionOrNull()
             } else {
@@ -91,6 +94,7 @@ class TeachingSsoClient {
                 val host = hostOf(base) ?: continue
                 if (!hasCookiesFor(jar, host)) continue
                 val r = runCatching { fetchKbList(base, calendar, jar) }
+                    .onFailure { if (it is CancellationException) throw it }
                 if (r.isSuccess) return@withContext r.getOrThrow()
                 lastError = r.exceptionOrNull()
             }
@@ -114,6 +118,7 @@ class TeachingSsoClient {
             ?: error("不认识的教务域名：$pageHost")
         runCatching { postKbList(base, calendar, cookieHeader) }
             .getOrElse { e ->
+                if (e is CancellationException) throw e
                 throw IllegalStateException(
                     "网页登录会话已失效（${e.message?.take(80) ?: "无响应"}），请重新网页登录一次。",
                     e,
@@ -153,10 +158,10 @@ class TeachingSsoClient {
 
     /**
      * 轻量探活：判断会话是否仍有效，供续租与定时任务决定是否要重登。
-     * true 有效 / false 明确被踢回登录（302/401/901）/ null 网络或服务端异常——不下失效结论。
-     * Cookie 按入口 host 分开存：任一入口有效即算有效，全部明确失效才算失效。
+     * 任一入口有效即算有效；只有全部入口都被明确拒绝（302/401/901）才判失效，
+     * 网络/维护等未知状态保持会话（不误清）。
      */
-    suspend fun probe(jar: CookieJar): Boolean? = withContext(Dispatchers.IO) {
+    suspend fun probe(jar: CookieJar): Boolean = withContext(Dispatchers.IO) {
         var invalid = false
         for (base in bases) {
             val host = hostOf(base) ?: continue
@@ -174,7 +179,7 @@ class TeachingSsoClient {
                 else -> continue                          // 维护页等异常响应，不下结论
             }
         }
-        if (invalid) false else null
+        if (invalid) false else true
     }
 
     private fun exchangeTicket(
@@ -238,8 +243,9 @@ class TeachingSsoClient {
 
     private fun hasCookiesFor(jar: CookieJar, host: String): Boolean {
         if (jar is PersistentCookieJar) return jar.hasSessionFor(host)
-        return runCatching {
-            jar.loadForRequest(okhttp3.HttpUrl.Builder().scheme("http").host(host).build()).isNotEmpty()
-        }.getOrDefault(false)
+        return listOf("https", "http").any { scheme ->
+            jar.loadForRequest(okhttp3.HttpUrl.Builder().scheme(scheme).host(host)
+                .addPathSegments("kbcx/xskbcx_cxXsgrkb.html").build()).isNotEmpty()
+        }
     }
 }

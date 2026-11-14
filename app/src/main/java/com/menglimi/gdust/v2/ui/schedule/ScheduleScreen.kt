@@ -6,11 +6,8 @@
 package com.menglimi.gdust.v2.ui.schedule
 
 import android.content.Context
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,7 +40,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -61,7 +57,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kyant.capsule.ContinuousRoundedRectangle
 import androidx.compose.ui.graphics.TileMode
 import com.haooz.softglass.backdrop.drawBackdrop
 import com.haooz.softglass.backdrop.effects.blur
@@ -78,21 +73,21 @@ import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.pageTextBacking
-import com.menglimi.gdust.v2.ui.secondaryTextColor
-import com.menglimi.gdust.v2.ui.nexio.utils.AppMaterialSettings
+import com.menglimi.gdust.v2.ui.LocalUiStyle
+import com.menglimi.gdust.v2.ui.UiStyle
 import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Backup
-import top.yukonga.miuix.kmp.utils.SinkFeedback
-import top.yukonga.miuix.kmp.utils.pressable
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
 /** Nexio「效果」页六项卡片材质参数（从 Store 直读，回设置页即生效）。 */
 internal data class GlassSpec(
@@ -163,18 +158,14 @@ fun ScheduleScreen(
     }
     var textMono by remember(repo) { mutableStateOf(repo.store.cardTextMono) }
     var smartWeekend by remember(repo, repo.store.smartHideWeekend) { mutableStateOf(repo.store.smartHideWeekend) }
-    // 未设置时跟随风格；显式保存的 0/false 仍表示关闭，不被默认效果覆盖。
-    val material = AppMaterialSettings.current()
+    // 玻璃材质参数：每次重组直读 prefs（课表效果页改完回来即生效），不 remember 缓存
     val glass = GlassSpec(
         tint = repo.store.glassTint,
-        opacity = maxOf(repo.store.glassOpacity, material.courseAlpha),
-        blurPx = if (stored.contains("glass_blur")) repo.store.glassBlurPx else material.blurDp.toInt(),
-        refraction = material.courseRefraction(
-            if (stored.contains("glass_refraction")) repo.store.glassRefraction else null,
-        ),
+        opacity = repo.store.glassOpacity,
+        blurPx = repo.store.glassBlurPx,
+        refraction = repo.store.glassRefraction,
         edge = repo.store.glassEdge,
-        highlightEdge = material.liquid &&
-            if (stored.contains("glass_highlight")) repo.store.glassHighlightEdge else true,
+        highlightEdge = repo.store.glassHighlightEdge,
     )
     var showDisplaySettings by remember { mutableStateOf(false) }
     var showTermSwitch by remember { mutableStateOf(false) }
@@ -486,7 +477,7 @@ private fun ScheduleBreakBand(text: String, modifier: Modifier) {
     Box(
         modifier.fillMaxWidth().height(ScheduleLayout.BreakHeight)
             .padding(start = ScheduleLayout.SectionWidth + 2.dp, end = 2.dp, top = 2.dp, bottom = 2.dp)
-            .background((if (ds.isDark) Color.White else Color.Black).copy(alpha = if (ds.isDark) 0.06f else 0.04f), ContinuousRoundedRectangle(10.dp)),
+            .background((if (ds.isDark) Color.White else Color.Black).copy(alpha = if (ds.isDark) 0.06f else 0.04f), RoundedCornerShape(10.dp)),
         contentAlignment = Alignment.Center,
     ) { Text(text, fontSize = 10.sp, color = ds.sub) }
 }
@@ -530,21 +521,31 @@ private fun LessonCard(
     val inactive = Color(0xFF9E9E9E)
     val pageGlass = LocalPageLayerBackdrop.current
     val onWallpaper = LocalWallpaperActive.current && pageGlass != null
-    val material = AppMaterialSettings.current()
-    val glassStyle = AppMaterialSettings.chromeGlassStyle(ScheduleSoftGlassStyle, ds.isDark)
-    // 风格决定磨砂/折射，效果页参数在该档位上微调，默认值也能展示两种材质差异。
+    // 28a99a3 卡片材质：壁纸开启走玻璃路径（着色 + 底色 + 模糊透出壁纸，参数见「课表效果」页），
+    // 无壁纸沿用其无材质路径（0.12 着色 + 0.92 页底垫色）
     val tintAlpha = glass.tint * (if (isPast) 0.7f else 1f)
     val baseTint = if (isPast) inactive else tint
-    val opacity = maxOf(glass.opacity, material.courseAlpha)
-    val glassColor = glassSurfaceColor(baseTint, ds.isDark, tintAlpha = tintAlpha, surfaceAlpha = opacity)
+    // P3：drawBackdrop、描边光、border、Card 必须用同一个形状；
+    // 之前描边光用 ContinuousRoundedRectangle（超椭圆）而卡片是 squircle，四角多出一段不贴合的圆弧白边
+    val cardShape = RoundedCornerShape(cornerRadius)
+    // P2：两档材质共用 NexioCompat.cardGlassParams() 一个真源（与底栏同档）
+    // SOFT=磨砂（更实、无折射），LIQUID=通透（折射 + 高光）
+    val liquid = LocalUiStyle.current.value == UiStyle.LIQUID
+    val params = com.menglimi.gdust.v2.ui.nexio.utils.AppMaterialSettings.cardGlassParams(
+        glass.tint, glass.opacity, glass.blurPx, glass.refraction,
+    )
+    val effectiveTint = params.tint
+    val effectiveOpacity = params.opacity
+    val effectiveBlur = params.blurPx
+    val effectiveRefraction = params.refraction
+    val effectiveGlass = glassSurfaceColor(baseTint, ds.isDark, tintAlpha = effectiveTint, surfaceAlpha = effectiveOpacity)
+    val glassColor = glassSurfaceColor(baseTint, ds.isDark, tintAlpha = effectiveTint, surfaceAlpha = effectiveOpacity)
     val cardColor = baseTint.copy(alpha = tintAlpha).compositeOver(ds.bg.copy(alpha = 0.92f))
-    val blurDp = glass.blurPx.toFloat()
-    val refraction = glass.refraction
     val preferredText = if (isPast) ds.sub.copy(alpha = 0.7f)
         else CourseColors.text(block.name, ds.isDark, onWallpaper = onWallpaper, monochrome = textMono)
     val foreground = CourseColors.readableText(
         preferredText,
-        if (onWallpaper) glassColor.compositeOver(ds.bg) else cardColor.compositeOver(ds.bg),
+        if (onWallpaper) effectiveGlass else cardColor.compositeOver(ds.bg),
     )
     val scale = textScale.coerceIn(0.7f, 1.4f)
     val nameSize = (12.7f * scale).sp
@@ -571,62 +572,63 @@ private fun LessonCard(
     }
     val density = LocalDensity.current
     val maxLines = with(density) { ((cardHeight - 16.dp).value / nameLine.toDp().value).toInt().coerceAtLeast(1) }
-    // 表面、边光与点击裁剪共用圆角，避免 Card 内部 squircle 再叠一层轮廓。
-    val cardShape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressFeedback = remember { SinkFeedback() }
-    Box(
+    Card(
         modifier = modifier.fillMaxWidth().height(cardHeight).padding(ScheduleLayout.CardGap)
-            .pressable(interactionSource = interactionSource, indication = pressFeedback, delay = null)
             .then(
                 if (onWallpaper) Modifier.drawBackdrop(
                     backdrop = pageGlass!!,
                     shape = { cardShape },
                     effects = {
-                        blur(blurDp.dp.toPx(), TileMode.Mirror)
-                        if (refraction > 0f) {
-                            padding = 0f
+                        blur(effectiveBlur.dp.toPx(), TileMode.Mirror)
+                        if (effectiveRefraction > 0f) {
                             runtimeShaderEffect(
                                 key = "NexioSoftGlassLiveCourseCard",
                                 shaderString = SOFT_GLASS_LIVE_SHADER,
                                 uniformShaderName = "content",
                             ) {
                                 applySoftGlass(
-                                    style = glassStyle.copy(
-                                        refractionScale = refraction,
-                                        edgeHighlight = glass.highlightEdge,
+                                    style = ScheduleSoftGlassStyle.copy(
+                                        refractionScale = effectiveRefraction,
+                                        // 方形卡片上的 shader 弧光会画出不贴合的大圆弧（P3）；
+                                        // 折射保留，弧光只在效果页显式开启「高光描边」时启用
+                                        edgeHighlight = false,
                                     ),
                                     width = size.width,
                                     height = size.height,
-                                    // 默认半径是短边的一半，会画出与课程卡不符的胶囊高光。
-                                    radiusPx = cornerRadius.toPx(),
                                 )
                             }
                         }
                     },
-                    onDrawSurface = { drawRect(glassColor) },
+                    onDrawSurface = { drawRect(effectiveGlass) },
                 )
                     .then(
                         when (glass.edge) {
-                            0 -> Modifier
+                            0 -> if (glass.highlightEdge) Modifier.border(1.dp, ds.text.copy(alpha = 0.32f), cardShape) else Modifier
                             2 -> Modifier.edgeLight(
                                 shape = cardShape,
-                                edgeLight = rememberCardEdgeLight(glassColor).copy(width = 0.18.dp, blurRadius = 0.8.dp, intensity = 0.4f),
+                                edgeLight = rememberCardEdgeLight(effectiveGlass).copy(width = 0.18.dp, blurRadius = 0.8.dp, intensity = if (glass.highlightEdge) 0.8f else 0.4f),
                             )
                             3 -> Modifier.edgeLight(
                                 shape = cardShape,
-                                edgeLight = rememberCardEdgeLight(glassColor).copy(width = 0.9.dp, blurRadius = 2.4.dp, intensity = 0.9f),
+                                edgeLight = rememberCardEdgeLight(effectiveGlass).copy(width = 0.9.dp, blurRadius = 2.4.dp, intensity = if (glass.highlightEdge) 1.2f else 0.9f),
                             )
                             else -> Modifier.edgeLight(
                                 shape = cardShape,
-                                edgeLight = rememberCardEdgeLight(glassColor),
+                                edgeLight = rememberCardEdgeLight(effectiveGlass).copy(intensity = if (glass.highlightEdge) 0.8f else 0.5f),
                             )
                         }
-                    ) else Modifier.background(cardColor, cardShape)
+                    ) else Modifier
             )
-            .then(if (isOngoing) Modifier.border(1.5.dp, ds.accent, cardShape) else Modifier)
-            .clip(cardShape)
-            .clickable(interactionSource = interactionSource, indication = LocalIndication.current, onClick = onClick),
+            .then(if (isOngoing) Modifier.border(1.5.dp, ds.accent, cardShape) else Modifier),
+        cornerRadius = cornerRadius,
+        insideMargin = PaddingValues(0.dp),
+        colors = CardDefaults.defaultColors(
+            color = if (onWallpaper) Color.Transparent else cardColor,
+            contentColor = foreground,
+        ),
+        pressFeedbackType = PressFeedbackType.Sink,
+        showIndication = true,
+        onClick = onClick,
     ) {
         Box(Modifier.fillMaxSize().clipToBounds()) {
             Text(

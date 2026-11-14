@@ -59,6 +59,20 @@ object AppMaterialSettings {
     @Composable
     fun solidSurfaceAlpha(value: Float): Float = if (current().liquid) value else maxOf(value, 0.90f)
 
+    /** 兼容 UI 线课表卡片：双档参数仍以 current() 一份真源为准。 */
+    @Composable
+    fun cardGlassParams(
+        tint: Float, opacity: Float, blurPx: Int, refraction: Float,
+    ): GlassCardParams {
+        val material = current()
+        return GlassCardParams(
+            tint = tint,
+            opacity = opacity.coerceAtLeast(material.courseAlpha),
+            blurPx = blurPx.takeIf { it > 0 } ?: material.blurDp.toInt(),
+            refraction = material.courseRefraction(refraction.takeIf { it > 0f }),
+        )
+    }
+
     @Composable
     fun chromeGlassStyle(
         base: SoftGlassStyle,
@@ -73,3 +87,11 @@ object AppMaterialSettings {
         )
     }
 }
+
+/** 卡片材质档参数，供课表卡片按 SOFT/LIQUID 分派。 */
+data class GlassCardParams(
+    val tint: Float,
+    val opacity: Float,
+    val blurPx: Int,
+    val refraction: Float,
+)

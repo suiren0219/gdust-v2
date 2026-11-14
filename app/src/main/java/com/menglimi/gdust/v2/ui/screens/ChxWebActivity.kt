@@ -1,10 +1,14 @@
 package com.menglimi.gdust.v2.ui.screens
 
 import android.annotation.SuppressLint
+import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
+import android.net.http.SslError
 import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -12,248 +16,289 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.LinearLayout
-import android.widget.ProgressBar
-import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.google.gson.JsonParser
 import com.menglimi.gdust.v2.App
 import com.menglimi.gdust.v2.data.ChxSso
+import com.menglimi.gdust.v2.data.ChxWebSession
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.ui.AppTheme
+import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.rememberUiStyle
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Back
+import top.yukonga.miuix.kmp.icon.extended.Close
+import top.yukonga.miuix.kmp.icon.extended.Refresh
 
-/**
- * 学习通 / 教务网页登录：独立 Activity 承载 WebView。
- *
- * 为什么不用 Compose AndroidView（2026-11-12 实测结论）：
- * 同一 CAS 页面在 Compose `AndroidView` 里白屏——CDP 看到 DOM 完整（#app innerHTML 14k、
- * innerHeight 正常），但 `100vh/100dvh/100svh` 全部解析为 0，Tailwind 的 `min-h-screen`
- * 容器高度塌成 0 再被 `overflow:hidden` 裁掉，整页不可见。裸 View / 裸 Activity 承载正常；
- * API 35(WebView 124) 与 API 36(WebView 133) 都复现，与 WebSettings 无关。
- * 最小复现见 debug 源集的 `WebViewProbeActivity`。
- *
- * 只保存 CAS 放行后的超星 Cookie（加密存储），不保存密码。
- */
+/** 独立承载学校 CAS 与超星网页登录的 WebView，使用应用既有主题与 CookieManager。 */
 class ChxWebActivity : ComponentActivity() {
-
     companion object {
         const val EXTRA_URL = "url"
+        const val EXTRA_LOGOUT = "chx_logout"
+        const val EXTRA_LOGOUT_CONFIRMED = "chx_logout_confirmed"
+        const val EXTRA_SESSION_SAVED = "chx_session_saved"
     }
 
     private lateinit var repo: Repository
     private lateinit var web: WebView
-    private lateinit var hostLabel: TextView
-    private lateinit var progressBar: ProgressBar
+    private var hostLabel by mutableStateOf("网页登录")
+    private var pageMessage by mutableStateOf("")
+    private var pageError by mutableStateOf<String?>(null)
+    private var pageProgress by mutableIntStateOf(0)
+    private var logout = false
+    private var logoutConfirmed = false
+    private var currentPage: String? = null
+    private var pageVersion = 0
+    private var mainPageFailed = false
+    private var logoutAttemptFailed = false
+    private var sentCasTicket = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         repo = (application as App).repo
-        // 研究线诊断：debug 包保留远程调试，release 关闭
-        val debuggable = applicationInfo.flags and
-            android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
-        WebView.setWebContentsDebuggingEnabled(debuggable)
-
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            setBackgroundColor(0xFFF4F5F7.toInt())
-        }
-        val back = TextView(this).apply {
-            text = "‹"
-            textSize = 26f
-            setPadding(dp(4), 0, dp(12), 0)
-            setOnClickListener { finishBySession() }
-        }
-        hostLabel = TextView(this).apply {
-            textSize = 13f
-            setTextColor(0xFF666666.toInt())
-        }
-        bar.addView(back)
-        bar.addView(
-            hostLabel,
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-        )
-        progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            visibility = ProgressBar.GONE
-        }
-        root.addView(
-            bar,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-        root.addView(
-            progressBar,
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)),
-        )
-
+        val initialUrl = intent.getStringExtra(EXTRA_URL) ?: ChxSso.fyssoUrl
+        logout = intent.getBooleanExtra(EXTRA_LOGOUT, false) || ChxSso.isSchoolLogoutUrl(initialUrl)
+        setResult(RESULT_CANCELED, Intent().putExtra(EXTRA_LOGOUT_CONFIRMED, false))
         web = WebView(this)
         configure(web)
-        root.addView(
-            web,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f,
-            ),
-        )
-        setContentView(root)
-
-        // 沉浸式（edge-to-edge）窗口下给状态栏/导航栏留出安全区
-        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
-            val bars = insets.getInsets(
-                androidx.core.view.WindowInsetsCompat.Type.systemBars() or
-                    androidx.core.view.WindowInsetsCompat.Type.displayCutout(),
-            )
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
+        onBackPressedDispatcher.addCallback(this) { navigateBack() }
+        setContent {
+            AppTheme(rememberUiStyle(repo.store), monetEnabled = repo.store.monetEnabled) {
+                val ds = LocalDs.current
+                Column(Modifier.fillMaxSize().background(ds.bg).safeDrawingPadding().imePadding()) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = ::navigateBack, modifier = Modifier.size(48.dp)) {
+                            Icon(MiuixIcons.Back, "返回上一页", Modifier.size(24.dp), tint = ds.text)
+                        }
+                        Text(hostLabel, color = ds.text, fontSize = 14.sp, maxLines = 2,
+                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        IconButton(onClick = ::reloadPage, modifier = Modifier.size(48.dp)) {
+                            Icon(MiuixIcons.Refresh, "重新加载网页", Modifier.size(24.dp), tint = ds.text)
+                        }
+                        IconButton(onClick = ::finishBrowsing, modifier = Modifier.size(48.dp)) {
+                            Icon(MiuixIcons.Close, "关闭网页", Modifier.size(24.dp), tint = ds.text)
+                        }
+                    }
+                    if (pageProgress < 100) {
+                        LinearProgressIndicator(progress = { pageProgress / 100f }, color = ds.accent,
+                            trackColor = ds.breakBar, modifier = Modifier.fillMaxWidth())
+                    }
+                    if (pageMessage.isNotBlank() || pageError != null) {
+                        Column(Modifier.fillMaxWidth().heightIn(max = 144.dp).verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text(pageError ?: pageMessage, color = if (pageError != null) ds.danger else ds.sub,
+                                fontSize = 13.sp, lineHeight = 18.sp)
+                        }
+                    }
+                    AndroidView(factory = { web }, modifier = Modifier.fillMaxWidth().weight(1f),
+                        update = { it.setBackgroundColor(ds.bg.toArgb()) })
+                }
+            }
         }
-
-        onBackPressedDispatcher.addCallback(this) {
-            if (web.canGoBack()) web.goBack() else finishBySession()
+        // 登出始终重新请求，不能用缓存中的成功页面确认这次服务器退出。
+        if (logout || savedInstanceState?.getBundle("web_state")?.let(web::restoreState) == null) {
+            if (logout) loadLogout(initialUrl) else web.loadUrl(initialUrl)
+        } else {
+            currentPage = web.url
+            hostLabel = web.url?.let { Uri.parse(it).host } ?: "网页登录"
         }
+    }
 
-        web.loadUrl(intent.getStringExtra(EXTRA_URL) ?: ChxSso.fyssoUrl)
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBundle("web_state", Bundle().also { web.saveState(it) })
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::web.isInitialized) web.onResume()
+    }
+
+    override fun onPause() {
+        if (::web.isInitialized) web.onPause()
+        super.onPause()
     }
 
     override fun onStop() {
+        runCatching { CookieManager.getInstance().flush() }
         super.onStop()
-        // 落盘 WebView Cookie，回到联动页立刻可见
-        CookieManager.getInstance().flush()
     }
 
-    override fun finish() {
-        CookieManager.getInstance().flush()
-        super.finish()
+    override fun onDestroy() {
+        if (::web.isInitialized) {
+            pageVersion++
+            web.stopLoading()
+            (web.parent as? ViewGroup)?.removeView(web)
+            web.webChromeClient = null
+            web.webViewClient = WebViewClient()
+            web.removeAllViews()
+            web.destroy()
+        }
+        super.onDestroy()
     }
 
-    private fun finishWithResult(code: Int) {
-        setResult(code)
+    private fun navigateBack() {
+        if (!logout && web.canGoBack()) web.goBack() else finishBrowsing()
+    }
+
+    private fun reloadPage() {
+        pageVersion++
+        logoutConfirmed = false
+        logoutAttemptFailed = false
+        web.stopLoading()
+        if (logout) loadLogout(ChxSso.LOGOUT_URL) else web.reload()
+    }
+
+    private fun loadLogout(url: String) {
+        // 空票据的通用退出页不能证明原学校会话已经被撤销。
+        sentCasTicket = ChxSso.isSchoolLogoutUrl(url) &&
+            ChxSso.hasCasTicket(CookieManager.getInstance().getCookie(url))
+        web.loadUrl(url, mapOf("Cache-Control" to "no-cache"))
+    }
+
+    private fun finishBrowsing() {
+        if (isFinishing || isDestroyed) return
+        pageVersion++ // 关闭后到达的 JS/网络回调不再更新结果。
+        web.stopLoading()
+        runCatching { CookieManager.getInstance().flush() }
+        // 普通登录页返回仅带“已保存”信息；已有 Cookie 不得把 RESULT_OK 当成已验证登录。
+        setResult(if (logout && logoutConfirmed) RESULT_OK else RESULT_CANCELED,
+            Intent().putExtra(EXTRA_LOGOUT_CONFIRMED, logout && logoutConfirmed)
+                .putExtra(EXTRA_SESSION_SAVED, !logout && repo.store.hasChxSession))
         finish()
     }
 
-    private fun finishBySession() =
-        finishWithResult(if (repo.store.hasChxSession) RESULT_OK else RESULT_CANCELED)
-
-    private fun dp(v: Int): Int =
-        (v * resources.displayMetrics.density).toInt()
-
     private fun saveCookieIfAny(): Boolean {
         val cookie = ChxSso.cookieProbes.firstNotNullOfOrNull { url ->
-            CookieManager.getInstance().getCookie(url)?.takeIf { ChxSso.hasSessionCookie(it) }
+            CookieManager.getInstance().getCookie(url)?.takeIf(ChxSso::hasSessionCookie)
         } ?: return false
-        repo.store.saveChxCookie(cookie)
-        return true
+        val before = repo.store.hasChxSession
+        repo.saveChxCandidate(cookie, repo.sessionVersion.value)
+        return before || repo.store.hasChxSession
+    }
+
+    private fun showLoadError(message: String) {
+        mainPageFailed = true
+        if (logout) logoutAttemptFailed = true
+        logoutConfirmed = false
+        pageProgress = 100
+        pageError = message + if (logout) " 学校服务器退出未确认，可重试或关闭后清理本地会话。" else " 可点刷新重试。"
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun configure(web: WebView) {
+    private fun configure(view: WebView) {
         CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
-        web.settings.javaScriptEnabled = true
-        web.settings.domStorageEnabled = true
-        web.settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-        web.settings.allowFileAccess = false
-        web.settings.allowContentAccess = false
-        web.settings.userAgentString =
+        CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
+        view.settings.javaScriptEnabled = true
+        view.settings.domStorageEnabled = true
+        view.settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+        view.settings.allowFileAccess = false
+        view.settings.allowContentAccess = false
+        if (logout) view.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+        view.settings.userAgentString =
             "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-
-        web.webViewClient = object : WebViewClient() {
-            override fun onReceivedError(
-                view: WebView,
-                request: WebResourceRequest,
-                error: WebResourceError,
-            ) {
-                android.util.Log.w(
-                    "ChxWeb",
-                    "onReceivedError ${error.errorCode} ${error.description} " +
-                        "main=${request.isForMainFrame} ${request.url}",
-                )
-                if (request.isForMainFrame) {
-                    hostLabel.text = "页面加载失败：${error.description}"
-                }
-            }
-
-            override fun onReceivedHttpError(
-                view: WebView,
-                request: WebResourceRequest,
-                errorResponse: WebResourceResponse,
-            ) {
-                android.util.Log.w(
-                    "ChxWeb",
-                    "http ${errorResponse.statusCode} ${request.url} " +
-                        "main=${request.isForMainFrame}",
-                )
-            }
-
+        view.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                val scheme = request.url.scheme.orEmpty().lowercase()
+                val scheme = request.url.scheme.orEmpty().lowercase(java.util.Locale.ROOT)
                 if (scheme == "http" || scheme == "https") return false
-                // chaoxing:// 等唤起客户端的链接交系统，别让 WebView 卡住
-                runCatching {
-                    view.context.startActivity(
-                        android.content.Intent(android.content.Intent.ACTION_VIEW, request.url),
-                    )
+                if (logout || !request.isForMainFrame || scheme in setOf("file", "content", "javascript", "data", "intent")) {
+                    showLoadError("当前网页的跳转无法在应用中完成。")
+                    return true
                 }
-                hostLabel.text = "已用系统打开 $scheme 链接，返回本页继续即可"
+                val opened = runCatching { startActivity(Intent(Intent.ACTION_VIEW, request.url)) }.isSuccess
+                if (opened) pageMessage = "已打开外部应用，返回本页继续。" else showLoadError("未找到可以打开该链接的应用。")
                 return true
+            }
+
+            override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                pageVersion++
+                currentPage = url
+                mainPageFailed = logout && logoutAttemptFailed
+                if (!mainPageFailed) pageError = null
+                pageProgress = if (mainPageFailed) 100 else 0
+                hostLabel = Uri.parse(url).host ?: "网页登录"
+                ChxWebSession.recordVisited(url)
+                pageMessage = if (logout) "正在请求学校退出；请等待页面确认。" else "请在学校或学习通网页完成认证。"
+            }
+
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                if (request.isForMainFrame) showLoadError("网页加载失败，请检查网络连接。")
+            }
+
+            override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+                if (request.isForMainFrame) showLoadError("网页请求失败（HTTP ${response.statusCode}）。")
+            }
+
+            override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+                handler.cancel()
+                showLoadError("网页安全证书验证失败，已停止连接。")
             }
 
             override fun onPageFinished(view: WebView, url: String) {
-                progressBar.visibility = ProgressBar.GONE
-                android.util.Log.i("ChxWeb", "onPageFinished $url")
-                // CAS 登出页：清掉该域 localStorage 里的登录态后自动关闭（退出联动用）
-                if (url.contains("/logout")) {
-                    view.evaluateJavascript(
-                        "try{localStorage.clear();sessionStorage.clear();}catch(e){};'ok'",
-                        null,
-                    )
-                    finishWithResult(RESULT_CANCELED)
+                if (isFinishing || isDestroyed || currentPage != url) return
+                pageProgress = 100
+                if (mainPageFailed) return
+                if (logout) {
+                    val version = pageVersion
+                    view.evaluateJavascript("document.body ? document.body.innerText : ''") { result ->
+                        if (isFinishing || isDestroyed || version != pageVersion || view.url != url) return@evaluateJavascript
+                        val text = runCatching { JsonParser.parseString(result).asString }.getOrNull()
+                        logoutConfirmed = ChxSso.confirmsSchoolLogout(url, text, !mainPageFailed && !logoutAttemptFailed, sentCasTicket)
+                        if (logoutConfirmed) finishBrowsing()
+                        else pageMessage = "学校服务器退出尚未确认。可刷新重试，或关闭网页后清理本地会话。"
+                    }
                     return
                 }
-                val host = runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
-                // 每次落地都试存一次：CAS 跳转链里可能最后一跳才拿到超星 Cookie
-                val saved = saveCookieIfAny()
-                hostLabel.text = when {
-                    saved && ChxSso.isChaoxingHost(host) -> "已联动学习通：$host"
-                    saved -> "已保存学习通会话：$host"
-                    ChxSso.isChaoxingHost(host) -> "还没拿到会话，请先完成登录：$host"
-                    else -> host
+                // 教务网页登录落地即保存入口：学习通联动完成后，「网页登录导入」可直接读取学期课表
+                val teachingSaved = ChxSso.isTeachingWebEntry(url) &&
+                    runCatching { repo.saveWebSession(url, repo.sessionVersion.value) }.getOrDefault(false)
+                pageMessage = buildString {
+                    if (teachingSaved) append("教务网页入口已保存，可在「网页登录导入」直接读取学期课表。")
+                    append(
+                        when {
+                            saveCookieIfAny() -> "学习通会话已保存，返回后可检查是否有效。"
+                            teachingSaved -> ""
+                            else -> "尚未取得可验证的学习通会话。"
+                        },
+                    )
                 }
-            }
-
-            override fun onReceivedSslError(
-                view: WebView,
-                handler: android.webkit.SslErrorHandler,
-                error: android.net.http.SslError,
-            ) {
-                // 只对校方与超星域放行证书链，其他域一律阻止
-                val h = runCatching { Uri.parse(error.url).host.orEmpty() }.getOrDefault("")
-                android.util.Log.w("ChxWeb", "sslError ${error.primaryError} $h ${error.url}")
-                val allowed = h.endsWith("gdust.edu.cn") || ChxSso.isChaoxingHost(h)
-                if (allowed) handler.proceed() else handler.cancel()
             }
         }
-
-        web.webChromeClient = object : WebChromeClient() {
+        view.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView, newProgress: Int) {
-                if (newProgress in 1..99) {
-                    progressBar.visibility = ProgressBar.VISIBLE
-                    progressBar.progress = newProgress
-                }
-            }
-
-            // WebView 默认吞掉 JS 报错；白屏排障需要把 console 消息转出来
-            override fun onConsoleMessage(msg: android.webkit.ConsoleMessage): Boolean {
-                android.util.Log.d(
-                    "ChxWeb",
-                    "console ${msg.messageLevel()} ${msg.message()} " +
-                        "@${msg.sourceId()}:${msg.lineNumber()}",
-                )
-                return true
+                if (!isFinishing && !isDestroyed && !mainPageFailed) pageProgress = newProgress.coerceIn(0, 100)
             }
         }
     }

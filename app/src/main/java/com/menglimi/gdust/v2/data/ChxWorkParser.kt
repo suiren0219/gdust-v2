@@ -14,10 +14,10 @@ import org.jsoup.Jsoup
  *   `<li onclick="goTask(this);" data="work/task?…workId&answerId&enc">`，
  *   标题 `p.overHidden2`、状态 `p.status`(未交/已完成)、时间 `div.time`(「剩余X小时X分钟」，相对时间)
  */
-data class ChxCourse(val courseId: Long, val classId: Long, val cpi: Long, val name: String)
+data class ChxWorkCourse(val courseId: Long, val classId: Long, val cpi: Long, val name: String)
 
 /** 课程页隐藏域：各 tab 的签名与公共参数。 */
-data class ChxCourseTabs(
+data class ChxWorkTabs(
     val enc: String,
     val workEnc: String,
     val examEnc: String,
@@ -47,9 +47,9 @@ object ChxWorkParser {
      * 置顶区（stuTopCourseListDiv）与普通区（stuNormalCourseListDiv）可能重复同一门课，
      * 按 courseid+classId 去重。
      */
-    fun parseCourses(html: String): List<ChxCourse> {
+    fun parseCourses(html: String): List<ChxWorkCourse> {
         val doc = Jsoup.parse(html)
-        val out = mutableListOf<ChxCourse>()
+        val out = mutableListOf<ChxWorkCourse>()
         val seen = mutableSetOf<Pair<Long, Long>>()
         for (card in doc.select("div.course")) {
             val courseId = card.select("input.courseId").attr("value").toLongOrNull() ?: continue
@@ -63,7 +63,7 @@ object ChxWorkParser {
             val cpi = link?.let { queryParams(it.attr("href"))["cpi"]?.toLongOrNull() }
                 ?: card.select("input.curPersonId").attr("value").toLongOrNull()
                 ?: 0
-            out += ChxCourse(courseId, classId, cpi, name)
+            out += ChxWorkCourse(courseId, classId, cpi, name)
         }
         return out
     }
@@ -72,14 +72,14 @@ object ChxWorkParser {
      * 课程页 → 各 tab 的签名；缺 enc/workEnc 视为结构变化，返回 null 由调用方跳过。
      * 课程页是 138KB 的大页面、只需要 6 个隐藏域：正则直抽比 Jsoup 全量解析快一个量级。
      */
-    fun parseCourseTabs(html: String): ChxCourseTabs? {
+    fun parseCourseTabs(html: String): ChxWorkTabs? {
         fun v(id: String): String =
             Regex("<input[^>]*id=\"$id\"[^>]*value=\"([^\"]*)\"").find(html)
                 ?.groupValues?.get(1)?.trim().orEmpty()
         val enc = v("enc")
         val workEnc = v("workEnc")
         if (enc.isEmpty() || workEnc.isEmpty()) return null
-        return ChxCourseTabs(
+        return ChxWorkTabs(
             enc = enc,
             workEnc = workEnc,
             examEnc = v("examEnc"),

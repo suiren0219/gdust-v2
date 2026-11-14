@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -65,6 +66,8 @@ import com.menglimi.gdust.v2.ui.pageTextBacking
 import com.menglimi.gdust.v2.ui.secondaryTextColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import android.widget.Toast
+import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.Icon
@@ -119,9 +122,14 @@ fun SettingsScreen(
     onLogout: () -> Unit,
     onBack: () -> Unit,
     loggedIn: Boolean = true,
+    chxSessionSaved: Boolean = false,
     monetEnabled: MutableState<Boolean>,
     openSection: MutableState<String?>,
     syncing: Boolean = false,
+    onGrades: () -> Unit = {},
+    onChxCourses: () -> Unit = {},
+    onSchoolNotices: () -> Unit = {},
+    onFiveEducation: () -> Unit = {},
 ) {
     val ds = LocalDs.current
     val secondary = secondaryTextColor()
@@ -163,6 +171,7 @@ fun SettingsScreen(
     var wallpaperPath by remember { mutableStateOf(store.wallpaperPath) }
     var wallpaperBlur by remember { mutableStateOf(store.wallpaperBlur) }
     var wallpaperDim by remember { mutableStateOf(store.wallpaperDim) }
+    var showWidgetPicker by rememberSaveable { mutableStateOf(false) }
 
     val wallpaperLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -293,8 +302,24 @@ fun SettingsScreen(
         )),
         SettingsSection("服务", listOf(
             SettingsEntry(
+                id = "grades", title = "学期成绩", summary = "按学期查询成绩、学分与绩点", icon = MiuixIcons.Notes,
+                keywords = "教务 成绩 绩点 GPA", onClick = onGrades,
+            ),
+            SettingsEntry(
+                id = "chxCourses", title = "学习通课程", summary = "课程列表与任务点进度", icon = MiuixIcons.Months,
+                keywords = "课程 任务 学习通 超星", onClick = onChxCourses,
+            ),
+            SettingsEntry(
+                id = "schoolNotices", title = "学校通知", summary = "门户通知、教务处公告与官网新闻", icon = MiuixIcons.Messages,
+                keywords = "通知 公告 教务 新闻 考试", onClick = onSchoolNotices,
+            ),
+            SettingsEntry(
+                id = "fiveEducation", title = "五育综合数据平台", summary = "打开校内网页查看活动与学期记录", icon = MiuixIcons.Link,
+                detail = "网页", keywords = "活动 五育 综合评价", onClick = onFiveEducation,
+            ),
+            SettingsEntry(
                 id = "chx", title = "学习通联动", summary = "通过学校统一身份认证连接", icon = MiuixIcons.Link,
-                detail = if (store.hasChxSession) "已联动" else "未联动", onClick = onChxEntry,
+                detail = if (chxSessionSaved) "已保存，待验证" else "未联动", onClick = onChxEntry,
             ),
             SettingsEntry(
                 id = "chxNotifications", title = "学习通通知待办", summary = "从推送识别作业与考试", icon = MiuixIcons.Messages,
@@ -430,6 +455,12 @@ fun SettingsScreen(
                 detail = store.loadCalendar()?.let { "第 ${it.week}/${it.allWeek} 周" } ?: "未同步",
             ),
             SettingsEntry(
+                id = "widgets", title = "桌面小部件", summary = "课表 / 电量 / 待办，各三款尺寸",
+                icon = MiuixIcons.Months,
+                keywords = "小组件 widget 添加 电量 待办 课表",
+                onClick = { showWidgetPicker = true },
+            ),
+            SettingsEntry(
                 id = "export", title = "导出备份", summary = "课表、待办、偏好与水电绑定", icon = MiuixIcons.Backup,
                 keywords = "JSON 不含登录凭证 密码",
                 onClick = { onExportBackup.launch("gdust-backup-${java.time.LocalDate.now()}.json") },
@@ -520,11 +551,53 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp).pageTextBacking()
                     .padding(if (onWallpaper) 12.dp else 0.dp))
         }
+        WidgetPickerDialog(show = showWidgetPicker, onDismiss = { showWidgetPicker = false })
         Spacer(Modifier.navigationBarsPadding().height(110.dp))
     }
 }
 
 private data class SettingsSection(val title: String, val entries: List<SettingsEntry>)
+
+/** "添加桌面小部件"选择弹窗：列出 9 款，点按走系统 requestPinAppWidget。 */
+@Composable
+private fun WidgetPickerDialog(show: Boolean, onDismiss: () -> Unit) {
+    val ds = LocalDs.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    WindowDialog(
+        show = show,
+        title = "添加桌面小部件",
+        summary = "按住 launcher 弹出的确认框即可添加",
+        onDismissRequest = onDismiss,
+        backgroundColor = ds.card,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 420.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            com.menglimi.gdust.v2.widget.WidgetPresets.ALL.forEach { preset ->
+                BasicComponent(
+                    title = preset.label,
+                    titleColor = BasicComponentDefaults.titleColor(color = ds.text),
+                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                    onClick = {
+                        scope.launch {
+                            val ok = com.menglimi.gdust.v2.widget.pinWidget(context, preset)
+                            Toast.makeText(
+                                context,
+                                if (ok) "请在桌面确认添加" else "当前桌面不支持一键添加，请长按桌面手动添加",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        onDismiss()
+                    },
+                )
+            }
+        }
+    }
+}
 
 private data class SettingsEntry(
     val id: String,

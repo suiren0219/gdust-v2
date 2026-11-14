@@ -116,8 +116,18 @@ class GdustApi {
     // ── 门户 ──
 
     suspend fun exchangeToken(ticket: String): String = io {
-        val url = "$PORTAL/smart-admin-api/user/login?loginCode=$ticket&appId=portalRemote"
-        jsonObj(request(url)).getAsJsonObject("data").getAsJsonObject("userBase").str("token").orEmpty()
+        // ticket 是 CAS 票据（常含 +/=// 等 base64 字符）：必须用 HttpUrl 编码，
+        // 直接拼进查询串会被解析成空格/分隔符 → 门户偶发拒绝，表现为「概率性换取失败」
+        val url = okhttp3.HttpUrl.Builder()
+            .scheme("https").host("portal.gdust.edu.cn")
+            .addPathSegments("smart-admin-api/user/login")
+            .addQueryParameter("loginCode", ticket.trim())
+            .addQueryParameter("appId", "portalRemote")
+            .build().toString()
+        val root = jsonObj(request(url))
+        val token = root.getAsJsonObject("data")?.getAsJsonObject("userBase")?.str("token").orEmpty()
+        if (token.isBlank()) error("门户未返回 TOKEN（票据可能已被使用或过期）")
+        token
     }
 
     suspend fun userInfo(token: String): Pair<String, String> = io {
@@ -158,18 +168,12 @@ class GdustApi {
     }
 
     suspend fun notices(token: String, job: String): List<Notice> = io {
-        val o = jsonObj(request("$PORTAL/smart-admin-api/app/ding/get_announcement_items?jobNumber=$job", token))
-        val arr = o.getAsJsonArray("data") ?: return@io emptyList()
-        arr.map { e ->
-            val n = e.asJsonObject
-            Notice(
-                title = n.str("title").orEmpty(),
-                url = n.str("url").orEmpty(),
-                type = n.str("announcementType").orEmpty(),
-                issuer = n.str("issuer"),
-                time = n.numL("gmtCreate") ?: 0L,
-            )
-        }
+        parsePortalNotices(request("$PORTAL/smart-admin-api/app/ding/get_announcement_items?jobNumber=$job", token))
+    }
+
+    /** 教务处/官网新闻；门户通知继续使用 notices(token, job)。 */
+    suspend fun news(token: String, source: NoticeSource): List<Notice> = io {
+        PortalNews.parse(request(PortalNews.requestUrl(source), token), source)
     }
 
     // ── 水电 ──
@@ -262,11 +266,27 @@ class GdustApi {
         val items = notices.take(15).joinToString("\n") { "- [${it.type}] ${it.title}" }
         val system = "你是广东科技学院的学生助手。把学校通知公告标题整理成简明中文要点：" +
             "按类别分组，每条一句话，突出停课/考试/缴费/截止等与学生相关事项，250 字以内。"
-        val body = """{"model":${str(model)},"messages":[""" +
-            """{"role":"system","content":${str(system)}},""" +
-            """{"role":"user","content":${str("最近的学校通知公告：\n$items")}}],"max_tokens":2048,"temperature":0.3}"""
+        // 用 Gson 构造 JSON：手拼字符串没转义公告标题里的换行/引号时，
+        // 请求体会变成非法 JSON（服务端报「请求体必须是 JSON 对象」）
+        val body = com.google.gson.Gson().toJson(
+            mapOf(
+                "model" to model,
+                "messages" to listOf(
+                    mapOf("role" to "system", "content" to system),
+                    mapOf("role" to "user", "content" to "最近的学校通知公告：\n$items"),
+                ),
+                "max_tokens" to 2048,
+                "temperature" to 0.3,
+            )
+        )
+        val root = base.trim().trimEnd('/')
+        val endpoint = when {
+            root.endsWith("/chat/completions") -> root
+            root.endsWith("/v1") -> "$root/chat/completions"
+            else -> "$root/v1/chat/completions"
+        }
         val req = Request.Builder()
-            .url(base.trimEnd('/') + "/chat/completions")
+            .url(endpoint)
             .header("Authorization", "Bearer $key")
             .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()

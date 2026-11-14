@@ -55,7 +55,17 @@ import com.menglimi.gdust.v2.ui.screens.NoticeScreen
 import com.menglimi.gdust.v2.ui.screens.ReminderScreen
 import com.menglimi.gdust.v2.ui.screens.ChxNotificationScreen
 import com.menglimi.gdust.v2.ui.screens.ChxEntryScreen
+import com.menglimi.gdust.v2.ui.screens.ChxCoursesScreen
+import com.menglimi.gdust.v2.ui.screens.ChxWebActivity
+import com.menglimi.gdust.v2.ui.screens.GradesScreen
+import com.menglimi.gdust.v2.data.ChxSso
 import com.menglimi.gdust.v2.data.Notice
+import com.menglimi.gdust.v2.data.NoticeFeed
+import com.menglimi.gdust.v2.data.readId
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /** 首次使用须知：说明本机直连与数据边界，确认一次即可。 */
@@ -69,7 +79,8 @@ private const val DISCLAIMER_TEXT =
         "继续使用即表示你已知悉并同意以上内容。"
 
 @Composable
-fun AppRoot(    repo: Repository,
+fun AppRoot(
+    repo: Repository,
     tab: androidx.compose.runtime.MutableIntState,
     showSettings: androidx.compose.runtime.MutableState<Boolean>,
     loggedIn: androidx.compose.runtime.MutableState<Boolean>,
@@ -95,14 +106,50 @@ fun AppRoot(    repo: Repository,
     var showTodoReminder by remember { mutableStateOf(false) }
     var showChxNotifications by remember { mutableStateOf(false) }
     var showChxEntry by remember { mutableStateOf(false) }
+    var showGrades by remember { mutableStateOf(false) }
+    var showChxCourses by remember { mutableStateOf(false) }
+    var webReturnVersion by remember { mutableIntStateOf(0) }
     var showGlassEffect by remember { mutableStateOf(false) }
-    var notices by remember { mutableStateOf<List<Notice>>(emptyList()) }
-    var noticesLoading by remember { mutableStateOf(false) }
+    val sessionVersion by repo.sessionVersion.collectAsState()
+    val noticeFeed = remember(repo) { NoticeFeed(repo::portalSession, repo::notices) }
+    val noticeState by noticeFeed.state.collectAsState()
+    val notices = noticeState.notices
+    val noticesLoading = noticeState.loading
+    val noticesError = noticeState.error
+    val noticeAccount = repo.store.jobNumber
+    var readNoticeIds by remember(noticeAccount) { mutableStateOf(repo.store.readNoticeIds(noticeAccount)) }
+    var syncJob by remember { mutableStateOf<Job?>(null) }
+    var loggingOut by remember { mutableStateOf(false) }
+    var logoutFailed by remember { mutableStateOf(repo.store.webLogoutPending) }
     var showAbout by remember { mutableStateOf(false) }
     // 免责声明：普通 prefs 不触发重组，用状态控制弹窗，确认后写盘不再出现。
     var disclaimerShown by remember { mutableStateOf(!repo.store.disclaimerAccepted) }
+
+    DisposableEffect(repo, noticeAccount) {
+        val stop = repo.store.observeNoticeReads {
+            readNoticeIds = repo.store.readNoticeIds(noticeAccount)
+        }
+        onDispose { stop() }
+    }
+    // 联动状态是 plain prefs，静态读取不会重组；观察保存/清除事件保持设置页文案同步
+    var chxSessionSaved by remember { mutableStateOf(repo.store.hasChxSession) }
+    DisposableEffect(repo) {
+        val stop = repo.store.observeChxSession { chxSessionSaved = repo.store.hasChxSession }
+        onDispose { stop() }
+    }
+    DisposableEffect(noticeFeed) {
+        onDispose { noticeFeed.clear() }
+    }
     // 备份导出：SAF 建文档，写入后提示
     val context = androidx.compose.ui.platform.LocalContext.current
+    val serviceWeb = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+    ) { webReturnVersion++ }
+    fun openServiceWeb(url: String) {
+        repo.invalidateChxRequests()
+        serviceWeb.launch(android.content.Intent(context, ChxWebActivity::class.java)
+            .putExtra(ChxWebActivity.EXTRA_URL, url))
+    }
     val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
@@ -129,7 +176,8 @@ fun AppRoot(    repo: Repository,
         }
         syncing = true
         syncError = null
-        scope.launch {
+        val version = repo.sessionVersion.value
+        syncJob = scope.launch {
             val result = when {
                 // 已有教务会话（网页或直连）→ 拉整学期
                 repo.hasTeachingSession() -> runCatching { repo.syncTermWithCookies() }
@@ -137,6 +185,10 @@ fun AppRoot(    repo: Repository,
                 repo.store.hasSession -> runCatching { repo.syncSchedule() }
                 // 只有票据 → 尝试换教务会话
                 else -> runCatching { repo.syncTermWithLogin() }
+            }
+            if (!repo.isCurrentSession(version)) {
+                syncing = false
+                return@launch
             }
             result
                 .onSuccess { (cal, list) -> calendar = cal; blocks = list; syncError = null }
@@ -151,9 +203,8 @@ fun AppRoot(    repo: Repository,
                             it.message,
                         )
                     } else null
-                    netDown = it.isNetworkDown()
+                    netDown = it.isNetworkDown() && maintenance == null
                     syncError = maintenance ?: (it.message ?: "网络失败")
-                    if (maintenance != null) netDown = false
                     // 只有明确的「票据失效」才提示重登；SSO 被学校拒绝时给可读文案并可切网页登录
                     if (it is com.menglimi.gdust.v2.data.AuthFailed) {
                         needLogin = true
@@ -168,23 +219,62 @@ fun AppRoot(    repo: Repository,
                     }
                 }
             syncing = false
+            syncJob = null
         }
     }
 
-    fun loadNotices() {
-        if (!repo.store.hasSession) return
-        noticesLoading = true
+    fun loadNotices() { noticeFeed.refresh(scope) }
+
+    fun logout() {
+        if (loggingOut) return
+        loggingOut = true
+        logoutFailed = false
+        noticeFeed.clear()
+        syncJob?.cancel()
+        syncing = false
+        blocks = emptyList()
+        calendar = null
+        syncError = null
+        netDown = false
+        needLogin = false
+        directFallbackMessage = null
+        webImportReport = null
+        importReport = null
+        showNotices = false
+        showWebImport = false
+        showChxEntry = false
+        showGrades = false
+        showChxCourses = false
+        showProfile = false
+        showSettings.value = false
+        loggedIn.value = false
         scope.launch {
-            runCatching { repo.notices() }
-                .onSuccess { notices = it }
-            noticesLoading = false
+            try {
+                logoutFailed = !repo.logout()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                logoutFailed = true
+            } finally {
+                loggingOut = false
+            }
+        }
+    }
+
+    LaunchedEffect(sessionVersion) {
+        if (sessionVersion != 0L && !repo.store.hasSession) {
+            noticeFeed.clear()
+            syncJob?.cancel()
+            syncing = false
+            calendar = repo.store.loadCalendar()
+            blocks = repo.store.loadBlocks()
         }
     }
 
     LaunchedEffect(Unit) {
         // App 打开即刷新桌面小组件（课程/电量可能变了）
         runCatching {
-            com.menglimi.gdust.v2.widget.TodayWidget().refreshAll(context)
+            com.menglimi.gdust.v2.widget.WidgetRefresher.refreshAll(context)
         }
         // 先恢复本机会话和缓存页面，网络校验在后；超时不让启动卡在空白页。
         val offlineSchedule = blocks.isNotEmpty()
@@ -202,11 +292,12 @@ fun AppRoot(    repo: Repository,
         if (teachingReady && stale && repo.store.autoSyncEnabled) sync()
     }
 
-    AppPageBackdrop(repo.store, wallpaperTick) {
     Crossfade(
         targetState = when {
             !checked.value -> "loading"
             showWebImport -> "web_import"
+            showGrades -> "grades"
+            showChxCourses -> "chx_courses"
             showNotices -> "notices"
             showReminder -> "reminder"
             showTodoReminder -> "todo_reminder"
@@ -251,9 +342,18 @@ fun AppRoot(    repo: Repository,
                 androidx.activity.compose.BackHandler { showChxNotifications = false }
                 ChxNotificationScreen(repo = repo, onBack = { showChxNotifications = false })
             }
+            "grades" -> androidx.compose.runtime.key(webReturnVersion) {
+                GradesScreen(repo = repo, onBack = { showGrades = false },
+                    onWebLogin = { openServiceWeb(ChxSso.teachingWebUrl) })
+            }
+            "chx_courses" -> androidx.compose.runtime.key(webReturnVersion) {
+                ChxCoursesScreen(repo = repo, onBack = { showChxCourses = false },
+                    onLogin = { openServiceWeb(ChxSso.fyssoUrl) }, onOpenCourse = ::openServiceWeb)
+            }
             "chx_entry" -> {
                 androidx.activity.compose.BackHandler { showChxEntry = false }
-                ChxEntryScreen(repo = repo, onBack = { showChxEntry = false })
+                ChxEntryScreen(repo = repo, onBack = { showChxEntry = false },
+                    onCourses = { showChxCourses = true })
             }
             "glass_effect" -> {
                 androidx.activity.compose.BackHandler { showGlassEffect = false }
@@ -265,8 +365,14 @@ fun AppRoot(    repo: Repository,
                     repo = repo,
                     notices = notices,
                     loading = noticesLoading,
+                    error = noticesError,
+                    readIds = readNoticeIds,
+                    updatedAt = noticeState.updatedAt,
+                    onMarkRead = { items -> repo.store.markNoticesRead(noticeAccount, items) },
                     onBack = { showNotices = false },
                     onRefresh = { loadNotices() },
+                    source = noticeState.source,
+                    onSourceChange = { noticeFeed.refresh(scope, it) },
                 )
             }
             "profile" -> {
@@ -297,6 +403,10 @@ fun AppRoot(    repo: Repository,
                 onTodoReminder = { showTodoReminder = true },
                 onChxNotifications = { showChxNotifications = true },
                 onChxEntry = { showChxEntry = true },
+                onGrades = { showGrades = true },
+                onChxCourses = { showChxCourses = true },
+                onSchoolNotices = { showNotices = true; loadNotices() },
+                onFiveEducation = { openServiceWeb("http://172.16.1.232/index") },
                 onWallpaperChanged = { wallpaperTick++ },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },
@@ -315,15 +425,9 @@ fun AppRoot(    repo: Repository,
                         }
                         .onFailure { syncError = it.message ?: "导入失败" }
                 },
-                onLogout = {
-                    repo.store.logout()
-                    blocks = emptyList()
-                    calendar = null
-                    syncError = null
-                    loggedIn.value = false
-                    showSettings.value = false
-                },
+                onLogout = { logout() },
                 loggedIn = loggedIn.value,
+                chxSessionSaved = chxSessionSaved,
                 monetEnabled = monetEnabled,
                 openSection = openSection,
                 syncing = syncing,
@@ -336,6 +440,7 @@ fun AppRoot(    repo: Repository,
                 onSettings = { showSettings.value = true },
                 onOpenNotices = { showNotices = true; loadNotices() },
                 notices = notices,
+                unreadCount = notices.count { it.readId !in readNoticeIds },
                 onImport = { showWebImport = true },
                 onGlassEffect = { showGlassEffect = true },
                 calendar = calendar,
@@ -352,13 +457,29 @@ fun AppRoot(    repo: Repository,
                         sync()
                     }
                 },
+                wallpaperTick = wallpaperTick,
             )
             else -> Box(Modifier.fillMaxSize().background(LocalDs.current.bg))
         }
     }
 
+    if (logoutFailed && !loggingOut) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { logoutFailed = false },
+            title = { androidx.compose.material3.Text("退出未完全完成") },
+            text = { androidx.compose.material3.Text("本机账号数据已隔离，但网页会话清理未确认。可重试清理，不影响重新登录。") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { logoutFailed = false; logout() }) {
+                    androidx.compose.material3.Text("重试清理")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { logoutFailed = false }) {
+                    androidx.compose.material3.Text("稍后处理")
+                }
+            },
+        )
     }
-
     if (webImportReport != null) InfoDialog("网页登录导入完成", webImportReport!!, onDismiss = { webImportReport = null })
     if (directFallbackMessage != null) {
         androidx.compose.material3.AlertDialog(
@@ -417,15 +538,40 @@ private fun MainScaffold(
     onSettings: () -> Unit,
     onOpenNotices: () -> Unit = {},
     notices: List<Notice> = emptyList(),
+    unreadCount: Int = 0,
     calendar: CalendarInfo?,
     blocks: List<CourseBlock>,
     syncError: String?,
     onSwitchTerm: (String) -> Unit = {},
+    wallpaperTick: Int = 0,
     onImport: () -> Unit = {},
     onGlassEffect: () -> Unit = {},
 ) {
-    val glassBackdrop = requireNotNull(com.menglimi.gdust.v2.ui.nexio.LocalPageLayerBackdrop.current)
-    Box(Modifier.fillMaxSize()) {
+    val ds = LocalDs.current
+    // 壁纸：路径非空即启用；页面底色转透明，让壁纸透出来（tick 变化时重读）
+    val wallpaperPath = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperPath }
+    val wallpaperOn = wallpaperPath.isNotBlank()
+    androidx.compose.runtime.CompositionLocalProvider(LocalWallpaperActive provides wallpaperOn) {
+        // 新底栏是液态玻璃：内容层要先录进 layer backdrop，玻璃才有东西可采样
+        val glassBackdrop = com.haooz.softglass.backdrop.backdrops.rememberLayerBackdrop()
+        // 课程卡/顶栏的玻璃都采样这一层（单层，避免双录制把 RenderThread 干崩）
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.menglimi.gdust.v2.ui.nexio.LocalPageLayerBackdrop provides glassBackdrop,
+        ) {
+        Box(Modifier.fillMaxSize()) {
+            // 采样层只录壁纸（卡片/顶栏在页面里采样它；录页面会形成 GPU 自采样反馈回路 → RenderThread SIGSEGV）
+            if (wallpaperOn) {
+                Box(Modifier.fillMaxSize().layerBackdrop(glassBackdrop)) {
+                    WallpaperBackdrop(
+                        path = wallpaperPath,
+                        blurDp = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperBlur },
+                        dim = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperDim },
+                    )
+                }
+            } else {
+                Box(Modifier.fillMaxSize().background(ds.bg))
+            }
+            Box(Modifier.fillMaxSize()) {
             Crossfade(
                 targetState = tab,
                 animationSpec = tween(220),
@@ -437,7 +583,7 @@ private fun MainScaffold(
                         calendar = calendar,
                         blocks = blocks,
                         onOpenNotices = onOpenNotices,
-                        unreadCount = notices.count { it.time > repo.store.lastNoticeReadAt },
+                        unreadCount = unreadCount,
                         onOpenSchedule = { onTab(1) },
                         onImport = onImport,
                         hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
@@ -458,8 +604,9 @@ private fun MainScaffold(
                     else -> TodoScreen(repo)
                 }
             }
+            }
 
-        // 四个 tab 与设置使用同一份背景采样和材质参数。
+        // 新 UI：Nexio 式浮动液态玻璃底栏（四个 tab + 设置）
             com.menglimi.gdust.v2.ui.nexio.NexioBottomBar(
                 selectedTab = tab,
                 onTabSelected = onTab,
@@ -467,5 +614,7 @@ private fun MainScaffold(
                 backdrop = glassBackdrop,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+        }
+        }
     }
 }

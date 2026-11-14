@@ -16,3 +16,23 @@ internal fun schoolAuthFailure(status: Int, body: String): AuthFailed? {
 
 internal fun shouldKeepSession(hasSavedSession: Boolean, failure: Throwable?): Boolean =
     hasSavedSession && failure !is AuthFailed
+
+/**
+ * 一次性票据只在「请求确定没有到达学校」时才可重放：
+ * 连接失败、DNS 失败、TLS 握手失败和连接超时都发生在请求发出前；
+ * 读超时则说明请求已经发出——票据可能已被消费，重放必然失败。
+ */
+internal fun Throwable.isOneShotRetrySafe(): Boolean {
+    var t: Throwable? = this
+    while (t != null) {
+        when (t) {
+            is java.net.ConnectException -> return true
+            is java.net.UnknownHostException -> return true
+            is javax.net.ssl.SSLHandshakeException -> return true
+            is java.net.SocketTimeoutException ->
+                if (t.message?.contains("connect", ignoreCase = true) == true) return true
+        }
+        t = t.cause
+    }
+    return false
+}
