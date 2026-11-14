@@ -4,7 +4,9 @@ package com.menglimi.gdust.v2.ui.schedule
 
 import android.content.Context
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -428,11 +430,12 @@ private fun CompactWeekAgenda(
             ?: days.firstOrNull { day -> blocks.any { it.day == day } } ?: days.first())
     }
     val dayLessons = blocks.filter { it.day == selectedDay }.sortedBy { it.startSection }
+    val dateScroll = rememberLazyListState(initialFirstVisibleItemIndex = days.indexOf(selectedDay).coerceAtLeast(0))
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-            .padding(horizontal = AppUiTokens.PagePadding, vertical = 8.dp),
+        LazyRow(Modifier.fillMaxWidth(), state = dateScroll,
+            contentPadding = PaddingValues(horizontal = AppUiTokens.PagePadding, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            days.forEach { day ->
+            items(days, key = { it }) { day ->
                 val picked = day == selectedDay
                 AppCard(
                     modifier = Modifier.semantics { selected = picked },
