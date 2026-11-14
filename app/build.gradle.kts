@@ -16,7 +16,7 @@ android {
     compileSdk = 37
 
     // 版本标识单一来源：versionName 直接带构建号，装的是不是最新一眼可见
-    val vCode = 14
+    val vCode = 15
     val vName = "2.0.0-alpha.$vCode"
 
     defaultConfig {
