@@ -29,21 +29,37 @@ fun NexioTheme(
     }
     MiuixTheme(controller = controller) {
         val colors = MiuixTheme.colorScheme
-        val ds = Ds(
-            bg = if (monetEnabled) colors.surface else if (dark) Color.Black else Color(0xFFF7F7F7),
+        val base = com.menglimi.gdust.v2.ui.dsFor(dark)
+        val ds = if (monetEnabled) base.copy(
+            bg = colors.surface,
             card = colors.surfaceContainer,
-            cardStroke = colors.dividerLine.copy(alpha = 0.45f),
             text = colors.onSurface,
             sub = colors.onSurfaceVariantSummary,
             accent = colors.primary,
             accentSoft = colors.primary.copy(alpha = if (dark) 0.2f else 0.10f),
             breakBar = colors.surfaceContainerHigh.copy(alpha = 0.55f),
             danger = colors.error,
-            isDark = dark,
+        ) else base
+        val pageColors = colors.copy(
+            primary = ds.accent,
+            onPrimary = if (!monetEnabled && dark) ds.bg else colors.onPrimary,
+            primaryContainer = ds.accentSoft,
+            onPrimaryContainer = ds.accent,
+            background = ds.bg,
+            onBackground = ds.text,
+            surface = ds.bg,
+            onSurface = ds.text,
+            surfaceContainer = ds.card,
+            onSurfaceContainer = ds.text,
+            onSurfaceVariantSummary = ds.sub,
+            onSurfaceVariantActions = ds.sub,
+            error = ds.danger,
         )
         SideEffect { com.kyant.backdrop.AppThemeSnapshot.isDark.value = dark }
-        CompositionLocalProvider(LocalDs provides ds) {
-            WithTypography(ds, content)
+        MiuixTheme(colors = pageColors) {
+            CompositionLocalProvider(LocalDs provides ds) {
+                WithTypography(ds, content)
+            }
         }
     }
 }

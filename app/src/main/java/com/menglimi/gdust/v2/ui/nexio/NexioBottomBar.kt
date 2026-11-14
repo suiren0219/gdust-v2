@@ -1,6 +1,20 @@
 package com.menglimi.gdust.v2.ui.nexio
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.LocalWallpaperActive
+import top.yukonga.miuix.kmp.basic.IconButton
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -43,7 +57,7 @@ fun NexioBottomBar(
     settingsSelected: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val iconTint = MiuixTheme.colorScheme.onSurfaceContainer.copy(alpha = 0.8f)
+    val colors = MiuixTheme.colorScheme
     val bottomPadding = bottomFloatingPadding()
     val labels = listOf("今日", "课表", "电费", "待办")
     val icons = listOf(MiuixIcons.Album, MiuixIcons.Months, MiuixIcons.BankCards, MiuixIcons.Tasks)
@@ -55,7 +69,35 @@ fun NexioBottomBar(
         contentAlignment = Alignment.Center,
     ) {
         val barWidth = (maxWidth - 32.dp).coerceIn(0.dp, 480.dp)
-        LiquidBottomTabs(
+        if (!LocalWallpaperActive.current) {
+            val ds = LocalDs.current
+            val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceAtMost(1.5f)
+            Row(Modifier.width(barWidth).height((56 * fontScale).dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.weight(1f).fillMaxHeight().clip(CircleShape).background(ds.card)
+                    .selectableGroup().padding(4.dp)) {
+                    labels.forEachIndexed { index, label ->
+                        val selected = index == selectedTab
+                        val tint = if (selected) ds.accent else ds.sub
+                        Column(
+                            Modifier.weight(1f).fillMaxHeight().clip(CircleShape)
+                                .background(if (selected) ds.accentSoft else androidx.compose.ui.graphics.Color.Transparent)
+                                .selectable(selected, role = Role.Tab, onClick = { onTabSelected(index) }),
+                            verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Image(icons[index], null, Modifier.size(23.dp), colorFilter = ColorFilter.tint(tint))
+                            Text(label, fontSize = 11.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                color = tint, maxLines = 1)
+                        }
+                    }
+                }
+                IconButton(onClick = onSettings, modifier = Modifier.size((56 * fontScale).dp),
+                    backgroundColor = ds.card) {
+                    Image(MiuixIcons.Settings, "设置", Modifier.size(25.dp), colorFilter = ColorFilter.tint(ds.text))
+                }
+            }
+        } else LiquidBottomTabs(
             selectedTabIndex = { selectedTab.coerceIn(labels.indices) },
             onTabSelected = onTabSelected,
             backdrop = backdrop,
@@ -70,6 +112,7 @@ fun NexioBottomBar(
             modifier = Modifier.width(barWidth).height(56.dp),
         ) {
             labels.forEachIndexed { index, label ->
+                val iconTint = if (index == selectedTab) colors.primary else colors.onSurfaceVariantSummary
                 LiquidBottomTab(index = index) {
                     Image(
                         modifier = Modifier.size(24.dp),

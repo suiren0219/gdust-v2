@@ -1,6 +1,5 @@
 package com.menglimi.gdust.v2
 
-import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -41,12 +40,6 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         receiveWidgetIntent(intent)
-    }
-
-    override fun attachBaseContext(newBase: Context) {
-        // 锁字体缩放：避免系统大字号撑爆固定高度课表网格
-        val cfg = newBase.resources.configuration.apply { fontScale = 1.0f }
-        super.attachBaseContext(newBase.createConfigurationContext(cfg))
     }
 
     private val notifPermission = registerForActivityResult(

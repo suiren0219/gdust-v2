@@ -58,6 +58,9 @@ import com.menglimi.gdust.v2.ui.screens.ChxEntryScreen
 import com.menglimi.gdust.v2.ui.screens.ChxCoursesScreen
 import com.menglimi.gdust.v2.ui.screens.ChxWebActivity
 import com.menglimi.gdust.v2.ui.screens.GradesScreen
+import com.menglimi.gdust.v2.ui.screens.CampusService
+import com.menglimi.gdust.v2.ui.screens.CampusServicesScreen
+import com.menglimi.gdust.v2.ui.screens.WidgetPreviewScreen
 import com.menglimi.gdust.v2.data.ChxSso
 import com.menglimi.gdust.v2.data.Notice
 import com.menglimi.gdust.v2.data.NoticeFeed
@@ -122,6 +125,9 @@ fun AppRoot(
     var loggingOut by remember { mutableStateOf(false) }
     var logoutFailed by remember { mutableStateOf(repo.store.webLogoutPending) }
     var showAbout by remember { mutableStateOf(false) }
+    var showServices by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var showWidgets by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var showLogin by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     // 免责声明：普通 prefs 不触发重组，用状态控制弹窗，确认后写盘不再出现。
     var disclaimerShown by remember { mutableStateOf(!repo.store.disclaimerAccepted) }
 
@@ -166,7 +172,34 @@ fun AppRoot(
     var importReport by remember { mutableStateOf<String?>(null) }
     // 设置页当前展开的编辑区（切风格重建时收起即可，不影响页面栈）
     val openSection = remember { mutableStateOf<String?>(null) }
+    val hasAccount = repo.store.hasSession || repo.store.casTicket.isNotBlank() || repo.hasTeachingSession()
 
+    fun openLogin() {
+        showLogin = true
+    }
+
+    fun openCampusService(service: CampusService) {
+        when (service) {
+            CampusService.SCHEDULE -> { showServices = false; tab.intValue = 1 }
+            CampusService.TODO -> { showServices = false; tab.intValue = 3 }
+            CampusService.POWER -> { showServices = false; tab.intValue = 2 }
+            CampusService.GRADES -> showGrades = true
+            CampusService.CHX_COURSES -> showChxCourses = true
+            CampusService.IMPORT -> showWebImport = true
+            CampusService.NOTICES -> { showNotices = true; noticeFeed.refresh(scope) }
+            CampusService.FIVE_EDUCATION -> openServiceWeb("http://172.16.1.232/index")
+            CampusService.LESSON_REMINDER -> showReminder = true
+            CampusService.TODO_REMINDER -> showTodoReminder = true
+            CampusService.WIDGETS -> showWidgets = true
+            CampusService.CHX_LINK -> showChxEntry = true
+            CampusService.CHX_NOTIFICATIONS -> showChxNotifications = true
+            CampusService.SUMMARY -> {
+                openSection.value = if (repo.store.hasLlm) "summary" else "llm"
+                showSettings.value = true
+            }
+            CampusService.SETTINGS -> showSettings.value = true
+        }
+    }
 
     fun sync() {
         if (syncing) return
@@ -246,6 +279,8 @@ fun AppRoot(
         showGrades = false
         showChxCourses = false
         showProfile = false
+        showServices = false
+        showWidgets = false
         showSettings.value = false
         loggedIn.value = false
         scope.launch {
@@ -292,9 +327,13 @@ fun AppRoot(
         if (teachingReady && stale && repo.store.autoSyncEnabled) sync()
     }
 
+    val pageStateHolder = androidx.compose.runtime.key(sessionVersion) {
+        androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    }
     Crossfade(
         targetState = when {
             !checked.value -> "loading"
+            showLogin -> "login"
             showWebImport -> "web_import"
             showGrades -> "grades"
             showChxCourses -> "chx_courses"
@@ -306,13 +345,16 @@ fun AppRoot(
             showGlassEffect -> "glass_effect"
             showProfile -> "profile"
             showAbout -> "about"
+            showWidgets -> "widgets"
             showSettings.value -> "settings"
+            showServices -> "services"
             !loggedIn.value -> "login"
             else -> "main"
         },
         animationSpec = tween(220),
         label = "root",
     ) { state ->
+        pageStateHolder.SaveableStateProvider(state) {
         when (state) {
             "web_import" -> {
                 androidx.activity.compose.BackHandler { showWebImport = false }
@@ -323,6 +365,7 @@ fun AppRoot(
                         calendar = cal
                         blocks = list
                         showWebImport = false
+                        showServices = false
                         showSettings.value = false
                         loggedIn.value = true
                         tab.intValue = 1
@@ -383,17 +426,31 @@ fun AppRoot(
                 androidx.activity.compose.BackHandler { showAbout = false }
                 AboutScreen(repo = repo, onBack = { showAbout = false })
             }
-            "login" -> LoginScreen(
-                repo = repo,
-                onLoggedIn = {
-                    loggedIn.value = true
-                    // 登录成功即开启定时同步
-                    runCatching { com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(context) }
-                    sync()
-                },
-                onOpenSettings = { showSettings.value = true },
-                onPreview = { loggedIn.value = true },
+            "widgets" -> {
+                androidx.activity.compose.BackHandler { showWidgets = false }
+                WidgetPreviewScreen(onBack = { showWidgets = false })
+            }
+            "services" -> CampusServicesScreen(
+                signedIn = hasAccount,
+                accountName = repo.store.realName,
+                onLogin = ::openLogin,
+                onOpen = ::openCampusService,
+                onBack = { showServices = false },
             )
+            "login" -> {
+                androidx.activity.compose.BackHandler(enabled = showLogin) { showLogin = false }
+                LoginScreen(
+                    repo = repo,
+                    onLoggedIn = {
+                        showLogin = false
+                        loggedIn.value = true
+                        runCatching { com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(context) }
+                        sync()
+                    },
+                    onOpenSettings = { showLogin = false; showSettings.value = true },
+                    onPreview = { showLogin = false; loggedIn.value = true },
+                )
+            }
             "settings" -> SettingsScreen(
                 repo = repo,
                 syncError = syncError,
@@ -426,7 +483,9 @@ fun AppRoot(
                         .onFailure { syncError = it.message ?: "导入失败" }
                 },
                 onLogout = { logout() },
-                loggedIn = loggedIn.value,
+                onLogin = ::openLogin,
+                onWidgets = { showWidgets = true },
+                loggedIn = hasAccount,
                 chxSessionSaved = chxSessionSaved,
                 monetEnabled = monetEnabled,
                 openSection = openSection,
@@ -438,9 +497,16 @@ fun AppRoot(
                 tab = tab.intValue,
                 onTab = { tab.intValue = it },
                 onSettings = { showSettings.value = true },
-                onOpenNotices = { showNotices = true; loadNotices() },
-                notices = notices,
+                onServices = { showServices = true },
+                onService = ::openCampusService,
+                onLogin = ::openLogin,
+                signedIn = hasAccount,
+                onSync = ::sync,
+                syncing = syncing,
                 unreadCount = notices.count { it.readId !in readNoticeIds },
+                noticesLoading = noticesLoading,
+                noticesError = noticesError,
+                noticesUpdatedAt = noticeState.updatedAt,
                 onImport = { showWebImport = true },
                 onGlassEffect = { showGlassEffect = true },
                 calendar = calendar,
@@ -460,6 +526,7 @@ fun AppRoot(
                 wallpaperTick = wallpaperTick,
             )
             else -> Box(Modifier.fillMaxSize().background(LocalDs.current.bg))
+        }
         }
     }
 
@@ -536,9 +603,16 @@ private fun MainScaffold(
     tab: Int,
     onTab: (Int) -> Unit,
     onSettings: () -> Unit,
-    onOpenNotices: () -> Unit = {},
-    notices: List<Notice> = emptyList(),
-    unreadCount: Int = 0,
+    onServices: () -> Unit,
+    onService: (CampusService) -> Unit,
+    onLogin: () -> Unit,
+    signedIn: Boolean,
+    onSync: () -> Unit,
+    syncing: Boolean,
+    unreadCount: Int,
+    noticesLoading: Boolean,
+    noticesError: String?,
+    noticesUpdatedAt: Long,
     calendar: CalendarInfo?,
     blocks: List<CourseBlock>,
     syncError: String?,
@@ -572,36 +646,58 @@ private fun MainScaffold(
                 Box(Modifier.fillMaxSize().background(ds.bg))
             }
             Box(Modifier.fillMaxSize()) {
+            val tabStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
             Crossfade(
                 targetState = tab,
                 animationSpec = tween(220),
                 label = "tabs",
                 modifier = Modifier.fillMaxSize(),
             ) { page ->
+                tabStateHolder.SaveableStateProvider(page) {
                 when (page) {
                     0 -> TodayScreen(
-                        calendar = calendar,
-                        blocks = blocks,
-                        onOpenNotices = onOpenNotices,
-                        unreadCount = unreadCount,
-                        onOpenSchedule = { onTab(1) },
-                        onImport = onImport,
-                        hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
-                    )
-                    1 -> ScheduleScreen(
                         repo = repo,
                         calendar = calendar,
                         blocks = blocks,
-                        syncError = syncError,
-                        onPrevWeek = {},
-                        onNextWeek = {},
-                        onSwitchTerm = onSwitchTerm,
-                        fullTermImported = repo.store.scheduleSource == "zf_term",
+                        unreadCount = unreadCount,
+                        noticesLoading = noticesLoading,
+                        noticesError = noticesError,
+                        noticesUpdatedAt = noticesUpdatedAt,
+                        onOpenSchedule = { onTab(1) },
                         onImport = onImport,
-                        onGlassEffect = onGlassEffect,
+                        onServices = onServices,
+                        onService = onService,
+                        onSettings = onSettings,
+                        onLogin = onLogin,
+                        signedIn = signedIn,
+                        onSync = onSync,
+                        syncing = syncing,
+                        syncError = syncError,
+                        hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
                     )
+                    1 -> {
+                        // 固定节次网格沿用原字号，其余页面尊重系统字体设置。
+                        val density = androidx.compose.ui.platform.LocalDensity.current
+                        androidx.compose.runtime.CompositionLocalProvider(
+                            androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 1f),
+                        ) {
+                            ScheduleScreen(
+                                repo = repo,
+                                calendar = calendar,
+                                blocks = blocks,
+                                syncError = syncError,
+                                onPrevWeek = {},
+                                onNextWeek = {},
+                                onSwitchTerm = onSwitchTerm,
+                                fullTermImported = repo.store.scheduleSource == "zf_term",
+                                onImport = onImport,
+                                onGlassEffect = onGlassEffect,
+                            )
+                        }
+                    }
                     2 -> PowerScreen(repo)
                     else -> TodoScreen(repo)
+                }
                 }
             }
             }

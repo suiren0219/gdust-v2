@@ -36,17 +36,17 @@ import com.menglimi.gdust.v2.ui.nexio.utils.AppMaterialSettings
 import top.yukonga.miuix.kmp.theme.LocalContentColor
 
 object AppUiTokens {
-    val PagePadding = 20.dp
-    val TitleSize = 30.sp
-    val TitleWeight = FontWeight.SemiBold
-    val CardCorner = 20.dp
+    val PagePadding = 16.dp
+    val TitleSize = 34.sp
+    val TitleWeight = FontWeight.Medium
+    val CardCorner = 24.dp
     val ItemCorner = 16.dp
 }
 
 @Composable
 fun secondaryTextColor(): Color {
     val ds = LocalDs.current
-    return ds.text.copy(alpha = 0.76f).compositeOver(ds.card)
+    return ds.sub.compositeOver(ds.card)
 }
 
 /** 卡外文字不直接叠在任意明暗壁纸上；半透底衬让壁纸仍可透出。 */
@@ -66,7 +66,8 @@ fun Modifier.appSurface(
     val backdrop = LocalPageLayerBackdrop.current
     val wallpaper = LocalWallpaperActive.current && backdrop != null
     val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
-    val surface = ds.card.copy(alpha = if (wallpaper) material.surfaceAlpha else 1f)
+    if (!wallpaper) return background(ds.card, shape).clip(shape)
+    val surface = ds.card.copy(alpha = material.surfaceAlpha)
     val glassStyle = AppMaterialSettings.chromeGlassStyle(ScheduleSoftGlassStyle, ds.isDark)
     val outline = if (material.liquid) Brush.linearGradient(
         listOf(

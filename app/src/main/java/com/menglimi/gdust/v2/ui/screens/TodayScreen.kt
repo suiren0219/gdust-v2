@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -31,6 +32,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.ui.LocalDs
+import top.yukonga.miuix.kmp.icon.extended.Settings
+import top.yukonga.miuix.kmp.icon.extended.Refresh
+import top.yukonga.miuix.kmp.icon.extended.ChevronForward
+import java.time.ZoneId
+import java.time.Instant
+import java.time.format.DateTimeFormatter
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -83,12 +95,23 @@ import java.time.temporal.ChronoUnit
 
 @Composable
 fun TodayScreen(
+    repo: Repository,
     calendar: CalendarInfo?,
     blocks: List<CourseBlock>,
-    onOpenNotices: () -> Unit = {},
-    unreadCount: Int = 0,
-    onOpenSchedule: () -> Unit = {},
-    onImport: () -> Unit = {},
+    unreadCount: Int,
+    noticesLoading: Boolean,
+    noticesError: String?,
+    noticesUpdatedAt: Long,
+    onOpenSchedule: () -> Unit,
+    onImport: () -> Unit,
+    onServices: () -> Unit,
+    onService: (CampusService) -> Unit,
+    onSettings: () -> Unit,
+    onLogin: () -> Unit,
+    signedIn: Boolean,
+    onSync: () -> Unit,
+    syncing: Boolean,
+    syncError: String?,
     hasImportedSchedule: Boolean = blocks.isNotEmpty(),
 ) {
     val now by rememberTodayMinuteClock()
@@ -108,6 +131,20 @@ fun TodayScreen(
     }
     val missingDates = currentWeek == null && datedBlocks.any { it.second == null }
     val imported = hasImportedSchedule || blocks.isNotEmpty()
+    val weekCovered = repo.store.scheduleSource == "zf_term" ||
+        (currentWeek != null && blocks.any { it.week == currentWeek })
+    val store = repo.store
+    var todos by remember(store) { mutableStateOf(store.loadTodos()) }
+    DisposableEffect(store) {
+        val stop = store.observeTodos { todos = store.loadTodos() }
+        onDispose { stop() }
+    }
+    val nowMs = now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    val pending = todos.filterNot { it.done }
+    val overdue = pending.count { it.dueAt in 1 until nowMs }
+    val nextDue = pending.filter { it.dueAt >= nowMs }.minByOrNull { it.dueAt }
+    val hasPower = store.hasPowerBinding
+    val ds = LocalDs.current
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val colors = MiuixTheme.colorScheme
     val secondary = secondaryTextColor()
@@ -131,146 +168,224 @@ fun TodayScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "今天是${ScheduleTimes.dayNames[today.dayOfWeek.value - 1]}",
+                        text = "今日",
                         fontSize = AppUiTokens.TitleSize,
                         fontWeight = AppUiTokens.TitleWeight,
-                        color = colors.onSurface,
+                        color = ds.text,
                         modifier = Modifier.weight(1f).semantics { heading() },
                     )
-                    TodayNoticeButton(unreadCount, onOpenNotices)
+                    IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) {
+                        Icon(MiuixIcons.Settings, "设置", tint = ds.text, modifier = Modifier.size(24.dp))
+                    }
                 }
-                Spacer(Modifier.height(14.dp))
                 Text(
-                    text = "${today.year}年${today.monthValue}月${today.dayOfMonth}日",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.onSurface,
-                )
-                Text(
-                    text = weekText,
+                    text = "${today.monthValue}月${today.dayOfMonth}日 · ${ScheduleTimes.dayNames[today.dayOfWeek.value - 1]} · $weekText",
                     fontSize = 14.sp,
+                    lineHeight = 21.sp,
                     color = secondary,
-                    modifier = Modifier.padding(top = 4.dp),
+                    modifier = Modifier.padding(top = 6.dp),
                 )
             }
         }
-        when {
-            !imported -> item(key = "schedule-not-imported") {
-                TodayEmptyCard(
-                    title = "还没有导入课表",
-                    message = "导入本学期课表后，今日课程和下一课会显示在这里。",
-                    action = "导入课表",
-                    onAction = onImport,
+        item(key = "today-status") {
+            when {
+                !imported -> TodayEmptyCard(
+                    title = "从今天开始，安排校园生活",
+                    message = "导入课表后，这里会显示下一课、教室与上课时间。",
+                    action = "导入课表", onAction = onImport,
+                )
+                todayCourses.isEmpty() -> TodayEmptyCard(
+                    title = when {
+                        missingDates -> "课表日期待确认"
+                        !weekCovered -> "尚未取得本周课程"
+                        else -> "今天没有课程"
+                    },
+                    message = when {
+                        missingDates -> "部分课程缺少日期，请检查学期设置。"
+                        !weekCovered -> "当前缓存未覆盖本周，导入整学期课表后再确认。"
+                        else -> "今日 0 门课，其他日期的安排可在完整课表查看。"
+                    },
+                    action = if (!weekCovered) "导入整学期" else "查看课表",
+                    onAction = if (!weekCovered) onImport else onOpenSchedule,
+                )
+                else -> TodayAssistantPanel(todayCourses, now.toLocalTime(), missingDates, onOpenSchedule)
+            }
+        }
+        item(key = "today-metrics") {
+            AdaptiveDashboardPair(
+                first = { modifier ->
+                    TodayMetricCard(
+                        title = "待完成事项", value = pending.size.toString(), unit = "项",
+                        description = when {
+                            overdue > 0 -> "$overdue 项已到期 · 查看待办"
+                            nextDue != null -> "最近到期 ${formatDashboardTime(nextDue.dueAt)}"
+                            pending.isEmpty() -> "添加作业、考试或日常事项"
+                            else -> "查看作业、考试与日常事项"
+                        },
+                        warning = overdue > 0, modifier = modifier,
+                        onClick = { onService(CampusService.TODO) },
+                    )
+                },
+                second = { modifier ->
+                    TodayMetricCard(
+                        title = "宿舍电量", value = if (hasPower) "已绑定" else "未绑定",
+                        unit = "",
+                        description = if (hasPower) "${store.powerRoomName.ifBlank { "宿舍" }} · 点击查询"
+                            else "绑定宿舍，查看电量与走势",
+                        warning = false,
+                        modifier = modifier, onClick = { onService(CampusService.POWER) },
+                    )
+                },
+            )
+        }
+        item(key = "today-services-title") {
+            DashboardSectionTitle("常用服务", "全部服务", onServices)
+        }
+        item(key = "today-services") {
+            DashboardCard {
+                ServiceActionRow("学期成绩", "成绩、学分与绩点", { onService(CampusService.GRADES) })
+                ServiceActionRow("学习通课程", "课程列表与任务点进度", { onService(CampusService.CHX_COURSES) },
+                    detail = if (store.hasChxSession) "登录信息已保存，进入后验证" else "首次使用需登录学习通")
+                ServiceActionRow("桌面小部件", "九款样式，把课程、电量与待办放到桌面", { onService(CampusService.WIDGETS) })
+            }
+        }
+        item(key = "today-notices") {
+            DashboardCard {
+                ServiceActionRow(
+                    title = "学校公告",
+                    description = when {
+                        noticesLoading -> "正在刷新公告…"
+                        noticesError != null -> "更新未完成 · 进入查看并重试"
+                        noticesUpdatedAt <= 0 -> "查看门户通知、教务处公告与官网新闻"
+                        unreadCount > 0 -> "当前来源 $unreadCount 条未读 · 查看公告"
+                        else -> "当前来源已读完 · 查看其他来源"
+                    },
+                    onClick = { onService(CampusService.NOTICES) },
                 )
             }
-            todayCourses.isEmpty() -> item(key = "today-empty") {
-                TodayEmptyCard(
-                    title = if (missingDates) "课表日期待确认" else "今天没有课程",
-                    message = if (missingDates) "部分课程缺少日期，请检查课表中的学期设置。"
-                    else "已导入的课表中没有今日安排，可以查看其他日期的课程。",
-                    action = "查看课表",
-                    onAction = onOpenSchedule,
-                )
+        }
+        if (todayCourses.isNotEmpty()) {
+            item(key = "today-schedule-title") {
+                DashboardSectionTitle("今日安排 · ${todayCourses.size} 门课", "完整课表", onOpenSchedule)
             }
-            else -> {
-                item(key = "today-overview") {
-                    val completed = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.Ended }
-                    val ongoing = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.Ongoing }
-                    val pending = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.NotStarted }
-                    val unknown = todayCourses.size - completed - ongoing - pending
-                    AppCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp, insideMargin = PaddingValues(16.dp)) {
-                        Text(
-                            "今日 ${todayCourses.size} 门课",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = colors.onSurface,
-                        )
-                        Text(
-                            buildList {
-                                add("已结束 $completed")
-                                if (ongoing > 0) add("进行中 $ongoing")
-                                add("未开始 $pending")
-                                if (unknown > 0) add("时间待确认 $unknown")
-                            }.joinToString("  /  "),
-                            fontSize = 14.sp,
-                            color = secondary,
-                            modifier = Modifier.padding(top = 6.dp),
-                        )
+            listOf("上午" to 1..4, "下午" to 5..8, "晚上" to 9..Int.MAX_VALUE).forEach { (label, sections) ->
+                val courses = todayCourses.filter { it.block.startSection in sections }
+                if (courses.isNotEmpty()) {
+                    item(key = "today-period-$label") { TodayPeriodTitle(label) }
+                    courses.forEachIndexed { index, course ->
+                        item(key = "today-$label-$index") { TodayTimelineCard(course, now.toLocalTime(), onOpenSchedule) }
                     }
                 }
-                item(key = "today-assistant") {
-                    TodayAssistantPanel(todayCourses, now.toLocalTime(), missingDates)
+            }
+            val unspecified = todayCourses.filter { it.block.startSection < 1 }
+            if (unspecified.isNotEmpty()) {
+                item(key = "today-period-unknown") { TodayPeriodTitle("节次待确认") }
+                unspecified.forEachIndexed { index, course ->
+                    item(key = "today-unknown-$index") { TodayTimelineCard(course, now.toLocalTime(), onOpenSchedule) }
                 }
-                listOf("上午" to 1..4, "下午" to 5..8, "晚上" to 9..Int.MAX_VALUE).forEach { (label, sections) ->
-                    val courses = todayCourses.filter { it.block.startSection in sections }
-                    if (courses.isNotEmpty()) {
-                        item(key = "today-period-$label") { TodayPeriodTitle(label) }
-                        courses.forEachIndexed { index, course ->
-                            item(key = "today-$label-$index") {
-                                TodayTimelineCard(course, now.toLocalTime(), onOpenSchedule)
-                            }
-                        }
-                    }
-                }
-                val unspecified = todayCourses.filter { it.block.startSection < 1 }
-                if (unspecified.isNotEmpty()) {
-                    item(key = "today-period-unknown") { TodayPeriodTitle("节次待确认") }
-                    unspecified.forEachIndexed { index, course ->
-                        item(key = "today-unknown-$index") { TodayTimelineCard(course, now.toLocalTime(), onOpenSchedule) }
-                    }
-                }
-                item(key = "today-schedule-action") {
-                    TextButton(text = "查看完整课表", onClick = onOpenSchedule,
-                        modifier = Modifier.fillMaxWidth().pageTextBacking(cornerRadius = ButtonDefaults.CornerRadius), minHeight = 48.dp)
-                }
+            }
+        }
+        item(key = "today-sync") {
+            DashboardCard(insideMargin = PaddingValues(20.dp)) {
+                Text(if (signedIn) "课表同步" else "登录校园账号", fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold, color = ds.text)
+                Text(
+                    when {
+                        syncing -> "正在更新，已保存的课表仍可查看"
+                        syncError != null -> syncError
+                        !signedIn -> "登录后可同步学校数据，本地待办和宿舍电量可独立使用。"
+                        store.lastSyncAt > 0 -> "最近同步 ${formatDashboardTime(store.lastSyncAt)}"
+                        else -> "使用当前账号更新课程，或从校园服务导入整学期课表。"
+                    },
+                    fontSize = 13.sp, lineHeight = 20.sp,
+                    color = if (syncError != null) ds.danger else ds.sub,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                TextButton(
+                    text = if (!signedIn) "去登录" else if (syncing) "同步中…" else "刷新课表",
+                    enabled = !syncing, onClick = if (signedIn) onSync else onLogin,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp), minHeight = 48.dp,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun TodayNoticeButton(unreadCount: Int, onClick: () -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    Box {
-        IconButton(
-            onClick = onClick,
-            modifier = Modifier.size(48.dp).semantics {
-                contentDescription = if (unreadCount > 0) "学校公告，$unreadCount 条未读" else "学校公告"
-            },
-            backgroundColor = colors.surfaceContainer,
-            minWidth = 48.dp,
-            minHeight = 48.dp,
-        ) {
-            Icon(MiuixIcons.Info, contentDescription = null, tint = colors.primary, modifier = Modifier.size(23.dp))
-        }
-        if (unreadCount > 0) {
-            Box(Modifier.align(Alignment.TopEnd).padding(4.dp).size(8.dp).background(colors.error, CircleShape))
+private fun AdaptiveDashboardPair(
+    first: @Composable (Modifier) -> Unit,
+    second: @Composable (Modifier) -> Unit,
+) {
+    val fontScale = LocalDensity.current.fontScale
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        if (maxWidth < 320.dp || fontScale > 1.3f) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                first(Modifier.fillMaxWidth())
+                second(Modifier.fillMaxWidth())
+            }
+        } else {
+            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                first(Modifier.weight(1f).fillMaxHeight())
+                second(Modifier.weight(1f).fillMaxHeight())
+            }
         }
     }
 }
 
 @Composable
-private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, missingDates: Boolean) {
+private fun TodayMetricCard(
+    title: String, value: String, unit: String, description: String,
+    modifier: Modifier, warning: Boolean, onClick: () -> Unit,
+) {
+    val ds = LocalDs.current
+    DashboardCard(modifier, insideMargin = PaddingValues(20.dp), onClick = onClick) {
+        Text(title, fontSize = 13.sp, color = ds.sub)
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(top = 8.dp, bottom = 8.dp)) {
+            Text(value, fontSize = if (value.toIntOrNull() != null) 34.sp else 26.sp,
+                fontWeight = FontWeight.Bold, color = if (warning) ds.danger else ds.text)
+            if (unit.isNotEmpty()) Text(unit, fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(bottom = 5.dp))
+        }
+        Text(description, fontSize = 12.sp, lineHeight = 18.sp, color = if (warning) ds.danger else ds.sub)
+    }
+}
+
+@Composable
+private fun DashboardSectionTitle(title: String, action: String, onAction: () -> Unit) {
+    val ds = LocalDs.current
+    Row(Modifier.fillMaxWidth().pageTextBacking().padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text,
+            modifier = Modifier.weight(1f).semantics { heading() })
+        TextButton(text = action, onClick = onAction, minHeight = 48.dp)
+    }
+}
+
+private fun formatDashboardTime(time: Long): String = Instant.ofEpochMilli(time)
+    .atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))
+
+@Composable
+private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, missingDates: Boolean, onOpen: () -> Unit) {
+    val ds = LocalDs.current
     val colors = MiuixTheme.colorScheme
     val secondary = secondaryTextColor()
     val current = courses.firstOrNull { it.statusAt(now) == TodayCourseStatus.Ongoing }
     val next = courses.firstOrNull { it.statusAt(now) == TodayCourseStatus.NotStarted }
     val active = current ?: next
     val unknown = courses.count { it.statusAt(now) == TodayCourseStatus.Unknown }
-    AppCard(
-        modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 20.dp,
-        insideMargin = PaddingValues(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 14.dp),
+    DashboardCard(
+        insideMargin = PaddingValues(20.dp),
+        color = if (current != null) {
+            if (ds.isDark) Color(0xFF203A29) else Color(0xFFDEFAE4)
+        } else ds.card,
+        onClick = onOpen,
     ) {
         if (active != null) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
                     text = if (current != null) "正在上课" else "下一课",
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
-                    color = colors.primary,
-                    modifier = Modifier.background(colors.primary.copy(alpha = 0.14f), CircleShape)
-                        .padding(horizontal = 9.dp, vertical = 3.dp),
+                    color = ds.sub,
                 )
                 val boundary = if (current != null) active.end else active.start
                 Text(
@@ -402,20 +517,14 @@ private fun TodayTimelineCard(course: TodayCourse, now: LocalTime, onOpenSchedul
 
 @Composable
 private fun TodayEmptyCard(title: String, message: String, action: String, onAction: () -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    val secondary = secondaryTextColor()
-    AppCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp, insideMargin = PaddingValues(24.dp)) {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(MiuixIcons.Months, contentDescription = null, tint = colors.primary, modifier = Modifier.padding(top = 12.dp).size(40.dp))
-            Text(title, fontSize = 18.sp, fontWeight = FontWeight.Medium, color = colors.onSurface)
-            Text(message, fontSize = 14.sp, lineHeight = 21.sp, textAlign = TextAlign.Center, color = secondary)
-            TextButton(
-                text = action,
-                onClick = onAction,
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                minHeight = 48.dp,
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            )
+    val ds = LocalDs.current
+    DashboardCard(insideMargin = PaddingValues(20.dp), onClick = onAction) {
+        Text(title, fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+        Text(message, fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp))
+        Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(action, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = ds.accent)
+            Icon(MiuixIcons.ChevronForward, null, Modifier.size(16.dp), tint = ds.accent)
         }
     }
 }

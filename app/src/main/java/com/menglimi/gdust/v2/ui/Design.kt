@@ -34,13 +34,13 @@ val LocalBackdrop = staticCompositionLocalOf<LayerBackdrop> { error("no backdrop
 
 @Composable
 fun dsFor(dark: Boolean): Ds = if (dark) Ds(
-    bg = Color(0xFF0D0D10), card = Color(0xFF1C1C21), cardStroke = Color(0x22FFFFFF),
-    text = Color(0xFFF2F2F7), sub = Color(0xFF9A9AA5), accent = Color(0xFF0A84FF),
-    accentSoft = Color(0x220A84FF), breakBar = Color(0xFF232329), danger = Color(0xFFFF6B6B), isDark = true,
+    bg = Color(0xFF0E0E10), card = Color(0xFF1C1C1E), cardStroke = Color(0x22FFFFFF),
+    text = Color(0xFFF2F2F7), sub = Color.White.copy(alpha = 0.62f), accent = Color(0xFF7AB0FF),
+    accentSoft = Color(0x227AB0FF), breakBar = Color(0xFF232329), danger = Color(0xFFFF6B6B), isDark = true,
 ) else Ds(
-    bg = Color(0xFFF7F7FA), card = Color(0xFFFFFFFF), cardStroke = Color(0x0A000000),
-    text = Color(0xFF1C1C1E), sub = Color(0xFF8A8A8F), accent = Color(0xFF007AFF),
-    accentSoft = Color(0x14007AFF), breakBar = Color(0xFFECECF1), danger = Color(0xFFE5484D), isDark = false,
+    bg = Color(0xFFF7F7F7), card = Color.White, cardStroke = Color(0x0A000000),
+    text = Color.Black, sub = Color(0xFF666666), accent = Color(0xFF3482FF),
+    accentSoft = Color(0x143482FF), breakBar = Color(0xFFECECF1), danger = Color(0xFFEE4444), isDark = false,
 )
 
 /**

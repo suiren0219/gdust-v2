@@ -3,6 +3,8 @@ package com.menglimi.gdust.v2.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -180,7 +182,9 @@ fun <T> SegmentedChoice(
 @Composable
 fun InfoDialog(title: String, message: String, onDismiss: () -> Unit, confirmText: String = "知道了") {
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(24.dp)) {
+        val maxHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.85f
+        Card(Modifier.fillMaxWidth().heightIn(max = maxHeight).verticalScroll(rememberScrollState()),
+            insideMargin = PaddingValues(24.dp)) {
             val ds = LocalDs.current
             Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = ds.text)
             Text(message, fontSize = 14.sp, lineHeight = 21.sp, color = ds.sub,
