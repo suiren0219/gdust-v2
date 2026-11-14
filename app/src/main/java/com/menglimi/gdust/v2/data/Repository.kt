@@ -828,14 +828,15 @@ class Repository(context: Context) {
         var portalError: Throwable? = null
         var teachingError: Throwable? = null
 
-        // 一次性票：门户与教务共用，重试只针对「网络没发出去」的情形，不重放已成功换到的会话
+        // 一次性票：门户与教务共用；重试仅限「请求确定未到达学校」的连接类失败。
+        // 读超时重放同一张票必然「已被使用」，这正是偶发「教务与门户都被拒绝」的根源。
         suspend fun exchangePortal() {
             sessionGuard.withCurrent(version) { }
             runCatching { api.exchangeToken(ticket) }
                 .onSuccess { token = it }
                 .onFailure { e ->
                     if (e is CancellationException) throw e
-                    if (e.isNetworkDown() && token.isBlank()) {
+                    if (e.isOneShotRetrySafe() && token.isBlank()) {
                         sessionGuard.withCurrent(version) { }
                         runCatching { api.exchangeToken(ticket) }
                             .onSuccess { token = it }

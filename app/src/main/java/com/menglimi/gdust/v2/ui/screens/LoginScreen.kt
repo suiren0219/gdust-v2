@@ -238,11 +238,14 @@ fun Button(text: String, enabled: Boolean = true, onClick: () -> Unit) {
 private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (String) -> Unit) {
     val ds = LocalDs.current
     var active by remember { mutableStateOf(false) }
+    // 会话序号：换票失败自动重试或手动刷新时递增，重启 SSE 连接拿新的 clientId/票据
+    var sessionTick by remember { mutableStateOf(0) }
+    var autoRetry by remember { mutableStateOf(0) }
     var clientId by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf("") }
     var netDown by remember { mutableStateOf(false) }
 
-    LaunchedEffect(active) {
+    LaunchedEffect(active, sessionTick) {
         if (!active) return@LaunchedEffect
         var attempt = 0
         while (active && attempt < 3) {
@@ -258,15 +261,26 @@ private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (
                         }
                         is com.menglimi.gdust.v2.data.SseEvent.Ticket -> {
                             status = "授权成功，正在进入…"
-                            active = false
                             runCatching { repo.finishSso(ev.ticket) }
-                                .onSuccess { onLoggedIn() }
+                                .onSuccess {
+                                    autoRetry = 0
+                                    active = false
+                                    onLoggedIn()
+                                }
                                 .onFailure {
-                                    // 失败后清掉旧二维码：同一张一次性票据不能重扫
+                                    // 失败后旧票据作废：同一张一次性票据不能重扫
                                     clientId = null
-                                    status = ""
                                     if (it.isNetworkDown()) netDown = true
-                                    onError("票据换取失败：${it.message}\n请点下方按钮重新生成二维码再扫一次。")
+                                    // 概率性失败多为学校响应慢导致票据过期：自动换新二维码再试，
+                                    // 超过次数后停下交还给用户（可手动刷新）
+                                    if (autoRetry < 2 && !it.isNetworkDown()) {
+                                        autoRetry++
+                                        status = "票据未能换取会话，正在生成新的二维码…（$autoRetry/2）"
+                                        sessionTick++
+                                    } else {
+                                        status = ""
+                                        onError("票据换取失败：${it.message}\n请点「刷新二维码」再扫一次，或改用网页登录导入。")
+                                    }
                                 }
                         }
                         is com.menglimi.gdust.v2.data.SseEvent.NeedBind ->
@@ -295,7 +309,10 @@ private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (
             val cid = clientId
             if (cid == null) {
                 Text("点下方按钮生成二维码，用钉钉扫一扫即可授权", fontSize = 12.sp, color = ds.sub)
-                Button(text = if (active) "连接中…" else "生成登录二维码", enabled = !active) { active = true }
+                Button(text = if (active) "连接中…" else "生成登录二维码", enabled = !active) {
+                    autoRetry = 0
+                    active = true
+                }
             } else {
                 // 自绘二维码：内容 = CAS 授权页 URL（钉钉内打开会走 JSAPI 免登）
                 val url = repo.mobieAuthUrl(cid)
@@ -306,6 +323,14 @@ private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (
                     QrCodeImage(content = url, size = 210.dp)
                 }
                 Text(status.ifEmpty { "用钉钉扫一扫上面的二维码" }, fontSize = 12.sp, color = ds.sub)
+                // 手动刷新：换一张新的 clientId/票据；二维码过期或怀疑被占用时用。
+                // 等待扫码期间 SSE 仍在挂起，刷新会重启会话序号取消旧连接。
+                Button(text = "刷新二维码") {
+                    autoRetry = 0
+                    clientId = null
+                    status = ""
+                    sessionTick++
+                }
                 Text("也可复制授权链接到钉钉内打开", fontSize = 11.sp, color = ds.sub)
             }
         }
