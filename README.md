@@ -51,6 +51,8 @@ Kotlin · Jetpack Compose · Material 3 · [Miuix](https://github.com/miuix-kotl
 
 本项目以 **[GNU AGPL-3.0](LICENSE)** 发布：可自由使用、修改与分发，衍生作品须同样以 AGPL-3.0 开源；若作为网络服务提供，也必须向使用者提供对应源码。
 
+Copyright (C) 2026 suiren0219
+
 历史版本曾移植 [NexioSchedule](https://github.com/HaoZai000/NexioSchedule)（AGPL-3.0）的界面实现，这些提交仍保留在 git 历史中并同样按 AGPL-3.0 提供；当前 CZeroX 界面为独立重写。第三方依赖与出处见 [NOTICE.md](NOTICE.md)。
 
 > 本项目为个人学习项目，与广东科技学院官方无关；使用本 App 产生的账号、课表与水电数据均只保存在你自己的设备上。
