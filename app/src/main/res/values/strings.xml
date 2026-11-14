@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">广科课程表</string>
-    <string name="widget_desc">今日课程与剩余电量</string>
-    <string name="widget_next_desc">下一节课程</string>
-    <string name="widget_power_desc">宿舍剩余电量</string>
+    <string name="widget_desc">今日或明日课程与电量缓存，点击打开应用</string>
+    <string name="widget_next_desc">当前或下一节课程，本机缓存</string>
+    <string name="widget_power_desc">宿舍剩余电量与采样时间，本机缓存</string>
 </resources>
