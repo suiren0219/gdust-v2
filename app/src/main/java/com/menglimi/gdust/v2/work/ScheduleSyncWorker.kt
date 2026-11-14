@@ -33,7 +33,7 @@ class ScheduleSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
                 // 只有网页登录会话：走 WebView CookieManager 的会话
                 repo.syncTermWithCookies()
             }
-            com.menglimi.gdust.v2.widget.TodayWidget().refreshAll(applicationContext)
+            com.menglimi.gdust.v2.widget.WidgetRefresher.refreshAll(applicationContext)
             Result.success()
         }.getOrElse { e ->
             if (e is kotlinx.coroutines.CancellationException) throw e

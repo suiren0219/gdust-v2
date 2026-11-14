@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">广科课程表</string>
-    <string name="widget_desc">今日课程与剩余电量</string>
-    <string name="widget_next_desc">下一节课程</string>
-    <string name="widget_power_desc">宿舍剩余电量</string>
+    <string name="widget_schedule_wide_desc">今日课程条子 · 4×2</string>
+    <string name="widget_schedule_medium_desc">下一节课程 · 2×2</string>
+    <string name="widget_schedule_tall_desc">今日课程进度 · 1×2</string>
+    <string name="widget_power_wide_desc">宿舍电量与走势 · 4×2</string>
+    <string name="widget_power_medium_desc">宿舍电量大字 · 2×2</string>
+    <string name="widget_power_tall_desc">宿舍电量竖条 · 1×2</string>
+    <string name="widget_todo_wide_desc">待办条子列表 · 4×2</string>
+    <string name="widget_todo_medium_desc">待办概览 · 2×2</string>
+    <string name="widget_todo_tall_desc">待办计数竖条 · 1×2</string>
 </resources>

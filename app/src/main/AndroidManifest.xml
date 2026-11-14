@@ -62,36 +62,102 @@
         </receiver>
 
         <receiver
-            android:name=".widget.TodayWidgetReceiver"
+            android:name=".widget.ScheduleWideReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/today_widget_info" />
+                android:resource="@xml/schedule_wide_info" />
         </receiver>
 
         <receiver
-            android:name=".widget.NextClassWidgetReceiver"
+            android:name=".widget.ScheduleMediumReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/next_class_widget_info" />
+                android:resource="@xml/schedule_medium_info" />
         </receiver>
 
         <receiver
-            android:name=".widget.PowerWidgetReceiver"
+            android:name=".widget.ScheduleTallReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/power_widget_info" />
+                android:resource="@xml/schedule_tall_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.PowerWideReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/power_wide_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.PowerMediumReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/power_medium_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.PowerTallReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/power_tall_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.TodoWideReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/todo_wide_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.TodoMediumReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/todo_medium_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.TodoTallReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/todo_tall_info" />
         </receiver>
     </application>
 </manifest>

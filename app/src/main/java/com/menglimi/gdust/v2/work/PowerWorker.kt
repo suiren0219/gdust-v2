@@ -85,7 +85,7 @@ class PowerWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         prefs.edit().putFloat("prev_odd", odd.toFloat()).putLong("last_sample", now).apply()
         // 电量变化 → 刷新全部桌面小组件
         runCatching {
-            com.menglimi.gdust.v2.widget.TodayWidget().refreshAll(applicationContext)
+            com.menglimi.gdust.v2.widget.WidgetRefresher.refreshAll(applicationContext)
         }
         return Result.success()
     }

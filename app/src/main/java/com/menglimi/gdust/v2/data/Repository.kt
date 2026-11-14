@@ -614,7 +614,7 @@ class Repository(context: Context) {
         com.menglimi.gdust.v2.work.LessonReminderWorker.cancel(app)
         val cleared = clearWebLoginData()
         try {
-            com.menglimi.gdust.v2.widget.TodayWidget().refreshAll(app)
+            com.menglimi.gdust.v2.widget.WidgetRefresher.refreshAll(app)
         } catch (_: Exception) { /* 小组件刷新失败不阻止本机退出。 */ }
         cleared
     }

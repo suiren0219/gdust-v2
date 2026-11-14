@@ -111,7 +111,7 @@ object LessonReminderWorker {
             }
         }
         store.lastReminderKey = event.key
-        runCatching { com.menglimi.gdust.v2.widget.TodayWidget().refreshAll(ctx) }
+        runCatching { com.menglimi.gdust.v2.widget.WidgetRefresher.refreshAll(ctx) }
     }
 
     /** 发一条提醒（课前/课中/次日/测试共用）。 */
