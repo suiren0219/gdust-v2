@@ -178,23 +178,23 @@ fun <T> SegmentedChoice(
 }
 
 @Composable
-fun InfoDialog(title: String, message: String, onDismiss: () -> Unit) {
+fun InfoDialog(title: String, message: String, onDismiss: () -> Unit, confirmText: String = "知道了") {
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(24.dp)) {
             val ds = LocalDs.current
             Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = ds.text)
             Text(message, fontSize = 14.sp, lineHeight = 21.sp, color = ds.sub,
                 modifier = Modifier.padding(top = 14.dp, bottom = 24.dp))
-            Button("知道了", onClick = onDismiss)
+            Button(confirmText, onClick = onDismiss)
         }
     }
 }
 
 @Composable
-fun NetworkDownDialog(visible: Boolean, onDismiss: () -> Unit) {
+fun NetworkDownDialog(visible: Boolean, onDismiss: () -> Unit, message: String? = null) {
     if (visible) InfoDialog(
         "学校官网无法访问",
-        "连不上学校服务器（教务/水电），可能是校园网波动或学校维护中。\n检查手机网络后稍后再试。",
+        message ?: "连不上学校服务器（教务/水电），可能是校园网波动或学校维护中。\n检查手机网络后稍后再试。",
         onDismiss,
     )
 }

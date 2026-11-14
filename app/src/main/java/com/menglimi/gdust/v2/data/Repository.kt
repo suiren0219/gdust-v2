@@ -299,6 +299,24 @@ class Store(context: Context) {
         get() = plain.getInt("course_row_h", 56).coerceIn(44, 72)
         set(v) = plain.edit().putInt("course_row_h", v.coerceIn(44, 72)).apply()
 
+    // ── 使用须知与教务夜间关闭提醒 ──
+    /** 免责声明已确认（首次进入 App 弹一次）。 */
+    var disclaimerAccepted: Boolean
+        get() = plain.getBoolean("disclaimer_accepted", false)
+        set(v) = plain.edit().putBoolean("disclaimer_accepted", v).apply()
+    /** 教务夜间关闭提醒开关（默认开：失败且处于时段内时提示）。 */
+    var maintenanceReminderEnabled: Boolean
+        get() = plain.getBoolean("maintenance_reminder", true)
+        set(v) = plain.edit().putBoolean("maintenance_reminder", v).apply()
+    /** 教务夜间关闭开始分钟数（默认 23:00）。 */
+    var maintenanceStartMin: Int
+        get() = plain.getInt("maintenance_start", MaintenanceWindow.DEFAULT_START_MIN).coerceIn(0, 1439)
+        set(v) = plain.edit().putInt("maintenance_start", v.coerceIn(0, 1439)).apply()
+    /** 教务夜间关闭结束分钟数（默认 06:30，跨午夜允许 start > end）。 */
+    var maintenanceEndMin: Int
+        get() = plain.getInt("maintenance_end", MaintenanceWindow.DEFAULT_END_MIN).coerceIn(0, 1439)
+        set(v) = plain.edit().putInt("maintenance_end", v.coerceIn(0, 1439)).apply()
+
     // ── 课表卡片玻璃材质（Nexio「效果」页同款六项）──
     /** 卡片着色程度（tint alpha，0.18~0.6，默认 0.24；下限保证课程色可区分）。 */
     var glassTint: Float

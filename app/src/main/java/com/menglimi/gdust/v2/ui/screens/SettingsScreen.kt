@@ -152,6 +152,11 @@ fun SettingsScreen(
     var sampleIntervalLocal by remember { mutableStateOf(store.sampleIntervalMinutes) }
     var smartWeekendLocal by remember { mutableStateOf(store.smartHideWeekend) }
     var autoSyncLocal by remember { mutableStateOf(store.autoSyncEnabled) }
+    // 教务夜间关闭：开关与 HH:mm 时段（prefs 不触发重组，用本地镜像）。
+    var maintenanceLocal by remember { mutableStateOf(store.maintenanceReminderEnabled) }
+    var maintStartText by remember { mutableStateOf(com.menglimi.gdust.v2.data.MaintenanceWindow.format(store.maintenanceStartMin)) }
+    var maintEndText by remember { mutableStateOf(com.menglimi.gdust.v2.data.MaintenanceWindow.format(store.maintenanceEndMin)) }
+    var maintSaved by remember { mutableStateOf(false) }
     var termWeeksText by remember { mutableStateOf(store.termWeeks.takeIf { it > 0 }?.toString() ?: "") }
     var termWeekText by remember { mutableStateOf(store.termCurrentWeek.takeIf { it > 0 }?.toString() ?: "") }
     var termSaved by remember { mutableStateOf(false) }
@@ -294,6 +299,35 @@ fun SettingsScreen(
             SettingsEntry(
                 id = "chxNotifications", title = "学习通通知待办", summary = "从推送识别作业与考试", icon = MiuixIcons.Messages,
                 detail = if (store.chxNotificationsEnabled) "已开启" else "未开启", onClick = onChxNotifications,
+            ),
+            SettingsEntry(
+                id = "maintenance", title = "教务夜间关闭提醒", summary = "学校教务停服时段同步失败时明确提示",
+                icon = MiuixIcons.Timer,
+                checked = maintenanceLocal,
+                onCheckedChange = { maintenanceLocal = it; store.maintenanceReminderEnabled = it },
+                detail = if (maintenanceLocal)
+                    "${com.menglimi.gdust.v2.data.MaintenanceWindow.format(store.maintenanceStartMin)}–" +
+                        com.menglimi.gdust.v2.data.MaintenanceWindow.format(store.maintenanceEndMin)
+                else "关闭",
+                onClick = { toggle("maintenance") },
+                editor = {
+                    InputField(maintStartText, { maintStartText = it; maintSaved = false }, "开始时间（HH:mm，如 23:00）")
+                    InputField(maintEndText, { maintEndText = it; maintSaved = false }, "结束时间（如 06:30，可跨午夜）")
+                    Button(if (maintSaved) "已保存" else "保存时段") {
+                        val start = com.menglimi.gdust.v2.data.MaintenanceWindow.parse(maintStartText)
+                        val end = com.menglimi.gdust.v2.data.MaintenanceWindow.parse(maintEndText)
+                        if (start != null && end != null && start != end) {
+                            store.maintenanceStartMin = start
+                            store.maintenanceEndMin = end
+                            maintSaved = true
+                        }
+                    }
+                    Text(
+                        "默认 23:00–06:30。该时段内课表/成绩同步失败会提示「教务夜间关闭」而不是网络失败；" +
+                            "学习通与电量查询不受影响。若学校调整了停服时间，在这里改。",
+                        fontSize = 13.sp, color = secondary,
+                    )
+                },
             ),
             SettingsEntry(
                 id = "warn", title = "低电量预警", summary = "剩余电量阈值与掉电速率", icon = MiuixIcons.BankCards,

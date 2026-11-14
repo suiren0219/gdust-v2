@@ -58,9 +58,18 @@ import com.menglimi.gdust.v2.ui.screens.ChxEntryScreen
 import com.menglimi.gdust.v2.data.Notice
 import kotlinx.coroutines.launch
 
+/** 首次使用须知：说明本机直连与数据边界，确认一次即可。 */
+private const val DISCLAIMER_TEXT =
+    "本应用在你的设备上直连学校教务系统与学习通（超星）官方接口：登录、课表、作业、考试与电量查询" +
+        "都由本机直接请求学校服务器与超星服务器，不经过作者或任何第三方服务器。\n\n" +
+        "· 密码与登录凭证仅保存在本机加密存储；作者不收集、不中转、看不到你的任何数据。\n" +
+        "· 请仅使用本人账号，并遵守学校相关规定。\n" +
+        "· 作业与考试只做查询和到期提醒，本应用不会自动提交任何作业或考试。\n" +
+        "· 学校服务器的可用性不受本应用控制，例如夜间维护时段教务会关闭。\n\n" +
+        "继续使用即表示你已知悉并同意以上内容。"
+
 @Composable
-fun AppRoot(
-    repo: Repository,
+fun AppRoot(    repo: Repository,
     tab: androidx.compose.runtime.MutableIntState,
     showSettings: androidx.compose.runtime.MutableState<Boolean>,
     loggedIn: androidx.compose.runtime.MutableState<Boolean>,
@@ -90,6 +99,8 @@ fun AppRoot(
     var notices by remember { mutableStateOf<List<Notice>>(emptyList()) }
     var noticesLoading by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
+    // 免责声明：普通 prefs 不触发重组，用状态控制弹窗，确认后写盘不再出现。
+    var disclaimerShown by remember { mutableStateOf(!repo.store.disclaimerAccepted) }
     // 备份导出：SAF 建文档，写入后提示
     val context = androidx.compose.ui.platform.LocalContext.current
     val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -131,8 +142,18 @@ fun AppRoot(
                 .onSuccess { (cal, list) -> calendar = cal; blocks = list; syncError = null }
                 .onFailure {
                     if (it is kotlinx.coroutines.CancellationException) throw it
+                    // 夜间时段学校教务主动停服：无论网络层失败还是业务失败，都先给时段提醒。
+                    val maintenance = if (repo.store.maintenanceReminderEnabled) {
+                        com.menglimi.gdust.v2.data.MaintenanceWindow.notice(
+                            java.time.LocalTime.now(),
+                            repo.store.maintenanceStartMin,
+                            repo.store.maintenanceEndMin,
+                            it.message,
+                        )
+                    } else null
                     netDown = it.isNetworkDown()
-                    syncError = it.message ?: "网络失败"
+                    syncError = maintenance ?: (it.message ?: "网络失败")
+                    if (maintenance != null) netDown = false
                     // 只有明确的「票据失效」才提示重登；SSO 被学校拒绝时给可读文案并可切网页登录
                     if (it is com.menglimi.gdust.v2.data.AuthFailed) {
                         needLogin = true
@@ -361,6 +382,17 @@ fun AppRoot(
     }
     // 网络层失败（连不上学校官网）时弹窗提示，业务错误仍走行内提示
     NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
+    if (disclaimerShown) {
+        InfoDialog(
+            title = "使用须知与免责声明",
+            message = DISCLAIMER_TEXT,
+            confirmText = "我已阅读并同意",
+            onDismiss = {
+                repo.store.disclaimerAccepted = true
+                disclaimerShown = false
+            },
+        )
+    }
     if (needLogin) {
         InfoDialog(
             title = "还没登录",
