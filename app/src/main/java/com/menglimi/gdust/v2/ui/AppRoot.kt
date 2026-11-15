@@ -87,7 +87,10 @@ fun AppRoot(
     var showChxCourses by remember { mutableStateOf(false) }
     var webReturnVersion by remember { mutableIntStateOf(0) }
     val sessionVersion by repo.sessionVersion.collectAsState()
-    val noticeFeed = remember(repo) { NoticeFeed(repo::portalSession, repo::notices) }
+    val noticeFeed = remember(repo) {
+        val publicNotices = com.menglimi.gdust.v2.data.SchoolNoticeApi()
+        NoticeFeed(repo::portalSession, repo::notices, publicNotices::notices)
+    }
     val noticeState by noticeFeed.state.collectAsState()
     val notices = noticeState.notices
     val noticesLoading = noticeState.loading
@@ -260,7 +263,6 @@ fun AppRoot(
             val alive = repo.isSessionAlive()
             if (!alive && !offlineSchedule) loggedIn.value = false
             if (alive && blocks.isEmpty()) sync()
-            loadNotices()
         }
         // 打开 App 顺手续租：有教务会话且距上次同步超过 6 小时，就静默刷新一次
         val teachingReady = repo.store.casTicket.isNotBlank() || repo.hasTeachingSession()
@@ -331,6 +333,7 @@ fun AppRoot(
                     onCourses = { showChxCourses = true })
             }
             "notices" -> {
+                DisposableEffect(noticeFeed) { onDispose { noticeFeed.cancelRefresh() } }
                 androidx.activity.compose.BackHandler { showNotices = false }
                 NoticeScreen(
                     repo = repo,
@@ -343,7 +346,7 @@ fun AppRoot(
                     onBack = { showNotices = false },
                     onRefresh = { loadNotices() },
                     source = noticeState.source,
-                    onSourceChange = { noticeFeed.refresh(scope, it) },
+                    onSourceChange = { noticeFeed.select(it) },
                 )
             }
             "profile" -> {
@@ -376,7 +379,7 @@ fun AppRoot(
                 onChxEntry = { showChxEntry = true },
                 onGrades = { showGrades = true },
                 onChxCourses = { showChxCourses = true },
-                onSchoolNotices = { showNotices = true; loadNotices() },
+                onSchoolNotices = { showNotices = true },
                 onFiveEducation = { openServiceWeb("http://172.16.1.232/index") },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },
@@ -405,7 +408,7 @@ fun AppRoot(
                 tab = tab.intValue,
                 onTab = { tab.intValue = it },
                 onSettings = { showSettings.value = true },
-                onOpenNotices = { showNotices = true; loadNotices() },
+                onOpenNotices = { showNotices = true },
                 notices = notices,
                 unreadCount = notices.count { it.readId !in readNoticeIds },
                 onImport = { showWebImport = true },

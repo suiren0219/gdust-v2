@@ -108,7 +108,7 @@ fun NoticeScreen(
                 .padding(horizontal = 16.dp),
         ) {
             Spacer(Modifier.height(24.dp))
-            PageTitle(title = "学校通知", subtitle = "学校公告与新闻 · 按来源查看", onBack = onBack)
+            PageTitle(title = "学校通知", subtitle = "学校公告与新闻 · 手动刷新", onBack = onBack)
             SegmentedChoice(
                 options = listOf(
                     NoticeSource.PORTAL to "门户",
@@ -121,7 +121,7 @@ fun NoticeScreen(
             Text(
                 when (source) {
                     NoticeSource.PORTAL -> "门户通知 · 部分原文会打开钉钉通知列表"
-                    NoticeSource.ACADEMIC -> "教务处公告 · 此来源待在线验证"
+                    NoticeSource.ACADEMIC -> "教务处公开公告 · 无需门户登录 · 点击刷新获取"
                     NoticeSource.CAMPUS -> "学校官网新闻"
                 },
                 fontSize = 13.sp,
@@ -151,7 +151,7 @@ fun NoticeScreen(
                             notices.isNotEmpty() -> "共 ${visibleNotices.size} 条相关公告" +
                                 if (unreadCount > 0) " · $unreadCount 条未读" else ""
                             updatedAt > 0L -> "暂无$label"
-                            else -> "$label 尚未加载"
+                            else -> "点击刷新获取通知"
                         },
                         fontSize = 13.sp,
                         lineHeight = 20.sp,
@@ -241,7 +241,8 @@ fun NoticeScreen(
                             when {
                                 error != null -> "$label 加载失败，请根据上方提示重试。"
                                 updatedAt > 0L -> "暂无$label，可稍后刷新。"
-                                else -> "$label 尚未加载，登录学校门户后刷新即可获取。"
+                                source == NoticeSource.ACADEMIC -> "点击刷新获取通知。教务处公开公告无需门户登录。"
+                                else -> "点击刷新获取通知。此来源需先登录学校门户。"
                             },
                             fontSize = 13.sp,
                             lineHeight = 20.sp,

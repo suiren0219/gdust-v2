@@ -23,9 +23,10 @@ internal val NoticeSource.noticeLabel: String
         NoticeSource.CAMPUS -> "官网新闻"
     }
 
-/** home 已有成功响应证据；jiaowu 仅有前端配置，仍待在线验证。 */
+/** 2026-11-15 无凭据实测 jiaowu 返回 jiaowu/日期，且与教务处官网原文链接一致。 */
 internal object PortalNews {
     private val articleDirectory = Regex("article/[0-9]+")
+    private val academicDirectory = Regex("jiaowu/[0-9]{8}")
     private val articleId = Regex("[0-9]+")
     private val shanghai = ZoneId.of("Asia/Shanghai")
     private val dateFormat = DateTimeFormatterBuilder()
@@ -50,12 +51,13 @@ internal object PortalNews {
             NoticeSource.PORTAL -> error("门户通知请使用 notices 接口")
         }
         val label = source.noticeLabel
+        val directoryPattern = if (source == NoticeSource.ACADEMIC) academicDirectory else articleDirectory
         return noticeArray(body, label, setOf(1)).map { element ->
             check(element.isJsonObject) { "$label 响应条目必须是对象" }
             val row = element.asJsonObject
             val id = row.noticeString("id", required = true)!!
             val directory = row.noticeString("staticDir", required = true)!!
-            check(articleId.matches(id) && articleDirectory.matches(directory)) {
+            check(articleId.matches(id) && directoryPattern.matches(directory)) {
                 "$label 原文路径格式异常"
             }
             Notice(
