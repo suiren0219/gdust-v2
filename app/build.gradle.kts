@@ -20,7 +20,8 @@ android {
     val vName = "2.0.0-alpha.$vCode"
 
     defaultConfig {
-        applicationId = "com.menglimi.gdust.v2"
+        // 安装包名按学校域名反写；namespace 仍为代码命名空间，二者互不影响
+        applicationId = "cn.edu.gdust.course"
         minSdk = 33
         targetSdk = 35
         versionCode = vCode
