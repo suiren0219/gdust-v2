@@ -3,6 +3,7 @@ package com.menglimi.gdust.v2.data
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -134,6 +135,92 @@ class TeachingGradesTest {
     }
 
     @Test
+    fun wrappedItemsAndRowsUsePaginationFromThePageObject() {
+        for (key in listOf("items", "rows")) {
+            val body = wrappedGradePageFixture(listOf(gradeFixture()), rowsKey = key)
+            val page = parseGradePage(body)
+            assertEquals(1, page.currentPage)
+            assertEquals(1, page.totalPages)
+            assertEquals(1, page.total)
+            assertEquals("C001", page.entries.single().courseCode)
+            assertEquals(page, parseGradePage(" \n\uFEFF$body\n"))
+
+            val empty = parseGradePage(wrappedGradePageFixture(emptyList(), rowsKey = key))
+            assertTrue(empty.entries.isEmpty())
+            assertEquals(0, empty.total)
+        }
+    }
+
+    @Test
+    fun wrappedListsStillAcceptTheExistingOuterPaginationContract() {
+        for (key in listOf("items", "rows")) {
+            val root = JsonParser.parseString(wrappedGradePageFixture(listOf(gradeFixture()), rowsKey = key)).asJsonObject
+            val data = root.getAsJsonObject("data")
+            for (field in listOf("currentPage", "totalPage", "totalResult")) root.add(field, data.remove(field))
+            assertEquals(1, parseGradePage(root.toString()).total)
+        }
+    }
+
+    @Test
+    fun wrappedPaginationCannotBeMissingPartialOrConflicting() {
+        val wrapped = JsonParser.parseString(wrappedGradePageFixture(listOf(gradeFixture()))).asJsonObject
+        val data = wrapped.getAsJsonObject("data")
+        val fields = listOf("currentPage", "totalPage", "totalResult")
+        for (field in fields) wrapped.add(field, data.get(field))
+        assertEquals(1, parseGradePage(wrapped.toString()).total)
+
+        for (field in fields) {
+            val conflicting = wrapped.deepCopy().apply { addProperty(field, 2) }
+            assertThrows(GradeLoadException::class.java) { parseGradePage(conflicting.toString()) }
+
+            val partialInner = wrapped.deepCopy().apply { getAsJsonObject("data").remove(field) }
+            assertThrows(GradeLoadException::class.java) { parseGradePage(partialInner.toString()) }
+
+            val partialOuter = wrapped.deepCopy().apply { remove(field) }
+            assertThrows(GradeLoadException::class.java) { parseGradePage(partialOuter.toString()) }
+        }
+        val noPagination = wrapped.deepCopy().apply {
+            for (field in fields) { remove(field); getAsJsonObject("data").remove(field) }
+        }
+        assertThrows(GradeLoadException::class.java) { parseGradePage(noPagination.toString()) }
+    }
+
+    @Test
+    fun wrappedExplicitFailuresCannotMasqueradeAsEmptyResults() {
+        for (field in listOf("code", "status", "statusCode")) {
+            for (code in listOf(401, 901)) {
+                val root = JsonParser.parseString(wrappedGradePageFixture(emptyList())).asJsonObject
+                root.getAsJsonObject("data").addProperty(field, code)
+                assertEquals(code, assertThrows(AuthFailed::class.java) { parseGradePage(root.toString()) }.code)
+            }
+            val error = JsonParser.parseString(wrappedGradePageFixture(emptyList())).asJsonObject
+            error.getAsJsonObject("data").addProperty(field, 500)
+            assertEquals(GradeFailure.RESPONSE,
+                assertThrows(GradeLoadException::class.java) { parseGradePage(error.toString()) }.reason)
+        }
+        val unsuccessful = JsonParser.parseString(wrappedGradePageFixture(emptyList())).asJsonObject
+        unsuccessful.getAsJsonObject("data").addProperty("success", false)
+        assertEquals(GradeFailure.RESPONSE,
+            assertThrows(GradeLoadException::class.java) { parseGradePage(unsuccessful.toString()) }.reason)
+    }
+
+    @Test
+    fun malformedContainersAndSerializedDataAreNotTreatedAsEmptyResults() {
+        val page = gradePageFixture(emptyList())
+        for (body in listOf(
+            """{"data":null,"currentPage":1,"totalPage":0,"totalResult":0}""",
+            """{"data":[],"currentPage":1,"totalPage":0,"totalResult":0}""",
+            JsonObject().apply { addProperty("data", page) }.toString(),
+            """{"items":null,"data":$page,"currentPage":1,"totalPage":0,"totalResult":0}""",
+            """{"data":{"items":null,"rows":[],"currentPage":1,"totalPage":0,"totalResult":0}}""",
+        )) {
+            val error = assertThrows(GradeLoadException::class.java) { parseGradePage(body) }
+            assertEquals(GradeFailure.STRUCTURE, error.reason)
+            assertNull(error.cause)
+        }
+    }
+
+    @Test
     fun partialReportCannotBeConstructedAsComplete() {
         assertThrows(IllegalArgumentException::class.java) { GradeReport(emptyList(), 1) }
         assertThrows(IllegalArgumentException::class.java) { GradeReport(emptyList(), -1) }
@@ -154,7 +241,7 @@ class TeachingGradesTest {
             gradeFormFixture("").replace("value='2026'", "disabled value='2026'"),
             "<html><body>暂不可用</body></html>",
         )) {
-            assertThrows(GradeLoadException::class.java) { parseGradeForm(html) }
+            assertEquals(GradeFailure.FORM, assertThrows(GradeLoadException::class.java) { parseGradeForm(html) }.reason)
         }
     }
 }
@@ -176,6 +263,17 @@ internal fun gradePageFixture(
     addProperty("totalPage", totalPages)
     addProperty("totalResult", total)
 }.toString()
+
+/** 仅重组既有合成成绩字段；不含抓包响应、账号或个人信息。 */
+internal fun wrappedGradePageFixture(
+    items: List<JsonObject>, currentPage: Int = 1, total: Int = items.size,
+    totalPages: Int = if (total == 0) 0 else (total + GRADE_PAGE_SIZE - 1) / GRADE_PAGE_SIZE,
+    rowsKey: String = "items",
+): String {
+    val page = JsonParser.parseString(gradePageFixture(items, currentPage, total, totalPages)).asJsonObject
+    if (rowsKey != "items") page.add(rowsKey, page.remove("items"))
+    return JsonObject().apply { addProperty("code", 0); add("data", page) }.toString()
+}
 
 internal fun gradeFormFixture(pkey: String = "") = """
     <html><body><input id='pkey' value='$pkey'>
