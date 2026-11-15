@@ -105,6 +105,33 @@ class ChxWorkParserTest {
         assertNull(ChxWorkParser.parseCourseTabs(tabsHtml.replace("id=\"moocDomainName\"", "id=\"other\"")))
     }
 
+    @Test fun actualLowercasePageAllowsRepeatedIdenticalCourseIdentity() {
+        val html = javaClass.getResource("/chaoxing/course-tabs-lowercase.html")!!.readText()
+        val course = ChxWorkCourse(201, 101, 301, "示例课程", "")
+        val tabs = ChxWorkParser.readCourseTabs(html, course)
+        assertEquals("synthetic-stu", tabs.enc)
+        assertEquals("synthetic-work", tabs.workEnc)
+        assertEquals("1700000000000", tabs.t)
+        assertEquals("https://mooc1.chaoxing.com", tabs.moocDomain)
+        assertNull(ChxWorkParser.parseCourseTabs(html.replaceFirst("id=\"clazzid\" value=\"101\"", "id=\"clazzid\" value=\"102\""), course))
+        assertNull(ChxWorkParser.parseCourseTabs(html, course.copy(cpi = 999)))
+    }
+
+    @Test fun missingAndConflictingFieldsAreNamedWithoutPrintingTheirValues() {
+        val html = javaClass.getResource("/chaoxing/course-tabs-lowercase.html")!!.readText()
+        val course = ChxWorkCourse(201, 101, 301, "示例课程", "")
+        val missing = assertThrows(ChxCourseReadException::class.java) {
+            ChxWorkParser.readCourseTabs(html.replace("id=\"workEnc\"", "id=\"other\""), course)
+        }
+        assertTrue(missing.message.orEmpty().contains("workEnc"))
+        assertTrue(!missing.message.orEmpty().contains("synthetic"))
+        val conflict = assertThrows(ChxCourseReadException::class.java) {
+            ChxWorkParser.readCourseTabs(html + "<input type='hidden' id='courseId' value='999'>", course)
+        }
+        assertTrue(conflict.message.orEmpty().contains("courseid"))
+        assertTrue(!conflict.message.orEmpty().contains("999"))
+    }
+
     @Test fun unknownOrMalformedCourseListsDoNotBecomeAnEmptySuccess() {
         listOf("", "<html>维护</html>", "<div id='courseList'>暂无课程</div>",
             coursesHtml.replace("value=\"333333333\"", "value=\"0\""),

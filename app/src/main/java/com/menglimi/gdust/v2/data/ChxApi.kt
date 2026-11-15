@@ -26,8 +26,7 @@ class ChxApi internal constructor(private val execute: suspend (Request) -> Sess
             course.courseId.toString(), course.cpi.toString())
             ?: throw ChxCourseReadException("课程入口无法识别，请在学习通网页查看。")
         val html = readPage(trusted, ChxSso.HOME, "课程页", ::isCoursePage)
-        ChxWorkParser.parseCourseTabs(html, course)
-            ?: throw ChxCourseReadException("课程页未提供可识别的作业入口；不能据此判断没有作业，请在网页查看。")
+        ChxWorkParser.readCourseTabs(html, course)
     }
 
     suspend fun workList(course: ChxWorkCourse, tabs: ChxWorkTabs): List<ChxWorkItem> = withContext(Dispatchers.IO) {
@@ -63,7 +62,7 @@ class ChxApi internal constructor(private val execute: suspend (Request) -> Sess
                     throw AuthFailed(401, "$stage 要求重新登录学习通，请在网页完成认证。")
                 }
                 val next = redirectTarget(url, response.location)?.takeIf(allowedPage)
-                    ?: throw ChxCourseReadException("$stage 读取失败（HTTP ${response.status}，未识别的跳转），请在网页查看。")
+                    ?: throw ChxCourseReadException("$stage 暂未支持该跳转（HTTP ${response.status}；目标 ${ChxReadDiagnostics.route(url, response.location)}），请在网页查看。")
                 url = next
             } else {
                 return ChxCourseApi.requireBody(response, url, "$stage 读取失败")
@@ -103,8 +102,17 @@ class ChxApi internal constructor(private val execute: suspend (Request) -> Sess
             if (location.isNullOrBlank() || location.any { it.code <= 32 || it.code == 127 } || '\\' in location) return null
             val target = try { URI(location) } catch (_: Exception) { return null }
             if (target.normalize().rawPath != target.rawPath) return null
-            val resolved = try { URI(base.toString()).resolve(target).toString() } catch (_: Exception) { return null }
-            return trustedUrl(resolved)
+            val resolved = try { URI(base.toString()).resolve(target) } catch (_: Exception) { return null }
+            // 只升级已经支持且有 HTTPS 落地证据的课程/作业地址，不向 HTTP 发送 Cookie。
+            if (resolved.scheme == "http") {
+                if (resolved.port !in setOf(-1, 80) || resolved.userInfo != null || resolved.rawFragment != null) return null
+                val parsed = resolved.toString().toHttpUrlOrNull() ?: return null
+                if (parsed.encodedPath != resolved.rawPath) return null
+                val secure = parsed.newBuilder().scheme("https").port(443).build()
+                if (!isCoursePage(secure) && !isWorkList(secure) && !isWorkDetail(secure)) return null
+                return trustedUrl(secure.toString())
+            }
+            return trustedUrl(resolved.toString())
         }
 
         internal fun workListUrl(course: ChxWorkCourse, tabs: ChxWorkTabs): HttpUrl {

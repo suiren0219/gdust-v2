@@ -1082,7 +1082,7 @@ class Repository(context: Context) {
         var pending = 0
         var scanned = 0
         var failed = 0
-        var firstFail: String? = null
+        val failureCounts = linkedMapOf<String, Int>()
         val updates = mutableMapOf<Long, Todo>()
         // 任务点完成不代表没有作业；每门课程独立读取，单课失败不取消全部结果。
         val semaphore = Semaphore(3)
@@ -1124,7 +1124,8 @@ class Repository(context: Context) {
             if (items == null) {
                 failed++
                 val failure = result.exceptionOrNull()
-                firstFail = firstFail ?: if (failure is AuthFailed || failure is ChxCourseReadException) failure.message else "请求未完成"
+                val reason = if (failure is AuthFailed || failure is ChxCourseReadException) failure.message ?: "请求未完成" else "请求未完成"
+                failureCounts[reason] = (failureCounts[reason] ?: 0) + 1
                 continue
             }
             scanned++
@@ -1152,10 +1153,11 @@ class Repository(context: Context) {
                 )
             }
         }
-        if (scanned == 0) throw ChxCourseReadException("作业同步失败：$failed 门课程均未能读取${firstFail?.let { "（$it）" }.orEmpty()}，本地待办已保留")
+        val failures = ChxReadDiagnostics.failures(failureCounts)
+        if (scanned == 0) throw ChxCourseReadException("$failed 门课程未能读取，本地待办已保留。\n$failures")
         if (updates.isEmpty()) {
             return if (failed == 0) "已检查 $scanned 门课程，未发现作业；本地待办已保留"
-                else "部分完成：已检查 $scanned 门课程${failSuffix(failed, firstFail)}；本地待办已保留"
+                else "部分完成：已检查 $scanned 门课程${failSuffix(failed, failures)}；本地待办已保留"
         }
         var merged = 0
         sessionGuard.withCurrent(version) {
@@ -1220,14 +1222,14 @@ class Repository(context: Context) {
             byId.values.toList()
         }
         }
-        return (if (failed > 0) "部分完成" else "同步完成") + "：检查了 $scanned 门课${failSuffix(failed, firstFail)}，" +
+        return (if (failed > 0) "部分完成" else "同步完成") + "：检查了 $scanned 门课${failSuffix(failed, failures)}，" +
             "新增 $added 条、更新 $updated 条" +
             (if (merged > 0) "、合并 $merged 条通知重复" else "") +
             "，未交 $pending 条"
     }
 
-    private fun failSuffix(failed: Int, firstFail: String?): String =
-        if (failed == 0) "" else "（$failed 门读取失败，首个：$firstFail）"
+    private fun failSuffix(failed: Int, details: String): String =
+        if (failed == 0) "" else "（$failed 门读取失败：\n$details）"
 
     /** 学习通会话探活与课程读取共用实时网页 Cookie；存储快照不是独立的登录凭证。 */
     suspend fun chxSessionAlive(): Boolean? = withContext(Dispatchers.Main.immediate) {

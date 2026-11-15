@@ -44,21 +44,47 @@ object ChxWorkParser {
         ChxWorkCourse(it.courseId.toLong(), it.clazzId.toLong(), it.curPersonId.toLong(), it.name, it.url)
     }
 
-    /** HTML 属性顺序、单双引号不影响隐藏域读取；缺失/重复字段不能伪造默认签名或端点。 */
-    fun parseCourseTabs(html: String, expectedCourse: ChxWorkCourse? = null): ChxWorkTabs? {
+    /** 兼容旧调用；生产请求使用 readCourseTabs 保留具体缺失/冲突原因。 */
+    fun parseCourseTabs(html: String, expectedCourse: ChxWorkCourse? = null): ChxWorkTabs? = try {
+        readCourseTabs(html, expectedCourse)
+    } catch (_: ChxCourseReadException) {
+        null
+    }
+
+    /** 实际课程页使用小写 courseid/clazzid，并在页头与正文重复同值身份字段。 */
+    internal fun readCourseTabs(html: String, expectedCourse: ChxWorkCourse? = null): ChxWorkTabs {
         val document = Jsoup.parse(html)
-        fun v(id: String): String {
-            val fields = document.select("input[type=hidden][id=$id]")
-            return if (fields.size == 1) fields.single().attr("value").trim() else ""
+        val inputs = document.select("input[type=hidden]")
+        fun field(vararg ids: String, required: Boolean = true, repeated: Boolean = false): String {
+            val fields = inputs.filter { it.id() in ids }
+            if (fields.isEmpty()) {
+                if (required) throw ChxCourseReadException("课程页缺少字段 ${ids.first()}，请在网页打开该课程后重试。")
+                return ""
+            }
+            val values = fields.map { it.attr("value").trim() }.distinct()
+            if ((!repeated && fields.size != 1) || values.size != 1) {
+                throw ChxCourseReadException("课程页字段 ${ids.first()} 存在冲突，未读取其他课程的作业。")
+            }
+            return values.single().also {
+                if (required && it.isBlank()) throw ChxCourseReadException("课程页字段 ${ids.first()} 为空，暂时无法读取作业。")
+            }
         }
-        if (expectedCourse != null && (v("courseId") != expectedCourse.courseId.toString() ||
-                v("classId") != expectedCourse.classId.toString() || v("cpi") != expectedCourse.cpi.toString())) return null
-        val enc = v("enc")
-        val workEnc = v("workEnc")
-        val time = v("t")
-        val domain = v("moocDomainName")
-        if (enc.isEmpty() || workEnc.isEmpty() || time.isEmpty() || domain.isEmpty()) return null
-        return ChxWorkTabs(enc, workEnc, v("examEnc"), time, v("userId"), domain)
+        if (expectedCourse != null) {
+            val identities = listOf(
+                "courseid" to (field("courseid", "courseId", repeated = true) to expectedCourse.courseId),
+                "clazzid" to (field("clazzid", "classId", repeated = true) to expectedCourse.classId),
+                "cpi" to (field("cpi", repeated = true) to expectedCourse.cpi),
+            )
+            identities.forEach { (name, pair) ->
+                if (pair.first != pair.second.toString()) {
+                    throw ChxCourseReadException("课程页标识 $name 与所选课程不符，已停止读取。")
+                }
+            }
+        }
+        return ChxWorkTabs(
+            field("enc"), field("workEnc"), field("examEnc", required = false),
+            field("t"), field("userId", required = false), field("moocDomainName"),
+        )
     }
 
     /** 无可核实的空列表协议；维护页、未知结构或缺字段都不能当成“没有作业”。 */

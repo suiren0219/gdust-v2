@@ -60,6 +60,22 @@ class ChxWorkApiTest {
         assertTrue(requests.all { it.header("Referer") == ChxSso.HOME })
     }
 
+    @Test fun knownHttpCourseRedirectIsUpgradedBeforeAnyAuthenticatedRequest() = runBlocking {
+        val requests = mutableListOf<Request>()
+        val page = javaClass.getResource("/chaoxing/course-tabs-lowercase.html")!!.readText()
+        val api = ChxApi { request ->
+            requests += request
+            if (requests.size == 1) SessionResponse(302, "", landing.replace("https:", "http:"))
+            else SessionResponse(200, page, null)
+        }
+        assertEquals("synthetic-work", api.courseTabs(course).workEnc)
+        assertEquals(landing, requests.last().url.toString())
+        assertTrue(requests.all { it.url.scheme == "https" && it.header("Cookie") == null })
+        assertNull(ChxApi.redirectTarget(course.url.toHttpUrl(), "http://unknown.example/mooc2-ans/mycourse/stu"))
+        assertNull(ChxApi.redirectTarget(course.url.toHttpUrl(), landing.replace("https://", "http://user:secret@")))
+        assertNull(ChxApi.redirectTarget(course.url.toHttpUrl(), landing.replace("https://", "http://").replace(".com/", ".com:8080/")))
+    }
+
     @Test fun discoveryUsesTheSameCourseParserAndNeverUsesTaskPointCountsToSkipWork() = runBlocking {
         val requests = mutableListOf<Request>()
         val api = ChxApi { request ->
@@ -101,7 +117,7 @@ class ChxWorkApiTest {
             } }
             assertEquals(1, calls)
         }
-        for (target in listOf(null, "https://example.org/private?signature=synthetic", landing.replace("https:", "http:"),
+        for (target in listOf(null, "https://example.org/private?signature=synthetic", "http://unknown.example/mycourse/stu",
             landing.replace(".com/", ".com:8443/"), landing.replace("https://", "https://user:synthetic@"),
             landing.replace("/mycourse/stu", "/unknown"), "https://mooc1.chaoxing.com/mooc2/work/list")) {
             var calls = 0

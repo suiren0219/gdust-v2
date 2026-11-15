@@ -133,7 +133,7 @@ class ChxCourseApi internal constructor(private val http: SessionHttpClient) {
                 if (isTrustedLoginRedirect(url, response.location)) {
                     throw AuthFailed(401, "学习通会话已失效，请重新登录。")
                 }
-                throw ChxCourseReadException("$error（HTTP ${response.status}，未识别的跳转）")
+                throw ChxCourseReadException("$error（HTTP ${response.status}；目标 ${ChxReadDiagnostics.route(url, response.location)}）")
             }
             if (response.status !in 200..299) throw ChxCourseReadException("$error（HTTP ${response.status}）")
             if (response.body.isBlank()) throw ChxCourseReadException("$error（响应为空）")
