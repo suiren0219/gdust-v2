@@ -135,7 +135,7 @@ fun SettingsScreen(
     var dropText by remember { mutableStateOf(store.warnDropRate.toInt().toString()) }
     var thresholdSaved by remember { mutableStateOf(false) }
     var warnThresholdLocal by remember { mutableStateOf(store.warnThreshold) }
-    var termStart by remember { mutableStateOf(store.termStartDate) }
+    var termStart by rememberSaveable { mutableStateOf(store.termStartDate) }
     var termStartLocal by remember { mutableStateOf(store.termStartDate) }
     // 普通 prefs 不会触发重组，选中态必须用本地镜像并同步写回。
     var startTabLocal by remember { mutableStateOf(store.startTab) }
@@ -150,6 +150,7 @@ fun SettingsScreen(
     var termWeeksText by remember { mutableStateOf(store.termWeeks.takeIf { it > 0 }?.toString() ?: "") }
     var termWeekText by remember { mutableStateOf(store.termCurrentWeek.takeIf { it > 0 }?.toString() ?: "") }
     var termSaved by remember { mutableStateOf(false) }
+    var termError by remember { mutableStateOf<String?>(null) }
     var showWidgetPicker by rememberSaveable { mutableStateOf(false) }
 
     // 导入与恢复后的状态重载统一由宿主处理，不能在本页直接写 Store。
@@ -192,17 +193,34 @@ fun SettingsScreen(
                 keywords = "校历 开学日期 总周数 当前周", detail = termStartLocal.ifBlank { "跟随校历" },
                 onClick = { toggle("term") },
                 editor = {
-                    InputField(termStart, { termStart = it; termSaved = false }, "第一周周一，YYYY-MM-DD")
-                    InputField(termWeeksText, { termWeeksText = it; termSaved = false }, "学期总周数", KeyboardType.Number)
-                    InputField(termWeekText, { termWeekText = it; termSaved = false }, "当前第几周", KeyboardType.Number)
+                    TermDateField(
+                        value = termStart,
+                        onValueChange = { termStart = it; termSaved = false; termError = null },
+                        fallback = store.loadCalendar()?.startDate.orEmpty(),
+                        allowFollowCalendar = true,
+                    )
+                    InputField(termWeeksText, { termWeeksText = it; termSaved = false; termError = null }, "学期总周数", KeyboardType.Number)
+                    InputField(termWeekText, { termWeekText = it; termSaved = false; termError = null }, "当前第几周", KeyboardType.Number)
                     Button(if (termSaved) "已保存，重新同步生效" else "保存学期设置") {
-                        store.termStartDate = termStart.trim()
-                        termStartLocal = store.termStartDate
-                        store.termWeeks = termWeeksText.toIntOrNull() ?: 0
-                        store.termCurrentWeek = termWeekText.toIntOrNull() ?: 0
-                        termSaved = true
+                        val total = if (termWeeksText.isBlank()) 0 else termWeeksText.toIntOrNull()
+                        val current = if (termWeekText.isBlank()) 0 else termWeekText.toIntOrNull()
+                        termError = when {
+                            !DateWheelSelection.validTermStart(termStart) -> "请选择第一周的周一日期"
+                            total == null || (termWeeksText.isNotBlank() && total !in 1..60) -> "学期总周数须为 1–60，留空跟随校历"
+                            current == null || (termWeekText.isNotBlank() && current !in 1..60) -> "当前周须为 1–60，留空自动计算"
+                            total > 0 && current > total -> "当前周不能超过学期总周数"
+                            else -> null
+                        }
+                        if (termError == null) {
+                            store.termStartDate = termStart.trim()
+                            termStartLocal = store.termStartDate
+                            store.termWeeks = total ?: 0
+                            store.termCurrentWeek = current ?: 0
+                            termSaved = true
+                        }
                     }
-                    Text("留空则跟随校历。这里只调整日期与周次；学期课程请从教务导入，未取得的周次不能视为无课。", fontSize = 13.sp, color = secondary)
+                    termError?.let { Text(it, fontSize = 13.sp, color = ds.danger) }
+                    Text("日期可选择跟随校历，周数留空则自动计算。这里只调整日期与周次；学期课程请从教务导入，未取得的周次不能视为无课。", fontSize = 13.sp, color = secondary)
                 },
             ),
             SettingsEntry(
