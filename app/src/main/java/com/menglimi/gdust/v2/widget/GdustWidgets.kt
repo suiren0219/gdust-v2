@@ -41,12 +41,13 @@ import androidx.glance.layout.width
 import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
+import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.menglimi.gdust.v2.data.TodoGroups
-import com.menglimi.gdust.v2.data.Todo
-import com.menglimi.gdust.v2.data.TodoKind
 import com.menglimi.gdust.v2.ui.schedule.ScheduleTimes
+import com.menglimi.gdust.v2.widget.WidgetStyle.Space
+import com.menglimi.gdust.v2.widget.WidgetStyle.Type
 
 /** 画风共享：CZeroX 实底卡 bitmap 背景 + 深浅色自适应文字色；stateDefinition 统一。 */
 abstract class GdustGlanceWidget : GlanceAppWidget() {
@@ -55,16 +56,16 @@ abstract class GdustGlanceWidget : GlanceAppWidget() {
 
 // ── 渲染小工具 ──────────────────────────────────────────────────────────────
 
-private fun textStyle(size: TextUnit, bold: Boolean, color: ColorProvider) = TextStyle(
-    fontSize = size,
-    fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
-    color = color,
-)
-
 private fun c(day: Color, night: Color) = ColorProvider(day, night)
 
 @Composable
 private fun dark() = WidgetStyle.isDark(LocalContext.current)
+
+@Composable
+private fun widgetLayout(): WidgetPresentation.Layout {
+    val size = LocalSize.current
+    return WidgetPresentation.layout(size.width, size.height, LocalContext.current.resources.configuration.fontScale)
+}
 
 @Composable
 private fun WText(
@@ -74,17 +75,27 @@ private fun WText(
     color: ColorProvider,
     maxLines: Int = 1,
     modifier: GlanceModifier = GlanceModifier,
-) = Text(text, modifier = modifier, style = textStyle(size, bold, color), maxLines = maxLines)
+    align: TextAlign = TextAlign.Start,
+) = Text(text, modifier = modifier, style = TextStyle(
+    fontSize = size,
+    fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+    color = color,
+    textAlign = align,
+), maxLines = maxLines)
+
+@Composable
+private fun CenteredText(text: String, size: TextUnit, bold: Boolean, color: ColorProvider, maxLines: Int = 2) =
+    WText(text, size, bold, color, maxLines, GlanceModifier.fillMaxWidth(), TextAlign.Center)
 
 private fun accentSoftBg(dark: Boolean) = c(WidgetStyle.accentSoft(dark), WidgetStyle.accentSoft(dark))
-private fun accentFg(dark: Boolean) = c(Color(WidgetStyle.accent(dark)), Color(WidgetStyle.accent(dark)))
+private fun accentFg(dark: Boolean) = c(Color(WidgetStyle.accentText(dark)), Color(WidgetStyle.accentText(dark)))
 private fun textColor(dark: Boolean) = c(WidgetStyle.text(dark), WidgetStyle.text(dark))
 private fun subColor(dark: Boolean) = c(WidgetStyle.sub(dark), WidgetStyle.sub(dark))
-private fun dangerColor() = c(Color(WidgetStyle.danger(false)), Color(WidgetStyle.danger(true)))
+private fun dangerColor() = c(Color(WidgetStyle.dangerText(false)), Color(WidgetStyle.dangerText(true)))
 
-/** 实底卡容器（保留旧命名）；openTab 提供时整卡可点，进入对应页面（1 课表 / 2 电费 / 3 待办）。 */
+/** 实底卡容器；整卡进入对应页面，内部待办完成与电量切换保留自己的点击行为。 */
 @Composable
-private fun GlassCard(padding: Dp = 12.dp, openTab: Int? = null, content: @Composable () -> Unit) {
+private fun SolidCard(openTab: Int, content: @Composable () -> Unit) {
     val context = LocalContext.current
     val size = LocalSize.current
     val density = context.resources.displayMetrics.density
@@ -94,23 +105,23 @@ private fun GlassCard(padding: Dp = 12.dp, openTab: Int? = null, content: @Compo
         (size.height.value * density).toInt(),
         WidgetStyle.radius.value * density,
     )
-    var modifier = GlanceModifier.fillMaxSize()
+    Box(modifier = GlanceModifier.fillMaxSize()
         .background(ImageProvider(bmp), ContentScale.FillBounds)
         .cornerRadius(WidgetStyle.radius)
-        .padding(padding)
-    if (openTab != null) modifier = modifier.clickable(widgetOpenAction(context, openTab))
-    Box(modifier = modifier) { content() }
+        .padding(widgetLayout().padding)
+        .clickable(widgetOpenAction(context, openTab)),
+    ) { content() }
 }
 
-/** 节次 / 类型徽章胶囊；fixedWidth 为空时按文本包裹。 */
+/** 节次 / 类型徽章胶囊；固定列宽与系统字体一起增长。 */
 @Composable
 private fun Badge(text: String, bg: ColorProvider, fg: ColorProvider, fixedWidth: Dp? = null) {
-    var modifier = GlanceModifier.cornerRadius(9.dp).background(bg)
-        .padding(horizontal = 7.dp, vertical = 3.dp)
-    if (fixedWidth != null) modifier = modifier.width(
-        fixedWidth * LocalContext.current.resources.configuration.fontScale.coerceAtLeast(1f),
-    )
-    Box(modifier = modifier, contentAlignment = Alignment.Center) { WText(text, 11.sp, true, fg) }
+    var modifier: GlanceModifier = GlanceModifier
+    if (fixedWidth != null) modifier = modifier.width(fixedWidth * widgetLayout().fontScale)
+    modifier = modifier.cornerRadius(9.dp).background(bg).padding(horizontal = 7.dp, vertical = 3.dp)
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        WText(text, Type.caption.sp, true, fg, align = TextAlign.Center)
+    }
 }
 
 /** 渲染时观察刷新版本：活跃 session 的 state 更新也会重新读取缓存。 */
@@ -120,7 +131,7 @@ private fun RefreshAware(content: @Composable () -> Unit) {
     key(refresh) { content() }
 }
 
-// ── 课表数据：4×2 今日条子 / 2×2 下一节 / 1×2 竖条 / 横拉单行 ────────────────
+// ── 课表：宽卡对齐列 / 中卡下一节 / 竖卡计数 / 横拉单行 ─────────────────────
 
 class ScheduleWidget : GdustGlanceWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -128,8 +139,7 @@ class ScheduleWidget : GdustGlanceWidget() {
             GlanceTheme {
                 RefreshAware {
                     val data = WidgetDataSource.load(LocalContext.current)
-                    val size = LocalSize.current
-                    when (WidgetPresentation.shapeOf(size.width, size.height)) {
+                    when (widgetLayout().shape) {
                         WidgetPresentation.Shape.WIDE -> ScheduleWide(data)
                         WidgetPresentation.Shape.TALL -> ScheduleTall(data)
                         WidgetPresentation.Shape.ROW -> ScheduleRow(data)
@@ -144,45 +154,40 @@ class ScheduleWidget : GdustGlanceWidget() {
 @Composable
 private fun ScheduleWide(data: WidgetData) {
     val dark = dark()
-    GlassCard(openTab = 1) {
-        Column {
-            Row(modifier = GlanceModifier.fillMaxWidth()) {
-                WText(WidgetPresentation.scheduleTitle(data), 12.sp, true, textColor(dark), modifier = GlanceModifier.defaultWeight())
-                Spacer(GlanceModifier.width(8.dp))
-                WText(WidgetPresentation.scheduleSummary(data), 11.sp, false, subColor(dark))
+    val layout = widgetLayout()
+    val shown = data.lessons.take(layout.visibleRows(data.lessons.size))
+    SolidCard(openTab = 1) {
+        Column(modifier = GlanceModifier.fillMaxSize()) {
+            Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                WText(WidgetPresentation.scheduleTitle(data), Type.title.sp, true, textColor(dark), modifier = GlanceModifier.defaultWeight())
+                if (layout.showHeaderSummary) {
+                    Spacer(GlanceModifier.width(Space.gap.dp))
+                    WText(WidgetPresentation.scheduleSummary(data), Type.label.sp, false, subColor(dark), align = TextAlign.End)
+                }
             }
-            Spacer(GlanceModifier.height(6.dp))
-            val shown = data.lessons.take(4)
+            Spacer(GlanceModifier.height(Space.gap.dp))
             if (shown.isEmpty()) {
-                Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    WText(WidgetPresentation.scheduleEmpty(data), 12.sp, false, subColor(dark))
+                Box(modifier = GlanceModifier.fillMaxWidth().defaultWeight(), contentAlignment = Alignment.Center) {
+                    WText(if (data.lessons.isEmpty()) WidgetPresentation.scheduleEmpty(data) else WidgetPresentation.scheduleSummary(data),
+                        Type.body.sp, false, subColor(dark), maxLines = 2, align = TextAlign.Center)
                 }
             } else {
                 shown.forEach { b ->
                     val ongoing = ScheduleTimes.isOngoing(b, data.termStart, data.now)
-                    Row(
-                        modifier = GlanceModifier.fillMaxWidth().padding(vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Badge(
-                            WidgetPresentation.sectionLabel(b),
-                            bg = accentSoftBg(dark),
-                            fg = accentFg(dark),
-                            fixedWidth = 36.dp,
-                        )
-                        Spacer(GlanceModifier.width(8.dp))
-                        WText(b.name, 12.sp, false, textColor(dark), modifier = GlanceModifier.defaultWeight())
-                        if (ongoing) {
-                            Spacer(GlanceModifier.width(6.dp))
-                            WText("上课中", 11.sp, true, accentFg(dark))
+                    Row(modifier = GlanceModifier.fillMaxWidth().height(layout.rowHeight), verticalAlignment = Alignment.CenterVertically) {
+                        Badge(WidgetPresentation.sectionLabel(b), accentSoftBg(dark), accentFg(dark), 44.dp)
+                        Spacer(GlanceModifier.width(Space.gap.dp))
+                        WText(b.name, Type.body.sp, ongoing, if (ongoing) accentFg(dark) else textColor(dark), modifier = GlanceModifier.defaultWeight())
+                        if (layout.showColumns) {
+                            Spacer(GlanceModifier.width(Space.gap.dp))
+                            WText(b.room, Type.label.sp, false, subColor(dark),
+                                modifier = GlanceModifier.width(92.dp * layout.fontScale), align = TextAlign.End)
                         }
-                        Spacer(GlanceModifier.width(6.dp))
-                        WText(b.room, 11.sp, false, subColor(dark), modifier = GlanceModifier.width(76.dp))
                     }
                 }
-                if (data.lessons.size > 4) {
-                    Spacer(GlanceModifier.height(2.dp))
-                    WText("还有 ${data.lessons.size - 4} 堂…", 11.sp, false, subColor(dark))
+                if (layout.showMore(data.lessons.size)) {
+                    WText("还有 ${data.lessons.size - shown.size} 堂", Type.caption.sp, false, subColor(dark),
+                        modifier = GlanceModifier.fillMaxWidth(), align = TextAlign.End)
                 }
             }
         }
@@ -192,27 +197,34 @@ private fun ScheduleWide(data: WidgetData) {
 @Composable
 private fun ScheduleMedium(data: WidgetData) {
     val dark = dark()
+    val layout = widgetLayout()
     val next = data.lessons.firstOrNull()
-    GlassCard(openTab = 1) {
+    SolidCard(openTab = 1) {
         Column(modifier = GlanceModifier.fillMaxSize()) {
-            WText(
-                if (data.scope == WidgetData.Scope.TOMORROW) "下一节 · 明天"
-                else next?.let { "下一节 · " + ScheduleTimes.start(it.startSection) } ?: "下一节",
-                11.sp, false, subColor(dark),
-            )
-            Spacer(GlanceModifier.height(6.dp))
-            WText(next?.name ?: WidgetPresentation.scheduleEmpty(data), 15.sp, true, textColor(dark), maxLines = 2)
+            WText(if (data.scope == WidgetData.Scope.TOMORROW) "明天下一节"
+                else if (layout.contentWidth >= 145f * layout.fontScale && next != null) "下一节 · " + ScheduleTimes.start(next.startSection)
+                else "下一节", Type.title.sp, true, textColor(dark))
+            Spacer(GlanceModifier.height(Space.gap.dp))
+            WText(next?.name ?: WidgetPresentation.scheduleEmpty(data), Type.headline.sp, true, textColor(dark),
+                maxLines = if (layout.detailLines >= 2) 2 else 1)
             Spacer(GlanceModifier.defaultWeight())
             if (next != null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Badge(WidgetPresentation.sectionLabel(next), bg = accentSoftBg(dark), fg = accentFg(dark))
-                    Spacer(GlanceModifier.width(8.dp))
-                    WText(next.room, 11.sp, false, subColor(dark), modifier = GlanceModifier.defaultWeight())
+                if (layout.detailLines >= 1) {
+                    Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        if (layout.contentWidth >= 132f * layout.fontScale) {
+                            Badge(WidgetPresentation.sectionLabel(next), accentSoftBg(dark), accentFg(dark))
+                            Spacer(GlanceModifier.width(Space.gap.dp))
+                        }
+                        WText(next.room, Type.label.sp, false, subColor(dark), modifier = GlanceModifier.defaultWeight(), align = TextAlign.End)
+                    }
                 }
-                Spacer(GlanceModifier.height(4.dp))
-                WText(WidgetPresentation.nextCountdown(data.scope, next, data.now.toLocalTime()), 11.sp, true, accentFg(dark))
-            } else {
-                WText(WidgetPresentation.scheduleSummary(data), 11.sp, false, subColor(dark))
+                if (layout.detailLines >= 2) {
+                    Spacer(GlanceModifier.height(Space.smallGap.dp))
+                    WText(WidgetPresentation.nextCountdown(data.scope, next, data.now.toLocalTime()), Type.label.sp, true, accentFg(dark),
+                        maxLines = if (layout.showExtraDetail) 2 else 1)
+                }
+            } else if (layout.detailLines > 0) {
+                WText(WidgetPresentation.scheduleSummary(data), Type.label.sp, false, subColor(dark))
             }
         }
     }
@@ -221,71 +233,77 @@ private fun ScheduleMedium(data: WidgetData) {
 @Composable
 private fun ScheduleTall(data: WidgetData) {
     val dark = dark()
-    val isTomorrow = data.scope == WidgetData.Scope.TOMORROW
-    GlassCard(padding = 10.dp, openTab = 1) {
+    val layout = widgetLayout()
+    val value = when {
+        data.scope == WidgetData.Scope.NO_DATA -> "—"
+        data.lessons.isEmpty() -> "无课"
+        else -> "${data.lessons.size}"
+    }
+    val metric = WidgetPresentation.metric(value, layout)
+    val showHeader = layout.contentHeight >= layout.line(metric.sizeSp) + layout.line(Type.label) * 2 + 8f
+    SolidCard(openTab = 1) {
         Column(modifier = GlanceModifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Badge(
-                data.week?.let { "第 $it 周" } ?: "课表",
-                bg = accentSoftBg(dark), fg = accentFg(dark),
-            )
-            Spacer(GlanceModifier.defaultWeight())
-            if (data.scope == WidgetData.Scope.NO_DATA) {
-                WText("—", 26.sp, true, textColor(dark))
-                WText("待导入", 11.sp, false, subColor(dark))
-            } else if (data.lessons.isEmpty()) {
-                WText("无课", 18.sp, true, textColor(dark))
-            } else {
-                WText("${data.lessons.size}", 26.sp, true, textColor(dark))
-                WText(if (isTomorrow) "明天课程" else "剩余课程", 11.sp, false, subColor(dark))
+            if (showHeader) {
+                if (layout.narrow) CenteredText("课表", Type.label.sp, true, textColor(dark), 1)
+                else Badge(data.week?.let { "第 $it 周" } ?: "课表", accentSoftBg(dark), accentFg(dark))
             }
             Spacer(GlanceModifier.defaultWeight())
-            WText(WidgetPresentation.tallFootnote(data), 11.sp, false, subColor(dark), maxLines = 2)
+            CenteredText(metric.text, metric.sizeSp.sp, true, textColor(dark), 1)
+            if (data.lessons.isNotEmpty()) {
+                CenteredText(if (layout.narrow) "堂" else if (data.scope == WidgetData.Scope.TOMORROW) "明天课程" else "剩余课程",
+                    Type.label.sp, false, subColor(dark))
+            } else if (data.scope == WidgetData.Scope.NO_DATA && layout.showTallLabel) {
+                CenteredText("待导入", Type.label.sp, false, subColor(dark))
+            }
+            Spacer(GlanceModifier.defaultWeight())
+            if (layout.showTallFooter) CenteredText(WidgetPresentation.tallFootnote(data), Type.caption.sp, false, subColor(dark))
         }
     }
 }
 
-/** 横矮条（1×2 横拉 / 4×1）：紧凑课程信息，倒计时保留独立宽度。 */
 @Composable
 private fun ScheduleRow(data: WidgetData) {
     val dark = dark()
+    val layout = widgetLayout()
     val next = data.lessons.firstOrNull()
-    GlassCard(padding = 10.dp, openTab = 1) {
+    SolidCard(openTab = 1) {
         Row(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             if (next != null) {
-                Badge(WidgetPresentation.sectionLabel(next), bg = accentSoftBg(dark), fg = accentFg(dark))
-                Spacer(GlanceModifier.width(8.dp))
-                Column(modifier = GlanceModifier.defaultWeight()) {
-                    WText(next.name, 12.sp, true, textColor(dark))
-                    WText(next.room, 11.sp, false, subColor(dark))
+                if (layout.contentWidth >= 180f * layout.fontScale) {
+                    Badge(WidgetPresentation.sectionLabel(next), accentSoftBg(dark), accentFg(dark))
+                    Spacer(GlanceModifier.width(Space.gap.dp))
                 }
-                Spacer(GlanceModifier.width(8.dp))
-                WText(
-                    WidgetPresentation.nextCountdown(data.scope, next, data.now.toLocalTime()),
-                    11.sp, true, accentFg(dark), maxLines = 2,
-                    modifier = GlanceModifier.width(if (LocalSize.current.width < 240.dp) 64.dp else 104.dp),
-                )
-            } else {
-                WText(WidgetPresentation.scheduleEmpty(data), 12.sp, false, subColor(dark))
-            }
+                Column(modifier = GlanceModifier.defaultWeight()) {
+                    WText(next.name, Type.body.sp, true, textColor(dark))
+                    if (layout.contentHeight >= layout.line(Type.body) + layout.line(Type.label)) {
+                        WText(next.room, Type.label.sp, false, subColor(dark))
+                    }
+                }
+                if (layout.showRowDetail) {
+                    Spacer(GlanceModifier.width(Space.gap.dp))
+                    WText(WidgetPresentation.nextCountdown(data.scope, next, data.now.toLocalTime()), Type.caption.sp, true, accentFg(dark),
+                        maxLines = if (layout.contentHeight >= layout.line(Type.caption) * 2) 2 else 1,
+                        modifier = GlanceModifier.width(104.dp * layout.fontScale), align = TextAlign.End)
+                }
+            } else WText(WidgetPresentation.scheduleEmpty(data), Type.body.sp, false, subColor(dark), maxLines = 2)
         }
     }
 }
 
-// ── 电量：4×2 走势与切换 / 2×2 大字迷你走势 / 1×2 竖条 / 横拉单行 ────────────
+// ── 电量：大字与自适应走势 / 居中竖卡 / 横拉单行 ─────────────────────────────
 
 class PowerWidget : GdustGlanceWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val days = WidgetDataSource.powerRangeDays(context)
         provideContent {
             GlanceTheme {
                 RefreshAware {
                     val data = WidgetDataSource.load(LocalContext.current)
-                    val size = LocalSize.current
-                    when (WidgetPresentation.shapeOf(size.width, size.height)) {
-                        WidgetPresentation.Shape.WIDE -> PowerWide(data, days)
+                    val days = WidgetDataSource.powerRangeDays(LocalContext.current)
+                    when (widgetLayout().shape) {
+                        WidgetPresentation.Shape.WIDE -> PowerCard(data, days, wide = true)
                         WidgetPresentation.Shape.TALL -> PowerTall(data, days)
                         WidgetPresentation.Shape.ROW -> PowerRow(data, days)
-                        WidgetPresentation.Shape.MEDIUM -> PowerMedium(data, days)
+                        WidgetPresentation.Shape.MEDIUM -> PowerCard(data, days, wide = false)
                     }
                 }
             }
@@ -295,7 +313,6 @@ class PowerWidget : GdustGlanceWidget() {
 
 /** 七天 / 半月切换：写入共享偏好后刷新电量款，走势范围随之变化。 */
 class PowerRangeToggleAction : ActionCallback {
-
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val target = parameters[TARGET] ?: 7
         context.getSharedPreferences("gdust_cache", Context.MODE_PRIVATE)
@@ -312,113 +329,62 @@ class PowerRangeToggleAction : ActionCallback {
 private fun RangeSwitch(current: Int) {
     val dark = dark()
     val inactiveBg = c(Color(WidgetStyle.BACKGROUND_LIGHT), Color(WidgetStyle.BACKGROUND_DARK))
-    val inactiveFg = subColor(dark)
     Row {
         listOf(7 to "七天", 15 to "半月").forEach { (days, label) ->
             val active = current == days
-            Box(
-                modifier = GlanceModifier.padding(start = 4.dp)
-                    .cornerRadius(10.dp)
-                    .background(if (active) accentSoftBg(dark) else inactiveBg)
-                    .clickable(
-                        actionRunCallback<PowerRangeToggleAction>(
-                            actionParametersOf(PowerRangeToggleAction.TARGET to days),
-                        ),
-                    )
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-                contentAlignment = Alignment.Center,
+            Box(modifier = GlanceModifier.padding(start = 4.dp).cornerRadius(10.dp)
+                .background(if (active) accentSoftBg(dark) else inactiveBg)
+                .clickable(actionRunCallback<PowerRangeToggleAction>(actionParametersOf(PowerRangeToggleAction.TARGET to days)))
+                .padding(horizontal = 8.dp, vertical = 4.dp), contentAlignment = Alignment.Center,
             ) {
-                WText(label, 11.sp, active, if (active) accentFg(dark) else inactiveFg)
+                WText(label, Type.caption.sp, active, if (active) accentFg(dark) else subColor(dark))
             }
         }
     }
-}
-
-@Composable
-private fun powerValueText(data: WidgetData, dark: Boolean, size: TextUnit) {
-    val low = WidgetPresentation.powerLow(data.odd, data.warnTh)
-    WText(WidgetPresentation.powerValue(data.odd), size, true, if (low) dangerColor() else textColor(dark))
 }
 
 private fun nowMillis(data: WidgetData): Long =
     data.now.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
 
 @Composable
-private fun PowerWide(data: WidgetData, days: Int) {
+private fun PowerCard(data: WidgetData, days: Int, wide: Boolean) {
     val context = LocalContext.current
     val dark = dark()
+    val layout = widgetLayout()
     val density = context.resources.displayMetrics.density
     val samples = WidgetDataSource.trend(context, days)
     val stats = WidgetPresentation.trendStats(samples, data.lastSampleAt, nowMillis(data))
-    val trendBmp = WidgetStyle.trend(
-        context, samples,
-        ((LocalSize.current.width.value - 24) * density).toInt(), (72 * density).toInt(), days, data.warnTh,
-    )
-    GlassCard(openTab = 2) {
+    val chartHeight = layout.chartHeight
+    val trendBmp = if (chartHeight > 0.dp && samples.size >= 2) WidgetStyle.trend(context, samples,
+        (layout.contentWidth * density).toInt(), (chartHeight.value * density).toInt(), days, data.warnTh) else null
+    val valueWidth = layout.contentWidth - layout.line(Type.label) - 8f -
+        if (wide && layout.showColumns) 90f * layout.fontScale else 0f
+    val metric = WidgetPresentation.metric(WidgetPresentation.powerValue(data.odd), layout.copy(contentWidth = valueWidth.coerceAtLeast(1f)))
+    SolidCard(openTab = 2) {
         Column(modifier = GlanceModifier.fillMaxSize()) {
-            Row(modifier = GlanceModifier.fillMaxWidth()) {
-                WText(data.roomName.ifEmpty { "宿舍电量" }, 11.sp, false, subColor(dark), modifier = GlanceModifier.defaultWeight())
-                Spacer(GlanceModifier.width(6.dp))
-                RangeSwitch(days)
-            }
-            Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-                powerValueText(data, dark, 28.sp)
-                Spacer(GlanceModifier.width(3.dp))
-                WText("度", 11.sp, false, subColor(dark))
-                Spacer(GlanceModifier.defaultWeight())
-                WText(WidgetPresentation.rateLabel(stats), 11.sp, false, subColor(dark))
-            }
-            Spacer(GlanceModifier.defaultWeight())
-            if (samples.size >= 2 && trendBmp != null) {
-                Image(
-                    provider = ImageProvider(trendBmp),
-                    contentDescription = "电量走势",
-                    modifier = GlanceModifier.fillMaxWidth().height(72.dp),
-                    contentScale = ContentScale.FillBounds,
-                )
-            } else {
-                Box(modifier = GlanceModifier.fillMaxWidth().height(44.dp), contentAlignment = Alignment.Center) {
-                    WText(
-                        "等待采样积累走势数据" + (stats?.updatedLabel?.let { " · $it" } ?: ""),
-                        11.sp, false, subColor(dark),
-                    )
+            Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                val room = data.roomName.ifEmpty { "宿舍电量" }
+                WText(if (wide) room else room.substringAfterLast('·').trim(), Type.title.sp, true, textColor(dark),
+                    modifier = GlanceModifier.defaultWeight())
+                if (wide && layout.showRangeSwitch) {
+                    Spacer(GlanceModifier.width(Space.gap.dp))
+                    RangeSwitch(days)
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun PowerMedium(data: WidgetData, days: Int) {
-    val context = LocalContext.current
-    val dark = dark()
-    val density = context.resources.displayMetrics.density
-    val samples = WidgetDataSource.trend(context, days)
-    val updated = WidgetPresentation.trendStats(samples, data.lastSampleAt, nowMillis(data))?.updatedLabel.orEmpty()
-    val trendBmp = WidgetStyle.trend(
-        context, samples,
-        ((LocalSize.current.width.value - 24) * density).toInt(), (48 * density).toInt(), days, data.warnTh,
-    )
-    GlassCard(openTab = 2) {
-        Column(modifier = GlanceModifier.fillMaxSize()) {
-            Row(modifier = GlanceModifier.fillMaxWidth()) {
-                WText(data.roomName.ifEmpty { "宿舍电量" }, 11.sp, false, subColor(dark), modifier = GlanceModifier.defaultWeight())
-                Spacer(GlanceModifier.width(6.dp))
-                WText(updated, 11.sp, false, subColor(dark))
-            }
-            Row(verticalAlignment = Alignment.Bottom) {
-                powerValueText(data, dark, 26.sp)
-                Spacer(GlanceModifier.width(3.dp))
-                WText("度", 11.sp, false, subColor(dark))
+            Spacer(GlanceModifier.height(Space.smallGap.dp))
+            Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                WText(metric.text, metric.sizeSp.sp, true, if (WidgetPresentation.powerLow(data.odd, data.warnTh)) dangerColor() else textColor(dark))
+                Spacer(GlanceModifier.width(Space.smallGap.dp))
+                WText("度", Type.label.sp, false, subColor(dark))
+                Spacer(GlanceModifier.defaultWeight())
+                if (wide && layout.showColumns) WText(WidgetPresentation.rateLabel(stats), Type.caption.sp, false, subColor(dark), align = TextAlign.End)
             }
             Spacer(GlanceModifier.defaultWeight())
-            if (samples.size >= 2 && trendBmp != null) {
-                Image(
-                    provider = ImageProvider(trendBmp),
-                    contentDescription = "电量走势",
-                    modifier = GlanceModifier.fillMaxWidth().height(48.dp),
-                    contentScale = ContentScale.FillBounds,
-                )
+            if (trendBmp != null) {
+                Image(ImageProvider(trendBmp), "电量走势", modifier = GlanceModifier.fillMaxWidth().height(chartHeight), contentScale = ContentScale.FillBounds)
+            } else if (layout.detailLines > 0) {
+                // 宿舍名、更新时间各占一行；小尺寸与大字体时先保住读数。
+                WText(stats?.updatedLabel?.takeIf { it.isNotEmpty() } ?: "等待采样积累走势", Type.caption.sp, false, subColor(dark), maxLines = 2)
             }
         }
     }
@@ -427,14 +393,25 @@ private fun PowerMedium(data: WidgetData, days: Int) {
 @Composable
 private fun PowerTall(data: WidgetData, days: Int) {
     val dark = dark()
-    GlassCard(padding = 10.dp, openTab = 2) {
+    val layout = widgetLayout()
+    val metric = WidgetPresentation.metric(WidgetPresentation.powerValue(data.odd), layout)
+    val showHeader = layout.contentHeight >= layout.line(metric.sizeSp) + layout.line(Type.label) * 2 + 8f
+    SolidCard(openTab = 2) {
         Column(modifier = GlanceModifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Badge("电量", bg = accentSoftBg(dark), fg = accentFg(dark))
+            if (showHeader) {
+                if (layout.narrow) CenteredText("电量", Type.label.sp, true, textColor(dark), 1)
+                else Badge("电量", accentSoftBg(dark), accentFg(dark))
+            }
             Spacer(GlanceModifier.defaultWeight())
-            powerValueText(data, dark, 20.sp)
-            WText("度 · " + data.roomName.ifEmpty { "宿舍" }, 11.sp, false, subColor(dark), maxLines = 2)
+            CenteredText(metric.text, metric.sizeSp.sp, true,
+                if (WidgetPresentation.powerLow(data.odd, data.warnTh)) dangerColor() else textColor(dark), 1)
+            CenteredText("度", Type.label.sp, false, subColor(dark), 1)
+            if (layout.showTallFooter) {
+                Spacer(GlanceModifier.height(Space.smallGap.dp))
+                CenteredText(data.roomName.ifEmpty { "宿舍" }, Type.caption.sp, false, subColor(dark))
+            }
             Spacer(GlanceModifier.defaultWeight())
-            WText(if (days == 7) "近 7 天" else "近半月", 11.sp, false, subColor(dark))
+            if (layout.showTallFooter) CenteredText(if (days == 7) "近 7 天" else "近半月", Type.caption.sp, false, subColor(dark))
         }
     }
 }
@@ -442,20 +419,30 @@ private fun PowerTall(data: WidgetData, days: Int) {
 @Composable
 private fun PowerRow(data: WidgetData, days: Int) {
     val dark = dark()
-    GlassCard(padding = 10.dp, openTab = 2) {
+    val layout = widgetLayout()
+    val showBadge = layout.contentWidth >= 180f * layout.fontScale
+    val occupied = layout.line(Type.label) + 8f +
+        (if (showBadge) Type.caption * 2 * layout.fontScale + 22f else 0f) +
+        (if (layout.showRowDetail) Type.caption * 4 * layout.fontScale + 8f else 0f)
+    val metric = WidgetPresentation.metric(WidgetPresentation.powerValue(data.odd),
+        layout.copy(contentWidth = (layout.contentWidth - occupied).coerceAtLeast(1f)))
+    SolidCard(openTab = 2) {
         Row(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-            Badge("电量", bg = accentSoftBg(dark), fg = accentFg(dark))
-            Spacer(GlanceModifier.width(8.dp))
-            powerValueText(data, dark, 16.sp)
-            Spacer(GlanceModifier.width(3.dp))
-            WText("度", 11.sp, false, subColor(dark))
+            if (showBadge) {
+                Badge("电量", accentSoftBg(dark), accentFg(dark))
+                Spacer(GlanceModifier.width(Space.gap.dp))
+            }
+            WText(metric.text, minOf(metric.sizeSp, layout.contentHeight / (layout.fontScale * 1.3f)).sp, true,
+                if (WidgetPresentation.powerLow(data.odd, data.warnTh)) dangerColor() else textColor(dark))
+            Spacer(GlanceModifier.width(Space.smallGap.dp))
+            WText("度", Type.label.sp, false, subColor(dark))
             Spacer(GlanceModifier.defaultWeight())
-            WText(if (days == 7) "近 7 天" else "近半月", 11.sp, false, subColor(dark))
+            if (layout.showRowDetail) WText(if (days == 7) "近 7 天" else "近半月", Type.caption.sp, false, subColor(dark))
         }
     }
 }
 
-// ── 待办条子：4×2 可勾选列表 / 2×2 概览 / 1×2 计数竖条 / 横拉单行 ────────────
+// ── 待办：可勾选宽卡列表 / 中卡概览 / 竖卡计数 / 横拉单行 ─────────────────────
 
 class TodoWidget : GdustGlanceWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -463,8 +450,7 @@ class TodoWidget : GdustGlanceWidget() {
             GlanceTheme {
                 RefreshAware {
                     val groups = WidgetDataSource.todos(LocalContext.current)
-                    val size = LocalSize.current
-                    when (WidgetPresentation.shapeOf(size.width, size.height)) {
+                    when (widgetLayout().shape) {
                         WidgetPresentation.Shape.WIDE -> TodoWide(groups)
                         WidgetPresentation.Shape.TALL -> TodoTall(groups)
                         WidgetPresentation.Shape.ROW -> TodoRow(groups)
@@ -480,56 +466,48 @@ class TodoWidget : GdustGlanceWidget() {
 private fun TodoWide(groups: TodoGroups) {
     val context = LocalContext.current
     val dark = dark()
+    val layout = widgetLayout()
     val items = WidgetPresentation.pendingTodos(groups, System.currentTimeMillis())
-    GlassCard(openTab = 3) {
-        Column {
+    val shown = items.take(layout.visibleRows(items.size))
+    SolidCard(openTab = 3) {
+        Column(modifier = GlanceModifier.fillMaxSize()) {
             Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                WText("待办", 12.sp, true, textColor(dark))
-                if (groups.overdue.isNotEmpty()) {
-                    Spacer(GlanceModifier.width(6.dp))
-                    Badge(
-                        "${groups.overdue.size} 逾期",
-                        bg = c(Color(WidgetStyle.danger(false)).copy(alpha = 0.12f), Color(WidgetStyle.danger(true)).copy(alpha = 0.12f)),
-                        fg = dangerColor(),
-                    )
+                WText("待办", Type.title.sp, true, textColor(dark))
+                if (groups.overdue.isNotEmpty() && layout.showHeaderSummary) {
+                    Spacer(GlanceModifier.width(Space.gap.dp))
+                    Badge("${groups.overdue.size} 逾期",
+                        c(Color(WidgetStyle.danger(false)).copy(alpha = 0.12f), Color(WidgetStyle.danger(true)).copy(alpha = 0.12f)), dangerColor())
                 }
                 Spacer(GlanceModifier.defaultWeight())
-                WText("共 ${items.size} 项", 11.sp, false, subColor(dark))
+                WText("共 ${items.size} 项", Type.label.sp, false, subColor(dark), align = TextAlign.End)
             }
-            Spacer(GlanceModifier.height(4.dp))
-            if (items.isEmpty()) {
-                Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    WText("没有待办，好好休息 ☕", 12.sp, false, subColor(dark))
+            Spacer(GlanceModifier.height(Space.gap.dp))
+            if (shown.isEmpty()) {
+                Box(modifier = GlanceModifier.fillMaxWidth().defaultWeight(), contentAlignment = Alignment.Center) {
+                    WText(if (items.isEmpty()) "暂无待办，安心休息" else "点按查看待办", Type.body.sp, false, subColor(dark), maxLines = 2, align = TextAlign.Center)
                 }
             } else {
-                items.take(4).forEach { item ->
-                    Row(
-                        modifier = GlanceModifier.fillMaxWidth().padding(vertical = 2.dp)
-                            .clickable(widgetOpenAction(context, 3, item.todo.id)),
+                shown.forEach { item ->
+                    Row(modifier = GlanceModifier.fillMaxWidth().height(layout.rowHeight).clickable(widgetOpenAction(context, 3, item.todo.id)),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        val bmp = WidgetStyle.checkbox(context, false, WidgetStyle.dp2px(context, 20))
+                        val bmp = WidgetStyle.checkbox(context, false, WidgetStyle.dp2px(context, 24))
                         if (bmp != null) {
-                            Image(
-                                provider = ImageProvider(bmp),
-                                contentDescription = "完成待办",
-                                modifier = GlanceModifier.width(20.dp).height(20.dp)
-                                    .clickable(
-                                        actionRunCallback<CompleteWidgetTodoAction>(
-                                            actionParametersOf(CompleteWidgetTodoAction.TODO_ID to item.todo.id),
-                                        ),
-                                    ),
-                            )
-                            Spacer(GlanceModifier.width(6.dp))
+                            Image(ImageProvider(bmp), "完成待办", modifier = GlanceModifier.width(24.dp).height(24.dp)
+                                .clickable(actionRunCallback<CompleteWidgetTodoAction>(actionParametersOf(CompleteWidgetTodoAction.TODO_ID to item.todo.id))))
+                            Spacer(GlanceModifier.width(Space.gap.dp))
                         }
-                        WText(item.todo.text, 12.sp, false, textColor(dark), modifier = GlanceModifier.defaultWeight())
-                        Spacer(GlanceModifier.width(6.dp))
-                        WText(item.dueLabel, 11.sp, item.overdue, if (item.overdue) dangerColor() else subColor(dark))
+                        WText(item.todo.text, Type.body.sp, false, textColor(dark), modifier = GlanceModifier.defaultWeight())
+                        if (layout.showColumns) {
+                            Spacer(GlanceModifier.width(Space.gap.dp))
+                            WText(item.dueLabel, Type.caption.sp, item.overdue, if (item.overdue) dangerColor() else subColor(dark),
+                                modifier = GlanceModifier.width(104.dp * layout.fontScale), align = TextAlign.End)
+                        }
                     }
                 }
-                if (items.size > 4) {
-                    Spacer(GlanceModifier.height(2.dp))
-                    WText("还有 ${items.size - 4} 条…", 11.sp, false, subColor(dark))
+                if (layout.showMore(items.size)) {
+                    WText("还有 ${items.size - shown.size} 项", Type.caption.sp, false, subColor(dark),
+                        modifier = GlanceModifier.fillMaxWidth(), align = TextAlign.End)
                 }
             }
         }
@@ -537,41 +515,31 @@ private fun TodoWide(groups: TodoGroups) {
 }
 
 @Composable
-private fun KindBadge(t: Todo) {
-    val dark = dark()
-    val danger = Color(WidgetStyle.danger(dark))
-    val accent = Color(WidgetStyle.accent(dark))
-    val (label, bg, fg) = when (t.kind) {
-        TodoKind.EXAM -> Triple("考", danger.copy(alpha = 0.12f), danger)
-        TodoKind.HOMEWORK -> Triple("作", WidgetStyle.accentSoft(dark), accent)
-        TodoKind.GENERAL -> Triple("事", WidgetStyle.sub(dark).copy(alpha = 0.18f), WidgetStyle.sub(dark))
-    }
-    Badge(label, bg = c(bg, bg), fg = c(fg, fg), fixedWidth = 26.dp)
-}
-
-@Composable
 private fun TodoMedium(groups: TodoGroups) {
     val dark = dark()
+    val layout = widgetLayout()
     val items = WidgetPresentation.pendingTodos(groups, System.currentTimeMillis())
-    val nearest = items.firstOrNull()
-    GlassCard(openTab = 3) {
+    val metric = WidgetPresentation.metric("${items.size}", layout)
+    SolidCard(openTab = 3) {
         Column(modifier = GlanceModifier.fillMaxSize()) {
-            WText("待办", 11.sp, false, subColor(dark))
+            WText("待办", Type.title.sp, true, textColor(dark))
+            Spacer(GlanceModifier.height(Space.smallGap.dp))
             Row(verticalAlignment = Alignment.Bottom) {
-                WText("${items.size}", 26.sp, true, textColor(dark))
-                Spacer(GlanceModifier.width(4.dp))
-                WText("项", 11.sp, false, subColor(dark))
+                WText(metric.text, metric.sizeSp.sp, true, textColor(dark))
+                Spacer(GlanceModifier.width(Space.smallGap.dp))
+                WText("项", Type.label.sp, false, subColor(dark))
             }
-            if (groups.overdue.isNotEmpty()) {
-                Spacer(GlanceModifier.height(2.dp))
-                WText("${groups.overdue.size} 项逾期", 11.sp, true, dangerColor())
+            if (groups.overdue.isNotEmpty() && layout.showExtraDetail) {
+                WText("${groups.overdue.size} 项逾期", Type.label.sp, true, dangerColor())
             }
             Spacer(GlanceModifier.defaultWeight())
-            if (nearest != null) {
-                WText(nearest.todo.text, 11.sp, false, textColor(dark))
-                WText(nearest.dueLabel, 11.sp, nearest.overdue, if (nearest.overdue) dangerColor() else subColor(dark))
-            } else {
-                WText("暂无待办", 11.sp, false, subColor(dark))
+            if (layout.detailLines >= 1) {
+                val nearest = items.firstOrNull()
+                WText(nearest?.todo?.text ?: "暂无待办", Type.body.sp, false, if (nearest != null) textColor(dark) else subColor(dark))
+                if (nearest != null && layout.detailLines >= 2) {
+                    Spacer(GlanceModifier.height(Space.smallGap.dp))
+                    WText(nearest.dueLabel, Type.label.sp, nearest.overdue, if (nearest.overdue) dangerColor() else subColor(dark))
+                }
             }
         }
     }
@@ -580,19 +548,21 @@ private fun TodoMedium(groups: TodoGroups) {
 @Composable
 private fun TodoTall(groups: TodoGroups) {
     val dark = dark()
+    val layout = widgetLayout()
     val items = WidgetPresentation.pendingTodos(groups, System.currentTimeMillis())
-    GlassCard(padding = 10.dp, openTab = 3) {
+    val metric = WidgetPresentation.metric("${items.size}", layout)
+    val showHeader = layout.contentHeight >= layout.line(metric.sizeSp) + layout.line(Type.label) * 2 + 8f
+    SolidCard(openTab = 3) {
         Column(modifier = GlanceModifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-            WText("待办", 11.sp, true, textColor(dark))
+            if (showHeader) CenteredText("待办", Type.label.sp, true, textColor(dark), 1)
             Spacer(GlanceModifier.defaultWeight())
-            WText("${items.size}", 26.sp, true, textColor(dark))
-            WText("条待办", 11.sp, false, subColor(dark))
+            CenteredText(metric.text, metric.sizeSp.sp, true, textColor(dark), 1)
+            CenteredText(if (layout.narrow) "项" else "项待办", Type.label.sp, false, subColor(dark))
             Spacer(GlanceModifier.defaultWeight())
-            if (groups.overdue.isNotEmpty()) {
-                WText("${groups.overdue.size} 逾期", 11.sp, true, dangerColor())
-            } else {
-                val today = groups.today.size
-                WText(if (today > 0) "今日 $today 项" else "无逾期", 11.sp, false, subColor(dark))
+            if (layout.showTallFooter) {
+                CenteredText(if (groups.overdue.isNotEmpty()) "${groups.overdue.size} 项逾期"
+                    else if (groups.today.isNotEmpty()) "今日 ${groups.today.size} 项" else "无逾期",
+                    Type.caption.sp, groups.overdue.isNotEmpty(), if (groups.overdue.isNotEmpty()) dangerColor() else subColor(dark))
             }
         }
     }
@@ -601,22 +571,21 @@ private fun TodoTall(groups: TodoGroups) {
 @Composable
 private fun TodoRow(groups: TodoGroups) {
     val dark = dark()
+    val layout = widgetLayout()
     val items = WidgetPresentation.pendingTodos(groups, System.currentTimeMillis())
-    GlassCard(padding = 10.dp, openTab = 3) {
+    SolidCard(openTab = 3) {
         Row(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-            Badge("${items.size}", bg = accentSoftBg(dark), fg = accentFg(dark), fixedWidth = 30.dp)
-            Spacer(GlanceModifier.width(8.dp))
+            if (layout.contentWidth >= 180f * layout.fontScale) {
+                Badge("${items.size}", accentSoftBg(dark), accentFg(dark), 36.dp)
+                Spacer(GlanceModifier.width(Space.gap.dp))
+            }
             val nearest = items.firstOrNull()
-            if (nearest != null) {
-                WText(nearest.todo.text, 12.sp, false, textColor(dark), modifier = GlanceModifier.defaultWeight())
-                Spacer(GlanceModifier.width(6.dp))
-                WText(
-                    nearest.dueLabel, 11.sp, nearest.overdue,
-                    if (nearest.overdue) dangerColor() else subColor(dark), maxLines = 2,
-                    modifier = GlanceModifier.width(if (LocalSize.current.width < 240.dp) 64.dp else 88.dp),
-                )
-            } else {
-                WText("暂无待办", 12.sp, false, subColor(dark))
+            WText(nearest?.todo?.text ?: "暂无待办", Type.body.sp, false,
+                if (nearest != null) textColor(dark) else subColor(dark), modifier = GlanceModifier.defaultWeight())
+            if (nearest != null && layout.showRowDetail) {
+                Spacer(GlanceModifier.width(Space.gap.dp))
+                WText(nearest.dueLabel, Type.caption.sp, nearest.overdue, if (nearest.overdue) dangerColor() else subColor(dark),
+                    modifier = GlanceModifier.width(104.dp * layout.fontScale), align = TextAlign.End)
             }
         }
     }

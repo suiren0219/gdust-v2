@@ -51,6 +51,94 @@ class WidgetPresentationTest {
         assertEquals(WidgetPresentation.Shape.ROW, WidgetPresentation.shapeOf(300.dp, 75.dp))
     }
 
+    // ── 可读性预算：真实尺寸、字体放大、数值精度与强调文字对比 ────────────────
+
+    @Test
+    fun largerFontsAndShorterCardsReduceRowsBeforeTextSize() {
+        val normal = WidgetPresentation.layout(340.dp, 170.dp, 1f)
+        val large = WidgetPresentation.layout(340.dp, 170.dp, 1.3f)
+        val shortest = WidgetPresentation.layout(250.dp, 110.dp, 1f)
+        assertTrue(normal.visibleRows(8) > large.visibleRows(8))
+        assertTrue(normal.visibleRows(8) > shortest.visibleRows(8))
+        assertTrue(shortest.visibleRows(8) >= 1)
+        listOf(normal, large, shortest, WidgetPresentation.layout(250.dp, 110.dp, 2f)).forEach { layout ->
+            val rows = layout.visibleRows(8)
+            val used = layout.headerHeight + WidgetStyle.Space.gap + rows * layout.rowHeight.value
+            assertTrue("行高不能越过实际卡面：$layout", used <= layout.contentHeight)
+            assertTrue(layout.rowHeight.value >= layout.line(WidgetStyle.Type.body) + 12f)
+            assertEquals(0, layout.visibleRows(0))
+            if (layout.showMore(8)) {
+                assertTrue(layout.contentHeight - used >= layout.line(WidgetStyle.Type.caption))
+            }
+        }
+    }
+
+    @Test
+    fun narrowWidthDropsSecondaryColumnsAndRangeControls() {
+        val normal = WidgetPresentation.layout(340.dp, 170.dp, 1f)
+        val narrow = WidgetPresentation.layout(250.dp, 110.dp, 1f)
+        val enlarged = WidgetPresentation.layout(340.dp, 170.dp, 1.3f)
+        assertTrue(normal.showColumns)
+        assertTrue(normal.showRangeSwitch)
+        assertFalse(narrow.showColumns)
+        assertFalse(narrow.showRangeSwitch)
+        assertFalse(enlarged.showColumns)
+        assertFalse(WidgetPresentation.layout(150.dp, 75.dp, 1.3f).showRowDetail)
+    }
+
+    @Test
+    fun mediumChartAndDetailsRequireRoomForReadableLabels() {
+        val normal = WidgetPresentation.layout(180.dp, 180.dp, 1f)
+        val enlarged = WidgetPresentation.layout(180.dp, 180.dp, 1.3f)
+        val minimum = WidgetPresentation.layout(130.dp, 110.dp, 1f)
+        assertTrue(normal.chartHeight.value > 0f)
+        assertTrue(normal.chartHeight.value >= normal.line(WidgetStyle.Type.caption) * 2 + 24f)
+        assertEquals(0f, enlarged.chartHeight.value, 0.001f)
+        assertEquals(0f, minimum.chartHeight.value, 0.001f)
+        assertTrue(normal.detailLines > enlarged.detailLines)
+        assertEquals(0, minimum.detailLines)
+        assertTrue(normal.headerHeight + normal.line(WidgetStyle.Type.number) + WidgetStyle.Space.gap + normal.chartHeight.value <= normal.contentHeight)
+    }
+
+    @Test
+    fun minimumTallCardKeepsExactPowerAndUnitAtLargeFontScales() {
+        listOf(1f, 1.3f, 2f).forEach { scale ->
+            val layout = WidgetPresentation.layout(57.dp, 110.dp, scale)
+            assertTrue(layout.narrow)
+            assertFalse(layout.showTallFooter)
+            listOf("46.8", "19.9", "0.1", "—").forEach { value ->
+                val metric = WidgetPresentation.metric(value, layout)
+                assertEquals(value, metric.text)
+                assertTrue(metric.sizeSp > 0f)
+                assertTrue(layout.line(metric.sizeSp) + layout.line(WidgetStyle.Type.label) <= layout.contentHeight)
+            }
+        }
+        val small = WidgetPresentation.metric("19.9", WidgetPresentation.layout(57.dp, 110.dp, 1.3f))
+        val regular = WidgetPresentation.metric("19.9", WidgetPresentation.layout(96.dp, 192.dp, 1f))
+        assertTrue(regular.sizeSp > small.sizeSp)
+        assertTrue(WidgetPresentation.powerLow(19.9, 20f))
+        assertEquals("—", WidgetPresentation.powerValue(null))
+    }
+
+    @Test
+    fun textAccentsPassOnCardAndCompositedBadgeInBothThemes() {
+        listOf(false, true).forEach { dark ->
+            val card = WidgetStyle.card(dark)
+            val accentBadge = WidgetStyle.blend(WidgetStyle.accent(dark), card, if (dark) 0.24f else 0.14f)
+            val dangerBadge = WidgetStyle.blend(WidgetStyle.danger(dark), card, 0.12f)
+            listOf(card, accentBadge).forEach { background ->
+                assertTrue(WidgetStyle.contrastRatio(WidgetStyle.accentText(dark), background) >= 4.5)
+            }
+            listOf(card, dangerBadge).forEach { background ->
+                assertTrue(WidgetStyle.contrastRatio(WidgetStyle.dangerText(dark), background) >= 4.5)
+            }
+        }
+        // 基准装饰色本身不够承载小字；派生前景必须确实改善对比。
+        assertTrue(WidgetStyle.contrastRatio(WidgetStyle.ACCENT_LIGHT, WidgetStyle.CARD_LIGHT) < 4.5)
+        assertTrue(WidgetStyle.contrastRatio(WidgetStyle.DANGER, WidgetStyle.CARD_LIGHT) < 4.5)
+        assertEquals(21.0, WidgetStyle.contrastRatio(WidgetStyle.TEXT_LIGHT, WidgetStyle.CARD_LIGHT), 0.0001)
+    }
+
     // ── 标题与口径 ──────────────────────────────────────────────────────────
 
     @Test
