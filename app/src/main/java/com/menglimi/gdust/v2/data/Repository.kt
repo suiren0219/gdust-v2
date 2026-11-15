@@ -654,10 +654,11 @@ class Repository(context: Context) {
         true
     }
 
-    internal fun saveChxCandidate(cookie: String, version: Long) = sessionGuard.withCurrent(version) {
-        if (!store.webLogoutPending && !clearingChxSession && ChxSso.hasSessionCookie(cookie) && store.chxCookie != cookie) {
-            store.saveChxCookie(cookie)
-        }
+    internal fun saveChxCandidate(cookie: String, version: Long, chxVersion: Long): Boolean = sessionGuard.withCurrent(version) {
+        if (store.webLogoutPending || clearingChxSession || chxSessionVersion.value != chxVersion ||
+            !ChxSso.hasSessionCookie(cookie)) return@withCurrent false
+        if (store.chxCookie != cookie) store.saveChxCookie(cookie)
+        true
     }
 
     private fun teachingSessionJar(version: Long) = object : okhttp3.CookieJar {
@@ -1185,18 +1186,39 @@ class Repository(context: Context) {
     private fun failSuffix(failed: Int, firstFail: String?): String =
         if (failed == 0) "" else "（$failed 门读取失败，首个：$firstFail）"
 
-    /**
-     * 学习通会话探活：true 有效 / false 失效 / null 网络原因未知（不清 Cookie）。
-     *
-     * 探活的失效判定一半靠页面文案启发式，单次 false 可能是误判；
-     * 连续两次都判失效才清 Cookie，避免把有效会话删掉。
-     */
-    suspend fun chxSessionAlive(): Boolean? {
-        if (store.chxCookie.isBlank()) return false
-        val first = chxApi.probe(store.chxCookie)
-        val alive = if (first == false) chxApi.probe(store.chxCookie) else first
-        if (alive == false) store.clearChxCookie()
-        return alive
+    /** 学习通会话探活与课程读取共用实时网页 Cookie；存储快照不是独立的登录凭证。 */
+    suspend fun chxSessionAlive(): Boolean? = withContext(Dispatchers.Main.immediate) {
+        chxSessionMutex.withLock {
+            val version = sessionGuard.current()
+            val chxVersion = chxSessionVersion.value
+            fun checkSession() = sessionGuard.withCurrent(version) {
+                if (store.webLogoutPending || clearingChxSession || chxSessionVersion.value != chxVersion) {
+                    throw CancellationException("学习通登录状态已变更")
+                }
+            }
+            val home = ChxSso.HOME.toHttpUrl()
+            val http = SessionHttpClient(allowedUrl = { it == home }, checkSession = ::checkSession,
+                webCookieMutex = webCleanupMutex)
+            ChxWebSession.verifyCandidate(
+                readCookie = ChxWebSession::candidateCookie,
+                probe = {
+                    try {
+                        val response = http.execute(okhttp3.Request.Builder().url(home)
+                            .header("User-Agent", "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 " +
+                                "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                            .get().build())
+                        ChxApi.sessionEvidence(response.status, ChxSso.HOME, response.body, response.location)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    }
+                },
+                checkCurrent = ::checkSession,
+                saveCandidate = { saveChxCandidate(it, version, chxVersion) },
+                clearCandidate = { store.clearChxCookie() },
+            )
+        }
     }
 
     /** 只清理学习通和 CAS 的已知网页存储范围，返回本机清理结果。 */

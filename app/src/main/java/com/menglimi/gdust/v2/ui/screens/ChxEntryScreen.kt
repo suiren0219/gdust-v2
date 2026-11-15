@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.ChxSso
+import com.menglimi.gdust.v2.data.ChxWebSession
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
@@ -54,7 +55,8 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
     val ds = LocalDs.current
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    var message by rememberSaveable { mutableStateOf("完成学校统一身份认证后，可进入学习通与教务网页。") }
+    var hasCasWebSession by remember { mutableStateOf(ChxWebSession.hasCasWebSession()) }
+    var message by rememberSaveable { mutableStateOf(ChxSso.linkingHint(hasCasWebSession)) }
     var isError by rememberSaveable { mutableStateOf(false) }
     var saved by remember { mutableStateOf(repo.store.hasChxSession) }
     var checking by remember { mutableStateOf(false) }
@@ -64,7 +66,36 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
     var clearPending by rememberSaveable { mutableStateOf(false) }
     var serverConfirmed by rememberSaveable { mutableStateOf(false) }
     var localCleared by rememberSaveable { mutableStateOf<Boolean?>(null) }
-    val busy = checking || logoutPending || clearPending
+    val busy = checking || syncing || logoutPending || clearPending
+
+    fun checkSession() {
+        if (busy) return
+        checking = true
+        checkResult = null
+        isError = false
+        message = "正在检查当前学习通网页会话…"
+        scope.launch {
+            try {
+                val alive = repo.chxSessionAlive()
+                checkResult = alive
+                saved = repo.store.hasChxSession
+                hasCasWebSession = ChxWebSession.hasCasWebSession()
+                isError = alive != true
+                message = when (alive) {
+                    true -> "学习通会话已通过本次验证。"
+                    false -> "尚无有效的学习通会话。" + ChxSso.linkingHint(hasCasWebSession)
+                    null -> "暂时无法确认当前会话，可能是网络故障、页面变化或会话刚更新；可稍后重试。"
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                isError = true
+                message = "暂时无法确认会话；可稍后重试或重新打开网页登录。"
+            } finally {
+                checking = false
+            }
+        }
+    }
 
     BackHandler { onBack() }
 
@@ -81,6 +112,7 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
         }
         localCleared = cleared
         saved = repo.store.hasChxSession
+        hasCasWebSession = ChxWebSession.hasCasWebSession()
         clearPending = false
         isError = !cleared || !serverConfirmed
         message = (if (cleared) "已清理本机已知学习通与学校认证会话。" else "本地清理未完成，请重试。") +
@@ -88,10 +120,10 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
     }
 
     val webLogin = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        // Activity 返回或已有 Cookie 都不能证明登录成功，必须检查当前网页会话。
         saved = repo.store.hasChxSession
-        checkResult = null
-        isError = false
-        message = if (saved) "学习通会话已保存，待验证；可点击“检查会话”。" else "尚未取得学习通会话，可重新打开入口完成认证。"
+        hasCasWebSession = ChxWebSession.hasCasWebSession()
+        checkSession()
     }
     val casLogout = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         logoutPending = false
@@ -121,7 +153,7 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
             .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
     ) {
         Spacer(Modifier.height(20.dp))
-        PageTitle(title = "学习通联动", subtitle = "学校认证，分别访问学习通与教务", onBack = onBack)
+        PageTitle(title = "学习通联动", subtitle = "复用学校网页认证，分别验证登录状态", onBack = onBack)
         AppCard(
             modifier = Modifier.fillMaxWidth(),
             insideMargin = PaddingValues(AppUiTokens.CardPadding),
@@ -136,7 +168,7 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
             Text(
                 when {
                     checkResult == true && saved -> "会话已验证"
-                    checkResult == false -> "会话已失效"
+                    checkResult == false -> "未验证登录"
                     saved -> "已保存，待验证"
                     else -> "未保存会话"
                 },
@@ -151,13 +183,19 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap), modifier = Modifier.padding(top = 12.dp)) {
-            Box(Modifier.weight(1f)) { ChxActionButton("学习通", !busy) { open(ChxSso.fyssoUrl) } }
+            Box(Modifier.weight(1f)) { ChxActionButton("学校单点登录", !busy) { open(ChxSso.fyssoUrl) } }
             Box(Modifier.weight(1f)) { ChxActionButton("课程中心", !busy) { open(ChxSso.mhUrl) } }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap), modifier = Modifier.padding(top = 12.dp)) {
             Box(Modifier.weight(1f)) { ChxActionButton("教务网页", !busy) { open(ChxSso.teachingWebUrl) } }
             Box(Modifier.weight(1f)) { ChxActionButton("学习通首页", !busy) { open(ChxSso.HOME) } }
         }
+        Spacer(Modifier.height(AppUiTokens.CardGap))
+        ChxActionButton("学习通账号网页登录（备用）", !busy) { open(ChxSso.DIRECT_LOGIN) }
+        Text(ChxSso.linkingHint(hasCasWebSession), fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
+            modifier = Modifier.padding(top = 8.dp))
+        Text("备用入口使用学习通账号，请在超星网页自行登录；应用不会代填教务密码。",
+            fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub, modifier = Modifier.padding(top = 4.dp))
         Spacer(Modifier.height(AppUiTokens.CardGap))
         ChxActionButton("查看课程与任务进度", !busy, onCourses)
         Spacer(Modifier.height(AppUiTokens.CardGap))
@@ -182,31 +220,7 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
             }
         }
         Spacer(Modifier.height(AppUiTokens.CardGap))
-        ChxActionButton(if (checking) "检查中…" else "检查会话", saved && !busy) {
-            checking = true
-            checkResult = null
-            isError = false
-            scope.launch {
-                try {
-                    val alive = repo.chxSessionAlive()
-                    checkResult = alive
-                    saved = repo.store.hasChxSession
-                    isError = alive != true
-                    message = when (alive) {
-                        true -> "学习通会话已通过本次验证。"
-                        false -> "学习通会话已失效，请重新登录。"
-                        null -> "暂时无法确认会话，可能是网络故障或页面变化；本地会话已保留。"
-                    }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    isError = true
-                    message = "暂时无法确认会话；本地会话已保留，可稍后重试。"
-                } finally {
-                    checking = false
-                }
-            }
-        }
+        ChxActionButton(if (checking) "检查中…" else "检查会话", !busy, ::checkSession)
         Spacer(Modifier.height(AppUiTokens.CardGap))
         // 即便候选 Cookie 已删除，退出和本地重试入口也不消失。
         ChxActionButton(if (logoutPending) "正在请求学校退出…" else "退出学校认证并清理本机", !busy) {
