@@ -628,8 +628,6 @@ class Repository(context: Context) {
     private val chxSessionMutex = Mutex()
     private val api = GdustApi()
     private val teachingSso = TeachingSsoClient()
-    /** 学习通只读接口（当前只有探活；作业清单等抓到 HAR 再补）。 */
-    private val chxApi = ChxApi()
     /** 登录后教务会话 Cookie 持久化在这里；后续同步、续租、定时任务共用。 */
     val teachingCookies = PersistentCookieJar(context)
 
@@ -1005,12 +1003,19 @@ class Repository(context: Context) {
      * @return 结果文案（中文，直接展示）
      */
     suspend fun chxSyncWorkTodos(): String {
-        val cookie = store.chxCookie
-        require(cookie.isNotBlank()) { "还没有学习通会话：请先在学习通联动里登录一次" }
-        val listHtml = chxApi.courseListHtml(cookie)
-            ?: error("课程列表读取失败：网络不通，或学习通会话已失效（可在联动里检查会话）")
-        val courses = ChxWorkParser.parseCourses(listHtml)
-        if (courses.isEmpty()) error("课程列表为空：请先在学习通里确认已加入课程")
+        val version = sessionGuard.current()
+        val chxVersion = chxSessionVersion.value
+        fun checkSession() = sessionGuard.withCurrent(version) {
+            if (store.webLogoutPending || clearingChxSession || chxSessionVersion.value != chxVersion) {
+                throw CancellationException("学习通登录状态已变更")
+            }
+        }
+        checkSession()
+        val workApi = ChxApi(SessionHttpClient(ChxApi::isAllowedUrl, ::checkSession,
+            webCookieMutex = webCleanupMutex))
+        val courses = workApi.courses()
+        checkSession()
+        if (courses.isEmpty()) return "已读取课程列表，当前没有课程；本地待办已保留"
         var added = 0
         var updated = 0
         var pending = 0
@@ -1018,74 +1023,47 @@ class Repository(context: Context) {
         var failed = 0
         var firstFail: String? = null
         val updates = mutableMapOf<Long, Todo>()
-        // tab 签名缓存：courseId → 课程页隐藏域。命中则省掉 138KB 课程页下载；
-        // 签名疑似失效（作业列表页被踢回登录）时刷新一次再试。
-        val tabCache = store.loadChxTabCache().toMutableMap()
-        // 批量预过滤（stu-job-info 一次带全量 clazzId_cpi 对）：全班都完成/无作业的课直接跳过，
-        // 把 work/list 的请求数从「课程数」压到「有未完成的课」。接口无有效数据时退回全量检查。
-        val clazzPersonStr = courses.joinToString("%2C") { "${it.classId}_${it.cpi}" }
-        val jobInfo = chxApi.jobInfoJson(cookie, clazzPersonStr)
-            ?.let { ChxWorkParser.parseJobInfo(it) }
-            .orEmpty()
-        // 课程多（实测一个账号 30+ 门，含历史学期）：并发拉取，失败按课程隔离
-        val semaphore = Semaphore(4)
+        // 任务点完成不代表没有作业；每门课程独立读取，单课失败不取消全部结果。
+        val semaphore = Semaphore(3)
         val results = coroutineScope {
             courses.map { course ->
                 async {
-                    if (jobInfo.isNotEmpty()) {
-                        val (jobCount, jobFinish) = jobInfo[course.classId]
-                            ?: return@async Triple(course, Result.success(emptyList<Pair<ChxWorkItem, Long>>()), null)
-                        if (jobCount == 0 || jobFinish >= jobCount) {
-                            // 无作业，或全班（含本人）都完成
-                            return@async Triple(course, Result.success(emptyList<Pair<ChxWorkItem, Long>>()), null)
-                        }
-                    }
                     semaphore.withPermit {
-                        var tabs = tabCache[course.courseId]
-                        var refreshed: ChxWorkTabs? = null
-                        var rawItems: List<ChxWorkItem> = emptyList()
-                        for (attempt in 1..2) {
-                            if (tabs == null) {
-                                val tabsHtml = chxApi.courseTabsHtml(cookie, course.courseId, course.classId, course.cpi)
-                                    ?: error("课程页读取失败")
-                                tabs = ChxWorkParser.parseCourseTabs(tabsHtml)
-                                    ?: error("课程页缺少作业签名（可能没有作业 tab）")
-                                refreshed = tabs
+                        val result = try {
+                            checkSession()
+                            val tabs = workApi.courseTabs(course)
+                            val items = workApi.workList(course, tabs)
+                            val now = System.currentTimeMillis()
+                            val detailed = items.map { item ->
+                                val deadline = if (item.status != "未交" || item.detailUrl.isBlank()) 0L else try {
+                                    ChxWorkParser.parseDeadlineMillis(workApi.workDetailHtml(item.detailUrl), now)
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: AuthFailed) {
+                                    throw e
+                                } catch (_: Exception) {
+                                    0L
+                                }
+                                item to deadline
                             }
-                            val workHtml = chxApi.workListHtml(
-                                cookie, tabs.moocDomain, course.courseId, course.classId, course.cpi,
-                                tabs.enc, tabs.workEnc, tabs.t,
-                            ) ?: error("作业列表读取失败")
-                            rawItems = ChxWorkParser.parseWorkList(workHtml)
-                            // 列表页 title=「作业列表」；缺失说明签名失效被踢走 → 刷新课程页再试一次
-                            if (workHtml.contains("作业列表") || attempt == 2) break
-                            tabs = null
+                            Result.success(detailed)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Result.failure(e)
                         }
-                        // 未交作业逐条读详情页的绝对截止时间（列表页只有「剩余X」相对时间）。
-                        // 只对未交条目发请求，通常几条，影响可控；失败就回退相对时间。
-                        val nowMain = System.currentTimeMillis()
-                        val detailed = rawItems.map { it ->
-                            if (it.status != "未交" || it.detailUrl.isBlank()) it to 0L
-                            else it to (chxApi.workDetailHtml(cookie, it.detailUrl)
-                                ?.let { html -> ChxWorkParser.parseDeadlineMillis(html, nowMain) } ?: 0L)
-                        }
-                        Triple(course, Result.success(detailed), refreshed)
+                        course to result
                     }
                 }
             }.awaitAll()
         }
-        var cacheDirty = false
-        for ((course, r, refreshed) in results) {
-            refreshed?.let {
-                if (tabCache[course.courseId] != it) {
-                    tabCache[course.courseId] = it
-                    cacheDirty = true
-                }
-            }
-            val items = r.getOrNull()
+        checkSession()
+        for ((course, result) in results) {
+            val items = result.getOrNull()
             if (items == null) {
                 failed++
-                firstFail = firstFail ?: "${course.name}：${r.exceptionOrNull()?.message}"
+                val failure = result.exceptionOrNull()
+                firstFail = firstFail ?: if (failure is AuthFailed || failure is ChxCourseReadException) failure.message else "请求未完成"
                 continue
             }
             scanned++
@@ -1113,11 +1091,14 @@ class Repository(context: Context) {
                 )
             }
         }
-        if (cacheDirty) store.saveChxTabCache(tabCache)
+        if (scanned == 0) throw ChxCourseReadException("作业同步失败：$failed 门课程均未能读取${firstFail?.let { "（$it）" }.orEmpty()}，本地待办已保留")
         if (updates.isEmpty()) {
-            return "同步完成：扫了 $scanned 门课${failSuffix(failed, firstFail)}，学习通里没有作业"
+            return if (failed == 0) "已检查 $scanned 门课程，未发现作业；本地待办已保留"
+                else "部分完成：已检查 $scanned 门课程${failSuffix(failed, firstFail)}；本地待办已保留"
         }
         var merged = 0
+        sessionGuard.withCurrent(version) {
+        checkSession()
         store.updateTodos { current ->
             val byId = current.associateBy { it.id }.toMutableMap()
             // 通知监听写入的条目与 web 清单是两套 id（时间戳 vs workId），但文本/课程相同；
@@ -1177,7 +1158,8 @@ class Repository(context: Context) {
             }
             byId.values.toList()
         }
-        return "同步完成：扫了 $scanned 门课${failSuffix(failed, firstFail)}，" +
+        }
+        return (if (failed > 0) "部分完成" else "同步完成") + "：检查了 $scanned 门课${failSuffix(failed, firstFail)}，" +
             "新增 $added 条、更新 $updated 条" +
             (if (merged > 0) "、合并 $merged 条通知重复" else "") +
             "，未交 $pending 条"

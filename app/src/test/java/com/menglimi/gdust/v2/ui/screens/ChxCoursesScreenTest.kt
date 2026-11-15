@@ -3,6 +3,7 @@ package com.menglimi.gdust.v2.ui.screens
 import com.menglimi.gdust.v2.data.AuthFailed
 import com.menglimi.gdust.v2.data.ChxCourse
 import com.menglimi.gdust.v2.data.ChxCourseOverview
+import com.menglimi.gdust.v2.data.ChxCourseReadException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
@@ -158,6 +159,19 @@ class ChxCoursesScreenTest {
         assertFalse(controller.state.value.stale)
         assertNull(controller.state.value.error)
         controller.cancel()
+    }
+
+    @Test fun workSyncFailureKeepsItsOwnScopeAndNeverDisplaysRawNetworkDetails() {
+        val transport = chxWorkSyncError(IOException("private query signature and response"))
+        assertFalse(transport.contains("private"))
+        assertTrue(transport.contains("现有待办已保留"))
+        assertFalse(transport.contains("CAS"))
+        assertEquals("作业同步未完成：课程页读取失败（HTTP 503）",
+            chxWorkSyncError(ChxCourseReadException("课程页读取失败（HTTP 503）")))
+        val auth = chxWorkSyncError(AuthFailed(401, "private auth response"))
+        assertTrue(auth.contains("作业接口要求重新登录"))
+        assertTrue(auth.contains("此前的首页验证不代表"))
+        assertFalse(auth.contains("private"))
     }
 
     private fun overview(name: String) = ChxCourseOverview(

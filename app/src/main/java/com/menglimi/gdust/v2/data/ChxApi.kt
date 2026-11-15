@@ -1,79 +1,135 @@
 package com.menglimi.gdust.v2.data
 
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import okhttp3.Call
-import okhttp3.Callback
-import okhttp3.FormBody
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import java.io.IOException
-import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
+import okhttp3.Request
+import java.net.URI
 
-/** 学习通只读探活；不扩展尚无协议证据的作业/考试端点。 */
-class ChxApi {
-    private val ua =
-        "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+/** 学习通作业只读请求。每个 URL 的实时 Cookie、响应 Cookie 与会话隔离由 Repository 提供。 */
+class ChxApi internal constructor(private val execute: suspend (Request) -> SessionResponse) {
+    internal constructor(http: SessionHttpClient) : this(http::execute)
 
-    // 不把手工 Cookie 请求头跟随跳转发给其它主机；已知登录跳转直接判失效，其余保留未知。
-    private val client = OkHttpClient.Builder()
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .callTimeout(30, TimeUnit.SECONDS)
-        .build()
-
-    /** true = 已有肯定证据；false = 明确未登录；null = 无法确认，不应清理候选会话。 */
-    suspend fun probe(cookie: String): Boolean? = withContext(Dispatchers.IO) {
-        if (!ChxSso.hasSessionCookie(cookie)) return@withContext false
-        try {
-            val request = Request.Builder()
-                .url(ChxSso.HOME)
-                .header("User-Agent", ua)
-                .header("Cookie", cookie)
-                .get()
-                .build()
-            client.newCall(request).readProbe()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            currentCoroutineContext().ensureActive()
-            null
+    /** 与课程展示使用相同的发现与 HTML 校验；任务点统计不能证明没有作业。 */
+    suspend fun courses(): List<ChxWorkCourse> = withContext(Dispatchers.IO) {
+        ChxCourseApi.discoverWith(execute).map {
+            ChxWorkCourse(it.courseId.toLong(), it.clazzId.toLong(), it.curPersonId.toLong(), it.name, it.url)
         }
     }
 
-    // 读取响应也在 OkHttp 回调线程上完成，取消时关闭请求（包括正在读取的 body）。
-    private suspend fun Call.readProbe(): Boolean? = suspendCancellableCoroutine { continuation ->
-        continuation.invokeOnCancellation { cancel() }
-        enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                if (continuation.isActive) continuation.resumeWithException(e)
-            }
+    suspend fun courseTabs(course: ChxWorkCourse): ChxWorkTabs = withContext(Dispatchers.IO) {
+        val trusted = ChxCourseApi.trustedCourseUrl(course.url, course.classId.toString(),
+            course.courseId.toString(), course.cpi.toString())
+            ?: throw ChxCourseReadException("课程入口无法识别，请在学习通网页查看。")
+        val html = readPage(trusted, ChxSso.HOME, "课程页", ::isCoursePage)
+        ChxWorkParser.parseCourseTabs(html, course)
+            ?: throw ChxCourseReadException("课程页未提供可识别的作业入口；不能据此判断没有作业，请在网页查看。")
+    }
 
-            override fun onResponse(call: Call, response: Response) {
-                try {
-                    val result = response.use {
-                        val body = if (it.isSuccessful) it.peekBody(512L * 1024).string() else null
-                        sessionEvidence(it.code, it.request.url.toString(), body, it.header("Location"))
-                    }
-                    if (continuation.isActive) continuation.resume(result)
-                } catch (e: Exception) {
-                    if (continuation.isActive) continuation.resumeWithException(e)
+    suspend fun workList(course: ChxWorkCourse, tabs: ChxWorkTabs): List<ChxWorkItem> = withContext(Dispatchers.IO) {
+        val requestUrl = workListUrl(course, tabs)
+        val html = readPage(requestUrl.toString(), COURSE_PAGE, "作业列表", ::isWorkList)
+        ChxWorkParser.parseWorkList(html, course)
+    }
+
+    suspend fun workDetailHtml(detailUrl: String): String = withContext(Dispatchers.IO) {
+        val url = trustedUrl(detailUrl)?.takeIf(::isWorkDetail)
+            ?: throw ChxCourseReadException("作业详情地址无法识别，请在学习通网页查看。")
+        readPage(url.toString(), null, "作业详情", ::isWorkDetail)
+    }
+
+    /** 不启用全局跟随：逐跳校验目标，再由 SessionHttpClient 为新 URL 读取 Cookie。 */
+    private suspend fun readPage(
+        initialUrl: String,
+        referer: String?,
+        stage: String,
+        allowedPage: (HttpUrl) -> Boolean,
+    ): String {
+        var url = trustedUrl(initialUrl)?.takeIf(allowedPage)
+            ?: throw ChxCourseReadException("$stage 地址无法识别，请在学习通网页查看。")
+        val visited = mutableSetOf<String>()
+        repeat(5) {
+            currentCoroutineContext().ensureActive()
+            if (!visited.add(url.toString())) throw ChxCourseReadException("$stage 出现循环跳转，请在网页查看。")
+            val request = Request.Builder().url(url).header("User-Agent", ChxCourseApi.USER_AGENT)
+                .apply { if (referer != null) header("Referer", referer) }.get().build()
+            val response = ChxCourseApi.executeChecked(execute, request, "$stage 读取失败")
+            if (response.status in setOf(301, 302, 303, 307, 308)) {
+                if (ChxCourseApi.isTrustedLoginRedirect(url, response.location)) {
+                    throw AuthFailed(401, "$stage 要求重新登录学习通，请在网页完成认证。")
                 }
+                val next = redirectTarget(url, response.location)?.takeIf(allowedPage)
+                    ?: throw ChxCourseReadException("$stage 读取失败（HTTP ${response.status}，未识别的跳转），请在网页查看。")
+                url = next
+            } else {
+                return ChxCourseApi.requireBody(response, url, "$stage 读取失败")
             }
-        })
+        }
+        throw ChxCourseReadException("$stage 跳转次数过多，请在网页查看。")
     }
 
     companion object {
+        private const val COURSE_PAGE = "https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu"
+
+        internal fun isAllowedUrl(url: HttpUrl): Boolean = ChxCourseApi.isAllowedUrl(url) ||
+            (url.scheme == "https" && url.port == 443 && url.username.isEmpty() && url.password.isEmpty() &&
+                url.fragment == null && (isCoursePage(url) || isWorkList(url) || isWorkDetail(url)))
+
+        private fun isCoursePage(url: HttpUrl): Boolean =
+            (url.host == "mooc1.chaoxing.com" && url.encodedPath == "/visit/stucoursemiddle") ||
+                (url.host == "mooc2-ans.chaoxing.com" && url.encodedPath == "/mooc2-ans/mycourse/stu")
+
+        private fun isWorkList(url: HttpUrl): Boolean = url.host == "mooc1.chaoxing.com" &&
+            url.encodedPath in setOf("/mooc2/work/list", "/mooc-ans/mooc2/work/list")
+
+        private fun isWorkDetail(url: HttpUrl): Boolean = url.host == "mooc1.chaoxing.com" &&
+            url.encodedPath == "/mooc-ans/mooc2/work/task"
+
+        /** URI 检查避免 HttpUrl 规范化掩盖用户信息、反斜线、路径穿越等非协议地址。 */
+        internal fun trustedUrl(value: String): HttpUrl? {
+            if (value.any { it.code <= 32 || it.code == 127 } || '\\' in value) return null
+            val uri = try { URI(value) } catch (_: Exception) { return null }
+            if (uri.scheme != "https" || uri.userInfo != null || uri.port !in setOf(-1, 443) ||
+                uri.rawFragment != null || uri.normalize().rawPath != uri.rawPath) return null
+            val parsed = value.toHttpUrlOrNull() ?: return null
+            return parsed.takeIf { it.encodedPath == uri.rawPath && isAllowedUrl(it) }
+        }
+
+        internal fun redirectTarget(base: HttpUrl, location: String?): HttpUrl? {
+            if (location.isNullOrBlank() || location.any { it.code <= 32 || it.code == 127 } || '\\' in location) return null
+            val target = try { URI(location) } catch (_: Exception) { return null }
+            if (target.normalize().rawPath != target.rawPath) return null
+            val resolved = try { URI(base.toString()).resolve(target).toString() } catch (_: Exception) { return null }
+            return trustedUrl(resolved)
+        }
+
+        internal fun workListUrl(course: ChxWorkCourse, tabs: ChxWorkTabs): HttpUrl {
+            if (course.courseId <= 0 || course.classId <= 0 || course.cpi <= 0 ||
+                tabs.enc.isBlank() || tabs.workEnc.isBlank() || tabs.t.isBlank()) {
+                throw ChxCourseReadException("课程页缺少作业查询参数，请在学习通网页查看。")
+            }
+            val base = tabs.moocDomain.toHttpUrlOrNull()
+            if (base == null || base.scheme != "https" || base.host != "mooc1.chaoxing.com" || base.port != 443 ||
+                base.username.isNotEmpty() || base.password.isNotEmpty() || base.query != null || base.fragment != null ||
+                base.encodedPath !in setOf("/", "/mooc-ans", "/mooc-ans/")) {
+                throw ChxCourseReadException("课程页的作业服务地址无法识别，请在学习通网页查看。")
+            }
+            val raw = tabs.moocDomain.trimEnd('/') + "/mooc2/work/list"
+            val url = trustedUrl(raw)?.takeIf(::isWorkList)
+                ?: throw ChxCourseReadException("课程页的作业服务地址无法识别，请在学习通网页查看。")
+            return url.newBuilder()
+                .addQueryParameter("courseId", course.courseId.toString())
+                .addQueryParameter("classId", course.classId.toString())
+                .addQueryParameter("cpi", course.cpi.toString())
+                .addQueryParameter("ut", "s").addQueryParameter("t", tabs.t)
+                .addQueryParameter("stuenc", tabs.enc).addQueryParameter("enc", tabs.workEnc)
+                .build()
+        }
+
         /** 纯判定便于回归：200/非登录 HTML 本身不是有效会话证据。 */
         internal fun sessionEvidence(status: Int, url: String, body: String?, location: String? = null): Boolean? {
             val parsed = url.toHttpUrlOrNull() ?: return null
@@ -91,12 +147,9 @@ class ChxApi {
                 .replace(Regex("<(script|style)\\b[^>]*>.*?</\\1\\s*>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), "")
             val inputs = Regex("<input\\b[^>]*>", RegexOption.IGNORE_CASE).findAll(markup)
                 .map { attributes(it.value) }.toList()
-            // 明确的交互式登录表单才判失效，正文提到“登录”不够。
             val loginForm = inputs.any { it["type"].equals("password", ignoreCase = true) } &&
                 (markup.contains("用户登录") || markup.contains("扫码登录") || markup.contains("统一身份认证"))
             if (loginForm) return false
-            // 本地已有 HAR 的 interaction 页：服务端生成的 checkUserToken + 学生页结构。
-            // 不解析/记录身份值；模板占位、空 token、维护页和未知页面全部保持未知。
             val token = inputs.firstOrNull { it["id"] == "checkUserToken" }?.get("value").orEmpty()
             val positive = Regex("[a-fA-F0-9]{32}").matches(token) && token.any { it != '0' } &&
                 inputs.any { it["id"] == "stuPageHeader" } &&
@@ -110,88 +163,5 @@ class ChxApi {
                     match.groupValues[1].lowercase(java.util.Locale.ROOT) to
                         match.groups.drop(2).firstNotNullOf { it?.value }
                 }
-    }
-
-    // ── 作业同步（端点与结构全部来自真实抓包，见 docs/EXTENDING.md §3.4） ──
-
-    private fun getHtml(cookie: String, url: String, referer: String? = null): String? =
-        runCatching {
-            val b = Request.Builder().url(url).header("User-Agent", ua).header("Cookie", cookie)
-            if (referer != null) b.header("Referer", referer)
-            client.newCall(b.get().build()).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            }
-        }.getOrNull()
-
-    /**
-     * 学校课程列表（POST，表单字段为固定值，来自抓包；Referer 为学习通首页）。
-     * 返回的 HTML 里每门课一个 `visit/stucoursemiddle?courseid&clazzid&cpi` 链接。
-     */
-    suspend fun courseListHtml(cookie: String): String? = withContext(Dispatchers.IO) {
-        val form = FormBody.Builder()
-            .add("courseType", "1").add("courseFolderId", "0").add("query", "")
-            .add("pageHeader", "-1").add("single", "0").add("superstarClass", "0")
-            .add("isFirefly", "0").add("courseLevelLabelId", "0").add("fid", "").add("from", "")
-            .build()
-        val req = Request.Builder()
-            .url("https://mooc2-ans.chaoxing.com/mooc2-ans/visit/courselistdata")
-            .header("User-Agent", ua)
-            .header("Cookie", cookie)
-            .header("Referer", "https://mooc2-ans.chaoxing.com/mooc2-ans/visit/interaction")
-            .post(form)
-            .build()
-        runCatching {
-            client.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            }
-        }.getOrNull()
-    }
-
-    /**
-     * 批量作业计数：一次请求带全部 `clazzId_cpi` 对（逗号 %2C 分隔），
-     * 返回每班的 jobCount/jobFinishCount/jobRate——用来预过滤，避免全量课程逐个拉作业列表。
-     */
-    suspend fun jobInfoJson(cookie: String, clazzPersonStr: String): String? =
-        withContext(Dispatchers.IO) {
-            getHtml(
-                cookie,
-                "https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu-job-info?clazzPersonStr=$clazzPersonStr",
-            )
-        }
-
-    /**
-     * 课程页：跟随 stucoursemiddle 的 302 落到 mycourse/stu，
-     * 隐藏域里带 enc / workEnc / examEnc / t / userId / moocDomainName。
-     */
-    suspend fun courseTabsHtml(cookie: String, courseId: Long, classId: Long, cpi: Long): String? =
-        withContext(Dispatchers.IO) {
-            getHtml(
-                cookie,
-                "https://mooc1.chaoxing.com/visit/stucoursemiddle" +
-                    "?courseid=$courseId&clazzid=$classId&cpi=$cpi&ismooc2=1&v=2",
-            )
-        }
-
-    /** 作业详情页（列表里每条 li[data] 就是它的地址）：用于读绝对截止时间。 */
-    suspend fun workDetailHtml(cookie: String, detailUrl: String): String? =
-        withContext(Dispatchers.IO) { getHtml(cookie, detailUrl) }
-
-    /** 作业列表页：参数全部来自课程页隐藏域（ut=s、t 为页面时间戳）。 */
-    suspend fun workListHtml(
-        cookie: String,
-        moocDomain: String,
-        courseId: Long,
-        classId: Long,
-        cpi: Long,
-        enc: String,
-        workEnc: String,
-        t: String,
-    ): String? = withContext(Dispatchers.IO) {
-        getHtml(
-            cookie,
-            "$moocDomain/mooc2/work/list" +
-                "?courseId=$courseId&classId=$classId&cpi=$cpi&ut=s&t=$t&stuenc=$enc&enc=$workEnc",
-            "https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu",
-        )
     }
 }

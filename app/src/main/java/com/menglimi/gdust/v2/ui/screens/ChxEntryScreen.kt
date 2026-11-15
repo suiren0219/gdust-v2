@@ -36,6 +36,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.menglimi.gdust.v2.data.AuthFailed
+import com.menglimi.gdust.v2.data.ChxCourseReadException
 import com.menglimi.gdust.v2.data.ChxSso
 import com.menglimi.gdust.v2.data.ChxWebSession
 import com.menglimi.gdust.v2.data.Repository
@@ -61,6 +63,8 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
     var saved by remember { mutableStateOf(repo.store.hasChxSession) }
     var checking by remember { mutableStateOf(false) }
     var syncing by remember { mutableStateOf(false) }
+    var syncMessage by rememberSaveable { mutableStateOf("") }
+    var syncError by rememberSaveable { mutableStateOf(false) }
     var checkResult by remember { mutableStateOf<Boolean?>(null) }
     var logoutPending by rememberSaveable { mutableStateOf(false) }
     var clearPending by rememberSaveable { mutableStateOf(false) }
@@ -82,7 +86,7 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
                 hasCasWebSession = ChxWebSession.hasCasWebSession()
                 isError = alive != true
                 message = when (alive) {
-                    true -> "学习通会话已通过本次验证。"
+                    true -> "学习通首页会话已通过本次验证；课程和作业能否读取以各自请求结果为准。"
                     false -> "尚无有效的学习通会话。" + ChxSso.linkingHint(hasCasWebSession)
                     null -> "暂时无法确认当前会话，可能是网络故障、页面变化或会话刚更新；可稍后重试。"
                 }
@@ -167,7 +171,7 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
         ) {
             Text(
                 when {
-                    checkResult == true && saved -> "会话已验证"
+                    checkResult == true && saved -> "首页会话已验证"
                     checkResult == false -> "未验证登录"
                     saved -> "已保存，待验证"
                     else -> "未保存会话"
@@ -192,7 +196,8 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
         }
         Spacer(Modifier.height(AppUiTokens.CardGap))
         ChxActionButton("学习通账号网页登录（备用）", !busy) { open(ChxSso.DIRECT_LOGIN) }
-        Text(ChxSso.linkingHint(hasCasWebSession), fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
+        Text(if (saved) "学习通已有独立会话；学校网页认证是否存在不影响当前会话判断。" else ChxSso.linkingHint(hasCasWebSession),
+            fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
             modifier = Modifier.padding(top = 8.dp))
         Text("备用入口使用学习通账号，请在超星网页自行登录；应用不会代填教务密码。",
             fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub, modifier = Modifier.padding(top = 4.dp))
@@ -204,20 +209,26 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
             saved && !busy && !syncing,
         ) {
             syncing = true
-            isError = false
-            message = "正在读取学习通作业列表（按课程逐门拉取，可能需要几十秒）…"
+            syncError = false
+            syncMessage = "正在读取学习通作业列表（按课程逐门拉取，可能需要几十秒）…"
             scope.launch {
                 try {
-                    message = repo.chxSyncWorkTodos()
+                    syncMessage = repo.chxSyncWorkTodos()
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (e: Exception) {
-                    isError = true
-                    message = e.message ?: "学习通作业同步失败"
+                    syncError = true
+                    syncMessage = chxWorkSyncError(e)
                 } finally {
                     syncing = false
                 }
             }
+        }
+        Text("首页验证只确认首页登录状态，不代表课程或作业请求已成功。",
+            fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp))
+        if (syncMessage.isNotBlank()) {
+            Text(syncMessage, fontSize = 13.sp, lineHeight = 20.sp, color = if (syncError) ds.danger else ds.sub,
+                modifier = Modifier.padding(top = 8.dp))
         }
         Spacer(Modifier.height(AppUiTokens.CardGap))
         ChxActionButton(if (checking) "检查中…" else "检查会话", !busy, ::checkSession)
@@ -253,6 +264,13 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
             fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
         )
     }
+}
+
+/** 仅展示数据层固定的阶段与错误类别，原始网络异常可能包含签名或私密响应。 */
+internal fun chxWorkSyncError(error: Exception): String = when (error) {
+    is AuthFailed -> "作业接口要求重新登录学习通，请打开学习通网页完成认证；此前的首页验证不代表作业接口仍有效。"
+    is ChxCourseReadException -> "作业同步未完成：${error.message}"
+    else -> "作业同步未完成，请检查网络后重试或在学习通网页查看；现有待办已保留。"
 }
 
 /** 实底操作卡保留原有启用条件，禁用时保持文字可读。 */
