@@ -47,15 +47,11 @@ class App : Application() {
         // 加密存储初始化较重（读 keystore 100–500ms）：挪到后台线程预热，主线程不再卡
         Thread { repo.store.warmSecure() }.start()
         repo.store.publishPowerWorkerConfig()
-        // 省电：水电预警只在绑定了宿舍电号时才需要后台巡检——没绑定不排程（原来无条件 15 分钟唤醒）
-        if (repo.store.hasPowerBinding) {
-            com.menglimi.gdust.v2.work.PowerWorker.schedule(this)
-        } else {
-            com.menglimi.gdust.v2.work.PowerWorker.cancel(this)
-        }
         // 登录过就开启定时同步整学期课表（12 小时一次；会话失效会通知重登）
-        if (repo.store.autoSyncEnabled && (repo.store.hasSession || repo.store.casTicket.isNotBlank())) {
+        if (repo.store.autoSyncEnabled && (repo.store.hasSession || repo.store.casTicket.isNotBlank() || repo.hasTeachingSession())) {
             com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(this)
+        } else {
+            com.menglimi.gdust.v2.work.ScheduleSyncWorker.cancel(this)
         }
         com.menglimi.gdust.v2.work.ClassDndAlarms.initialize(this)
         // 课程提醒（课前 + 次日）；开关在设置里控制

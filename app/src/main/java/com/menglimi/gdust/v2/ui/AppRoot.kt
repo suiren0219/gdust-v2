@@ -362,7 +362,7 @@ fun AppRoot(
                 onLoggedIn = {
                     loggedIn.value = true
                     // 登录成功即开启定时同步
-                    runCatching { com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(context) }
+                    if (repo.store.autoSyncEnabled) runCatching { com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(context) }
                     sync()
                 },
                 onOpenSettings = { showSettings.value = true },

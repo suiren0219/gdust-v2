@@ -121,6 +121,7 @@ fun SettingsScreen(
     val store = repo.store
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     var query by rememberSaveable { mutableStateOf("") }
 
     var base by remember { mutableStateOf(store.llmBase) }
@@ -140,6 +141,7 @@ fun SettingsScreen(
     // 普通 prefs 不会触发重组，选中态必须用本地镜像并同步写回。
     var startTabLocal by remember { mutableStateOf(store.startTab) }
     var sampleIntervalLocal by remember { mutableStateOf(store.sampleIntervalMinutes) }
+    var powerPresetLocal by remember { mutableStateOf(store.powerQueryPreset) }
     var smartWeekendLocal by remember { mutableStateOf(store.smartHideWeekend) }
     var autoSyncLocal by remember { mutableStateOf(store.autoSyncEnabled) }
     // 教务夜间关闭：开关与 HH:mm 时段（prefs 不触发重组，用本地镜像）。
@@ -235,7 +237,12 @@ fun SettingsScreen(
             SettingsEntry(
                 id = "autoSync", title = "自动同步课表", summary = "保持已登录账号的课表更新", icon = MiuixIcons.Refresh,
                 checked = autoSyncLocal,
-                onCheckedChange = { autoSyncLocal = it; store.autoSyncEnabled = it },
+                onCheckedChange = {
+                    autoSyncLocal = it
+                    store.autoSyncEnabled = it
+                    if (it) com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(context)
+                    else com.menglimi.gdust.v2.work.ScheduleSyncWorker.cancel(context)
+                },
             ),
         )),
         SettingsSection("服务", listOf(
@@ -303,19 +310,30 @@ fun SettingsScreen(
                         dropText.toFloatOrNull()?.let { store.warnDropRate = it }
                         thresholdSaved = true
                     }
-                    Text("后台每 15 分钟巡检，同类预警间隔 12 小时。", fontSize = 13.sp, color = secondary)
+                    Text("按电量查询预设执行，同类预警间隔 12 小时；手动模式只在查询时检查。", fontSize = 13.sp, color = secondary)
                 },
             ),
             SettingsEntry(
-                id = "interval", title = "电量采样间隔", summary = "记录宿舍电量走势", icon = MiuixIcons.Timer,
-                detail = "$sampleIntervalLocal 分钟", onClick = { toggle("interval") },
+                id = "interval", title = "电量查询预设", summary = "按宿舍余量调整查询节奏", icon = MiuixIcons.Timer,
+                detail = powerPresetLocal.title, onClick = { toggle("interval") },
                 editor = {
+                    val presets = com.menglimi.gdust.v2.data.PowerQueryPreset.entries
                     SegmentedChoice(
-                        options = listOf(15, 30, 60, 120).map { it to "${it}分" },
-                        selected = sampleIntervalLocal,
-                        onSelect = { sampleIntervalLocal = it; store.sampleIntervalMinutes = it },
+                        options = presets.map { it to it.title }, selected = powerPresetLocal,
+                        onSelect = { powerPresetLocal = it; store.powerQueryPreset = it },
                     )
-                    Text("间隔越短，走势越细；后台仍按 15 分钟巡检。", fontSize = 13.sp, color = secondary)
+                    if (powerPresetLocal == com.menglimi.gdust.v2.data.PowerQueryPreset.CUSTOM) {
+                        SegmentedChoice(
+                            options = listOf(15, 30, 60, 120).map { it to "${it}分" }, selected = sampleIntervalLocal,
+                            onSelect = { sampleIntervalLocal = it; store.sampleIntervalMinutes = it },
+                        )
+                    }
+                    Text(when (powerPresetLocal) {
+                        com.menglimi.gdust.v2.data.PowerQueryPreset.MANUAL -> "仅点按查询时更新，停止后台电量任务。"
+                        com.menglimi.gdust.v2.data.PowerQueryPreset.BALANCED -> "通常每 2 小时查询；余量偏低或预计不足两天时每小时查询。"
+                        com.menglimi.gdust.v2.data.PowerQueryPreset.LOW_POWER -> "通常每小时查询；余量偏低或预计不足两天时每 30 分钟查询。"
+                        com.menglimi.gdust.v2.data.PowerQueryPreset.CUSTOM -> "按自定间隔采样。后台仅在日间时段查询，系统省电策略可能延后执行。"
+                    }, fontSize = 13.sp, color = secondary)
                 },
             ),
             SettingsEntry(

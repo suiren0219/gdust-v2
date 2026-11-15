@@ -46,7 +46,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.PowerDetail
+import com.menglimi.gdust.v2.data.PowerQueryPolicy
+import com.menglimi.gdust.v2.data.PowerQueryPreset
+import com.menglimi.gdust.v2.data.PowerSample
 import com.menglimi.gdust.v2.data.PowerRoom
+import com.menglimi.gdust.v2.work.PowerWorker
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.data.Store
 import com.menglimi.gdust.v2.data.isNetworkDown
@@ -82,31 +86,33 @@ fun PowerScreen(repo: Repository) {
     var account by remember { mutableStateOf(store.powerAccount) }
     var code by remember { mutableStateOf(store.powerCode.takeIf { it > 0 }?.toString() ?: "") }
     var rooms by remember { mutableStateOf<List<PowerRoom>>(emptyList()) }
-    var detail by remember { mutableStateOf<PowerDetail?>(null) }
+    val initialReading = remember { PowerWorker.cachedReading(ctx) }
+    var detail by remember { mutableStateOf<PowerDetail?>(initialReading?.detail) }
     var busy by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf("") }
     var netDown by remember { mutableStateOf(false) }
     var intervalSaved by remember { mutableStateOf(false) }
     var sampleIntervalLocal by remember { mutableStateOf(store.sampleIntervalMinutes) }
+    var queryPreset by remember { mutableStateOf(store.powerQueryPreset) }
     var hasBinding by remember { mutableStateOf(store.hasPowerBinding) }
     var editingBinding by remember { mutableStateOf(false) }
     var roomName by remember { mutableStateOf(store.powerRoomName) }
     var roomQueryAccount by remember { mutableStateOf("") }
     var roomQueryCode by remember { mutableStateOf(0) }
-    var updatedAt by remember { mutableStateOf<Long?>(null) }
+    var updatedAt by remember { mutableStateOf(initialReading?.updatedAt) }
     var showHistory by remember { mutableStateOf(false) }
 
-    fun refresh() {
+    fun refresh(force: Boolean = true) {
         if (!hasBinding || busy) return
         busy = true
         msg = ""
         netDown = false
         scope.launch {
             try {
-                val result = repo.powerDetail()
-                detail = result
-                result.odd?.let { store.addSample(it) }
-                updatedAt = System.currentTimeMillis()
+                PowerWorker.query(ctx, force = force)?.let { result ->
+                    detail = result.detail
+                    updatedAt = result.updatedAt
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -118,8 +124,13 @@ fun PowerScreen(repo: Repository) {
         }
     }
 
-    LaunchedEffect(Unit) { refresh() }
+    LaunchedEffect(Unit) { if (queryPreset != PowerQueryPreset.MANUAL) refresh(force = false) }
     val samples = remember(detail, busy, roomName) { store.loadSamples().sortedBy { it.time } }
+    val powerSamples = remember(samples) { samples.map { PowerSample(it.time, it.odd) } }
+    val now = System.currentTimeMillis()
+    val estimate = PowerQueryPolicy.estimate(powerSamples, now)
+    val queryPlan = PowerQueryPolicy.plan(queryPreset, sampleIntervalLocal, powerSamples, now,
+        store.warnThreshold.toDouble(), store.warnDropRate.toDouble())
     // 历史记录是独立子页（日历视图），返回时回到电量页。
     if (showHistory) {
         PowerHistoryScreen(repo, onBack = { showHistory = false })
@@ -173,10 +184,7 @@ fun PowerScreen(repo: Repository) {
         }
 
         if (hasBinding && !editingBinding) {
-            val weekUse = detail?.weekUse.orEmpty()
-            // 预计可用天数：近 7 日平均日耗为 0 时（如刚充值）不显示估算，避免误导
-            val avgDaily = weekUse.map { it.second }.takeIf { it.isNotEmpty() }?.average()?.takeIf { it > 0.01 }
-            val daysLeft = avgDaily?.let { detail?.odd?.div(it) }
+            val daysLeft = estimate.daysLeft
             GlassCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("剩余电量", fontSize = 14.sp, color = secondary)
@@ -193,8 +201,9 @@ fun PowerScreen(repo: Repository) {
                         when {
                             busy -> "正在更新电量"
                             msg.isNotEmpty() && detail != null -> "更新失败，保留上次查询结果"
-                            updatedAt != null -> "更新于 " + java.text.SimpleDateFormat("HH:mm", java.util.Locale.CHINA)
+                            updatedAt != null -> "最近查询 " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.CHINA)
                                 .format(java.util.Date(updatedAt!!))
+                            queryPreset == PowerQueryPreset.MANUAL -> "手动模式，点击刷新查询"
                             else -> "等待查询"
                         },
                         fontSize = 13.sp, color = secondary,
@@ -207,11 +216,15 @@ fun PowerScreen(repo: Repository) {
                     PowerMetric("今日用电", detail?.todayUse?.let { "%.1f".format(it) } ?: "—", unit = "度")
                 }
                 AppCard(Modifier.weight(1f), insideMargin = androidx.compose.foundation.layout.PaddingValues(AppUiTokens.CardPadding)) {
-                    PowerMetric("预计可用", daysLeft?.let { "%.0f".format(it) } ?: "—", unit = "天",
+                    PowerMetric("粗估可用", daysLeft?.let { "约 %.1f".format(it) } ?: "—", unit = "天",
                         warn = daysLeft?.let { it < 3 } == true)
                 }
             }
-            Spacer(Modifier.height(AppUiTokens.CardGap))
+            Text(
+                estimate.state.explanation,
+                fontSize = 13.sp, lineHeight = 19.sp, color = secondary,
+                modifier = Modifier.padding(top = 8.dp, bottom = AppUiTokens.CardGap),
+            )
 
             // 最近几小时折线（App 自采样序列）
             GlassCard {
@@ -222,9 +235,9 @@ fun PowerScreen(repo: Repository) {
                         selected = chartDays,
                         onSelect = { chartDays = it },
                     )
-                    // 先按时间窗口过滤（0 值多为查询异常或欠费，画进曲线会变成陡降），再检查空态。
+                    // 0/负值可能是用尽或欠费，保留有效读数；缺失/非有限值不进入曲线。
                     val cutoff = System.currentTimeMillis() - chartDays * 24L * 3600 * 1000
-                    val rangedRaw = samples.filter { it.time >= cutoff && it.odd > 0 }
+                    val rangedRaw = samples.filter { it.time >= cutoff && it.odd.isFinite() }
                     // 30 天视图按时间等间隔抽稀到约 200 点；原来的 takeLast(240) 会截掉最早几天。
                     val ranged = if (rangedRaw.size <= 240) rangedRaw else {
                         val step = (rangedRaw.size - 1).toDouble() / 199
@@ -241,7 +254,8 @@ fun PowerScreen(repo: Repository) {
                         fontSize = 13.sp, color = secondary,
                     )
                     Text(
-                        "采样间隔 $sampleIntervalLocal 分钟，保留最近 30 天；预警线 ${store.warnThreshold.toInt()} 度。",
+                        "${queryPreset.title} · " + (queryPlan.intervalMinutes?.let { "当前约每 $it 分钟查询" } ?: "只记录手动查询") +
+                            "，保留最近 30 天；预警线 ${store.warnThreshold.toInt()} 度。",
                         fontSize = 13.sp, lineHeight = 17.sp, color = secondary,
                     )
                 }
@@ -367,22 +381,36 @@ fun PowerScreen(repo: Repository) {
             }
             GlassCard {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("采样间隔", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = ds.text)
-                    Text("每 $sampleIntervalLocal 分钟记录电量，后台最低 15 分钟巡检。", fontSize = 14.sp, color = secondary)
+                    Text("查询预设", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = ds.text)
                     SegmentedChoice(
-                        options = listOf(15, 30, 60, 120).map { it to "${it}分" },
-                        selected = sampleIntervalLocal,
+                        options = PowerQueryPreset.entries.map { it to it.title },
+                        selected = queryPreset,
                         onSelect = {
-                            sampleIntervalLocal = it
-                            store.sampleIntervalMinutes = it
-                            // 链式调度按新间隔立即重排，不用等下次启动
-                            runCatching {
-                                com.menglimi.gdust.v2.work.PowerWorker.schedule(
-                                    ctx,
-                                )
-                            }
+                            queryPreset = it
+                            store.powerQueryPreset = it
                             intervalSaved = true
                         },
+                    )
+                    Text(queryPreset.description, fontSize = 14.sp, lineHeight = 20.sp, color = secondary)
+                    if (queryPreset == PowerQueryPreset.CUSTOM) {
+                        SegmentedChoice(
+                            options = listOf(15, 30, 60, 120).map { it to "${it}分" },
+                            selected = sampleIntervalLocal,
+                            onSelect = {
+                                sampleIntervalLocal = it
+                                store.sampleIntervalMinutes = it
+                                intervalSaved = true
+                            },
+                        )
+                    }
+                    Text(
+                        queryPlan.intervalMinutes?.let { "当前节奏约 $it 分钟 · ${queryPlan.reason}" } ?: queryPlan.reason,
+                        fontSize = 13.sp, color = secondary,
+                    )
+                    Text(
+                        "后台仅在 07:30–22:05 查询，实际执行可能受系统省电影响；随时可手动刷新。" +
+                            "低电量和掉电预警保留，同类提醒间隔 12 小时。",
+                        fontSize = 13.sp, lineHeight = 19.sp, color = secondary,
                     )
                     if (intervalSaved) Text("已保存", fontSize = 13.sp, color = ds.accent)
                 }
@@ -621,8 +649,7 @@ private fun UsageChart(samples: List<Store.Sample>, warnThreshold: Float) {
             )
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "平均变化 %.1f 度/小时".format(kotlin.math.abs(values.last() - values.first()) /
-                        ((samples.last().time - samples.first().time) / 3600000f).coerceAtLeast(0.25f)),
+                    "区间净变化 %+.1f 度（含充值）".format(values.last() - values.first()),
                     fontSize = 13.sp, color = secondary, modifier = Modifier.weight(1f),
                 )
                 if (selectedIndex in values.indices) {

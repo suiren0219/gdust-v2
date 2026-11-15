@@ -241,21 +241,18 @@ class Store(context: Context) {
 
     data class Sample(val time: Long, val odd: Double)
 
-    /** 本地小时采样序列（App 自己攒，供折线图用；最多留 7 天）。 */
+    /** 本机采样序列，供折线图与用量估计使用，保留最近 30 天。 */
     fun loadSamples(): List<Sample> {
         val t = object : TypeToken<List<Sample>>() {}.type
         return runCatching { gson.fromJson<List<Sample>>(plain.getString("samples", "[]"), t) }
             .getOrDefault(emptyList())
     }
 
-    /** 记录一个采样点（同一小时内只留最后一个）。 */
+    /** 同一采样桶保留最后一个值，兼容短间隔预设且不增加网络查询。 */
     fun addSample(odd: Double) {
         val now = System.currentTimeMillis()
-        val hour = now / 3600000L
-        val list = loadSamples().filterNot { it.time / 3600000L == hour }.toMutableList()
-        list.add(Sample(now, odd))
-        val cutoff = now - 30L * 24 * 3600 * 1000
-        val kept = list.filter { it.time >= cutoff }
+        val kept = PowerQueryPolicy.appendSample(loadSamples().map { PowerSample(it.time, it.odd) }, PowerSample(now, odd))
+            .map { Sample(it.time, it.odd) }
         plain.edit().putString("samples", gson.toJson(kept)).apply()
     }
 
@@ -493,9 +490,18 @@ class Store(context: Context) {
         get() = plain.getBoolean("auto_sync", true)
         set(v) = plain.edit().putBoolean("auto_sync", v).apply()
 
+    var powerQueryPreset: PowerQueryPreset
+        get() = plain.getString("power_query_preset", null)?.let(PowerQueryPreset::fromKey)
+            ?: if (plain.contains("sample_interval")) PowerQueryPreset.CUSTOM else PowerQueryPreset.BALANCED
+        set(value) { plain.edit().putString("power_query_preset", value.key).apply(); publishPowerWorkerConfig() }
+
     var sampleIntervalMinutes: Int
-        get() = plain.getInt("sample_interval", 60)
-        set(v) { plain.edit().putInt("sample_interval", v).apply(); publishPowerWorkerConfig() }
+        get() = plain.getInt("sample_interval", 60).coerceIn(15, 120)
+        set(v) {
+            plain.edit().putInt("sample_interval", v.coerceIn(15, 120))
+                .putString("power_query_preset", PowerQueryPreset.CUSTOM.key).apply()
+            publishPowerWorkerConfig()
+        }
 
     var warnThreshold: Float
         get() = plain.getFloat("warn_th", 20f)
@@ -504,21 +510,31 @@ class Store(context: Context) {
         get() = plain.getFloat("warn_drop", 5f)
         set(v) { plain.edit().putFloat("warn_drop", v).apply(); publishPowerWorkerConfig() }
 
-    /** 把绑定/阈值同步给 WorkManager 用的普通 prefs（Worker 不读加密存储）。 */
+    /** Worker 只读取绑定配置镜像；换宿舍时清掉旧宿舍采样，配置相同不重排。 */
     fun publishPowerWorkerConfig() {
-        app.getSharedPreferences("gdust_power", Context.MODE_PRIVATE).edit()
-            .putString("account", powerAccount)
+        val power = app.getSharedPreferences("gdust_power", Context.MODE_PRIVATE)
+        val bindingChanged = power.getString("account", "").orEmpty() != powerAccount ||
+            power.getInt("code", 0) != powerCode || power.getString("verify", "").orEmpty() != powerRoomVerify
+        val edit = power.edit()
+        if (bindingChanged) {
+            plain.edit().remove("samples").apply()
+            listOf("last_sample", "prev_odd", "low_warn", "drop_warn", "cached_detail", "cached_binding", "last_attempt")
+                .forEach(edit::remove)
+        }
+        edit.putString("account", powerAccount)
             .putInt("code", powerCode)
             .putString("verify", powerRoomVerify)
             .putString("name", powerRoomName)
             .putFloat("threshold", warnThreshold)
             .putFloat("drop_rate", warnDropRate)
             .putInt("interval", sampleIntervalMinutes)
+            .putString("query_preset", powerQueryPreset.key)
             .apply()
+        com.menglimi.gdust.v2.work.PowerWorker.schedule(app)
     }
 
     val hasSession: Boolean get() = portalToken.isNotEmpty() && jobNumber.isNotEmpty()
-    val hasPowerBinding: Boolean get() = powerAccount.isNotEmpty() && powerRoomVerify.isNotEmpty()
+    val hasPowerBinding: Boolean get() = powerAccount.isNotBlank() && powerCode > 0 && powerRoomVerify.isNotBlank()
     val hasLlm: Boolean get() = llmBase.isNotEmpty() && llmKey.isNotEmpty() && llmModel.isNotEmpty()
 
     /** 手动网页备用导入后复用 WebView 自己的持久 CookieManager 会话；白名单见 ChxSso.isTeachingWebEntry。 */
@@ -566,6 +582,7 @@ class Store(context: Context) {
             "ui_style" to uiStyle,
             "monet_enabled" to monetEnabled,
             "sample_interval" to sampleIntervalMinutes,
+            "power_query_preset" to powerQueryPreset.key,
             "warn_th" to warnThreshold,
             "warn_drop" to warnDropRate,
             "power" to if (hasPowerBinding) mapOf(
@@ -586,14 +603,20 @@ class Store(context: Context) {
         (root["blocks"] as? String)?.let { edit.putString("blocks", it) }
         (root["schedule_source"] as? String)?.let { edit.putString("schedule_source", it) }
         (root["todos"] as? String)?.let { edit.putString("todos", it) }
-        (root["samples"] as? String)?.let { edit.putString("samples", it) }
+        val restoredSamples = root["samples"] as? String
         (root["term_start"] as? String)?.let { edit.putString("term_start", it) }
         (root["term_weeks"] as? Double)?.let { edit.putInt("term_weeks", it.toInt()) }
         (root["term_week"] as? Double)?.let { edit.putInt("term_week", it.toInt()) }
         (root["start_tab"] as? Double)?.let { edit.putInt("start_tab", it.toInt()) }
         (root["ui_style"] as? String)?.let { edit.putString("ui_style", it) }
         (root["monet_enabled"] as? Boolean)?.let { edit.putBoolean("monet_enabled", it) }
-        (root["sample_interval"] as? Double)?.let { edit.putInt("sample_interval", it.toInt()) }
+        (root["sample_interval"] as? Double)?.let {
+            edit.putInt("sample_interval", it.toInt().coerceIn(15, 120))
+                .putString("power_query_preset", PowerQueryPreset.CUSTOM.key)
+        }
+        (root["power_query_preset"] as? String)?.let {
+            edit.putString("power_query_preset", PowerQueryPreset.fromKey(it).key)
+        }
         (root["warn_th"] as? Double)?.let { edit.putFloat("warn_th", it.toFloat()) }
         (root["warn_drop"] as? Double)?.let { edit.putFloat("warn_drop", it.toFloat()) }
         (root["power"] as? Map<*, *>)?.let { p ->
@@ -606,6 +629,7 @@ class Store(context: Context) {
         }
         edit.apply()
         publishPowerWorkerConfig()
+        restoredSamples?.let { plain.edit().putString("samples", it).apply() }
         val blocks = loadBlocks().size
         val todos = loadTodos().size
         return "课表 $blocks 张卡 · 待办 $todos 条 · 偏好与水电绑定已恢复"
