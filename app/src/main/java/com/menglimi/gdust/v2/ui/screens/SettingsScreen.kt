@@ -164,12 +164,8 @@ fun SettingsScreen(
     }
 
     val accountEntry = SettingsEntry(
-        id = "profile",
-        title = store.realName.ifBlank { if (loggedIn) "个人信息" else "未登录" },
-        summary = if (store.jobNumber.isNotBlank()) "广东科技学院 · ${store.jobNumber}" else "广东科技学院 · 本机数据与偏好",
-        keywords = "账户 账号 学校 学号 个人信息 隐私",
-        icon = MiuixIcons.ContactsCircle,
-        onClick = onProfile,
+        id = "profile", title = "个人信息", summary = "广东科技学院 · 本机数据与偏好",
+        keywords = "账户 账号 学校 学号 姓名 登录 验证 隐私", icon = MiuixIcons.ContactsCircle,
     )
     val groups = listOf(
         SettingsSection("通用", listOf(
@@ -461,7 +457,7 @@ fun SettingsScreen(
         PageTitle(title = "设置", onBack = onBack)
         SettingsSearchField(query = query, onQueryChange = { query = it })
         if (showAccount) {
-            SettingGroup { SettingsPreference(accountEntry) }
+            AccountIdentityCard(repo, onOpenProfile = onProfile)
         }
         visibleGroups.forEach { group ->
             key(group.title) {
@@ -492,6 +488,9 @@ fun SettingsScreen(
         if (!showAccount && visibleGroups.isEmpty() && !showLogout) {
             Text("没有找到相关设置", fontSize = 14.sp, color = secondary,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
+        }
+        if (search.isBlank() || "GitHub 项目主页 star 支持 开源".contains(search, ignoreCase = true)) {
+            ProjectStarEntry()
         }
         Spacer(Modifier.navigationBarsPadding().height(110.dp))
     }

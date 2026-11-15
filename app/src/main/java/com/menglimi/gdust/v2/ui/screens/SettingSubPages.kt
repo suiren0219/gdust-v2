@@ -35,7 +35,30 @@ import com.menglimi.gdust.v2.ui.pageBackground
 
 /** 作者署名与主页（改这里一处即可）。 */
 internal const val APP_AUTHOR = "穗稔"
-internal const val APP_GITHUB = "https://github.com/suiren0219"
+internal const val APP_GITHUB = "https://github.com/suiren0219/gdust-v2"
+
+internal fun openProjectHomepage(context: android.content.Context) {
+    runCatching {
+        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(APP_GITHUB)))
+    }.onFailure {
+        context.getSystemService(android.content.ClipboardManager::class.java)
+            .setPrimaryClip(android.content.ClipData.newPlainText("GitHub", APP_GITHUB))
+        android.widget.Toast.makeText(context, "项目地址已复制", android.widget.Toast.LENGTH_SHORT).show()
+    }
+}
+
+@Composable
+internal fun ProjectStarEntry() {
+    val context = LocalContext.current
+    SettingGroup {
+        SettingOption(
+            title = "喜欢的话，点个 Star",
+            subtitle = "在 GitHub 支持广科课程表，谢谢你的鼓励。",
+            detail = "GitHub",
+            onClick = { openProjectHomepage(context) },
+        )
+    }
+}
 
 /** 设置二级页通用骨架：同款左缘右滑返回手势。 */
 @Composable
@@ -91,13 +114,7 @@ fun ProfileScreen(repo: Repository, onBack: () -> Unit) {
     }
     SettingSubPage("个人信息", "本机账号与数据快照", onBack) {
         SectionHeader("身份")
-        SettingGroup {
-            SettingOption(title = store.realName.ifEmpty { "未登录" })
-            SettingDivider()
-            SettingOption(title = "学号", detail = store.jobNumber.ifEmpty { "—" })
-            SettingDivider()
-            SettingOption(title = "登录状态", detail = if (store.hasSession) "有效" else "未登录")
-        }
+        AccountIdentityCard(repo)
         Spacer(Modifier.height(10.dp))
         SectionHeader("数据")
         SettingGroup {
@@ -151,22 +168,9 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
             SettingOption(title = "作者", detail = APP_AUTHOR)
             SettingDivider()
             SettingOption(
-                title = "GitHub 主页",
-                detail = "github.com/suiren0219",
-                onClick = {
-                    runCatching {
-                        hostContext.startActivity(
-                            android.content.Intent(
-                                android.content.Intent.ACTION_VIEW,
-                                android.net.Uri.parse(APP_GITHUB),
-                            )
-                        )
-                    }.onFailure {
-                        // 没有浏览器时兜底：复制链接
-                        val cm = hostContext.getSystemService(android.content.ClipboardManager::class.java)
-                        cm.setPrimaryClip(android.content.ClipData.newPlainText("url", APP_GITHUB))
-                    }
-                },
+                title = "项目主页",
+                subtitle = "GitHub · suiren0219/gdust-v2",
+                onClick = { openProjectHomepage(hostContext) },
             )
             SettingDivider()
             SettingOption(title = "当前版本", detail = versionName)
@@ -196,10 +200,12 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            "广科课程表 · 由 $APP_AUTHOR 制作 · 闭源自用\n感谢 Miuix 提供界面组件",
+            "广科课程表 · 由 $APP_AUTHOR 制作 · AGPL-3.0 开源\n感谢 Miuix 提供界面组件",
             fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub,
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp).wrapContentSize(Alignment.Center),
         )
+        Spacer(Modifier.height(16.dp))
+        ProjectStarEntry()
     }
 }
 

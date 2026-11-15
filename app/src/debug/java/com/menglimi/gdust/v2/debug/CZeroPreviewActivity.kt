@@ -108,7 +108,7 @@ private class PreviewContext(base: Context) : ContextWrapper(base) {
 }
 
 private val mainPages = listOf("today", "schedule", "power", "todo")
-private val previewPages = mainPages + listOf("history", "widgets", "settings", "profile", "about", "widget_render", "term_import")
+private val previewPages = mainPages + listOf("history", "widgets", "settings", "profile", "about", "widget_render", "term_import", "identity", "identity_pending")
 
 private data class PreviewRequest(
     val screen: String = "today",
@@ -192,6 +192,14 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
                 "todo" -> TodoScreen(repo)
                 "history" -> PowerHistoryScreen(repo, onBack = back)
                 "widgets" -> WidgetPreviewScreen(onBack = back)
+                "identity", "identity_pending" -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    com.menglimi.gdust.v2.ui.screens.AccountIdentityContent(
+                        name = "示例同学", account = "demo-0001",
+                        state = if (screen == "identity") com.menglimi.gdust.v2.data.AccountLoginState.VALID
+                            else com.menglimi.gdust.v2.data.AccountLoginState.UNAVAILABLE,
+                        canVerify = true, onVerify = offlineAction, onOpenProfile = { screen = "profile" },
+                    )
+                }
                 "profile" -> ProfileScreen(repo, onBack = back)
                 "about" -> AboutScreen(repo, onBack = back)
                 "widget_render" -> RealWidgetPreview(request.kind, request.shape, request.width, request.height)

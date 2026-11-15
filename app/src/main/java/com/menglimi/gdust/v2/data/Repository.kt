@@ -620,6 +620,10 @@ class Repository(context: Context) {
     private val sessionGuard = SessionGuard()
     private val mutableSessionVersion = MutableStateFlow(0L)
     val sessionVersion = mutableSessionVersion.asStateFlow()
+    private val mutableAccountLogin = MutableStateFlow(if (store.hasSession) AccountLoginState.UNVERIFIED else AccountLoginState.SIGNED_OUT)
+    val accountLogin = mutableAccountLogin.asStateFlow()
+    private val accountCheckMutex = Mutex()
+    private var accountCheckedAt = 0L
     private val mutableChxSessionVersion = MutableStateFlow(0L)
     val chxSessionVersion = mutableChxSessionVersion.asStateFlow()
     @Volatile private var clearingChxSession = false
@@ -673,6 +677,8 @@ class Repository(context: Context) {
         sessionGuard.withCurrent(version) {
             teachingCookies.clear()
             store.clearAccountSession()
+            mutableAccountLogin.value = AccountLoginState.SIGNED_OUT
+            accountCheckedAt = 0L
             lastSsoTicket = null
             invalidateChxRequests()
             mutableSessionVersion.value = version
@@ -835,19 +841,47 @@ class Repository(context: Context) {
     suspend fun teachingSessionAlive(): Boolean = runCatching {
         teachingSso.probe(teachingSessionJar(sessionGuard.current()))
     }.onFailure { if (it is CancellationException) throw it }.getOrDefault(false)
-    suspend fun isSessionAlive(): Boolean {
-        val session = portalSession() ?: return false
-        return try {
-            api.calendar(session.token, session.account)
-            sessionGuard.withCurrent(session.version) { true }
+    /** 验证身份接口，校历停服不应把可用登录误报为失效；短期复用结果避免重复唤醒。 */
+    suspend fun refreshAccountLogin(force: Boolean = false): AccountLoginState = accountCheckMutex.withLock {
+        val session = portalSession()
+        if (session == null) {
+            if (mutableAccountLogin.value != AccountLoginState.EXPIRED) mutableAccountLogin.value = AccountLoginState.SIGNED_OUT
+            return@withLock mutableAccountLogin.value
+        }
+        val now = android.os.SystemClock.elapsedRealtime()
+        val retryAfter = if (mutableAccountLogin.value == AccountLoginState.VALID) 5 * 60_000L else 30_000L
+        if (!force && accountCheckedAt > 0 && now - accountCheckedAt in 0 until retryAfter) {
+            return@withLock mutableAccountLogin.value
+        }
+        mutableAccountLogin.value = AccountLoginState.CHECKING
+        try {
+            val (account, name) = api.userInfo(session.token)
+            sessionGuard.withCurrent(session.version) {
+                if (portalSession() != session) throw CancellationException("登录状态已变更")
+                val state = accountLoginState(session.account, account, null)
+                if (state == AccountLoginState.VALID && name.isNotBlank()) store.realName = name
+                mutableAccountLogin.value = state
+            }
         } catch (e: CancellationException) {
+            if (isCurrentSession(session.version) && mutableAccountLogin.value == AccountLoginState.CHECKING) {
+                mutableAccountLogin.value = AccountLoginState.UNVERIFIED
+            }
             throw e
         } catch (e: Exception) {
             sessionGuard.withCurrent(session.version) {
-                if (e is AuthFailed && portalSession() == session) store.clearPortalSession()
-                shouldKeepSession(true, e)
+                if (portalSession() != session) throw CancellationException("登录状态已变更")
+                if (e is AuthFailed) store.clearPortalSession()
+                mutableAccountLogin.value = accountLoginState(session.account, null, e)
             }
         }
+        accountCheckedAt = android.os.SystemClock.elapsedRealtime()
+        mutableAccountLogin.value
+    }
+
+    suspend fun isSessionAlive(): Boolean {
+        val state = refreshAccountLogin()
+        // 网络或格式错误保留离线会话，但状态卡不会因此显示绿色。
+        return state != AccountLoginState.EXPIRED && store.hasSession
     }
 
     suspend fun fetchCaptcha() = api.captcha()
@@ -940,8 +974,9 @@ class Repository(context: Context) {
 
         sessionGuard.withCurrent(version) { }
         if (token.isNotBlank()) {
+            var identityVerified = false
             val (job, name) = try {
-                api.userInfo(token)
+                api.userInfo(token).also { identityVerified = it.first.isNotBlank() }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -951,6 +986,8 @@ class Repository(context: Context) {
                 store.portalToken = token
                 store.jobNumber = job.ifBlank { fallbackJob }
                 store.realName = name
+                mutableAccountLogin.value = if (identityVerified) AccountLoginState.VALID else AccountLoginState.UNVERIFIED
+                accountCheckedAt = if (identityVerified) android.os.SystemClock.elapsedRealtime() else 0L
             }
         }
         if (!teachingOk && token.isBlank()) {
