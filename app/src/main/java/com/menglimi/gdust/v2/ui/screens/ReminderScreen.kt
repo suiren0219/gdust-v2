@@ -13,6 +13,11 @@ import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.work.LessonReminderWorker
+import com.menglimi.gdust.v2.work.ClassDndAlarms
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 /**
  * 课程提醒（对齐 Nexio 结构）：开启提醒 / 下节课提醒 / 次日课程提醒 / 课中提醒 /
@@ -27,6 +32,17 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
     val revision = androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
     // 测试提醒的点击反馈：发出后显示时间戳，权限缺失时引导去系统设置
     var testMsg by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("点一下") }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, ctx) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                ClassDndAlarms.reschedule(ctx, store)
+                revision.intValue++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     fun save(block: () -> Unit) {
         block()
@@ -158,6 +174,40 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                     onSelect = { save { store.inClassLead = it } },
                 )
             }
+        }
+
+        // ── 系统上课勿扰（独立于通知总开关） ──
+        SectionHeader("上课勿扰")
+        SettingGroup {
+            SettingOption(
+                title = "上课自动勿扰",
+                subtitle = "按本机课表上课开启、下课退出；允许闹钟，不受提醒总开关影响",
+                switch = ClassDndAlarms.isEnabled(ctx),
+                onSwitch = { on ->
+                    ClassDndAlarms.setEnabled(ctx, on)
+                    revision.intValue++
+                    if (on && !ClassDndAlarms.hasPolicyAccess(ctx)) ClassDndAlarms.openPolicySettings(ctx)
+                },
+            )
+            SettingOption(
+                title = "勿扰权限",
+                subtitle = "仅控制本应用的上课勿扰；手动勿扰与其他自动规则由系统保留",
+                detail = if (ClassDndAlarms.hasPolicyAccess(ctx)) "已授权" else "去授权",
+                onClick = { ClassDndAlarms.openPolicySettings(ctx) },
+            )
+            SettingOption(
+                title = "课时勿扰状态",
+                subtitle = ClassDndAlarms.status(ctx) +
+                    if (com.menglimi.gdust.v2.work.LessonReminderAlarms.canScheduleExact(ctx)) "" else " · 未获精确闹钟权限，开启和退出可能延迟",
+                detail = "刷新",
+                onClick = { ClassDndAlarms.reschedule(ctx, store); revision.intValue++ },
+            )
+            SettingOption(
+                title = "取消本次勿扰",
+                subtitle = "退出当前课时或取消单次安排，保留后续自动计划；关闭上方开关可全部取消",
+                detail = "取消本次",
+                onClick = { ClassDndAlarms.cancelCurrent(ctx); revision.intValue++ },
+            )
         }
 
         // ── 超级岛 ──

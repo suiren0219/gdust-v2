@@ -30,7 +30,7 @@ object LessonReminderWorker {
     const val CHANNEL = "gdust_lesson_reminder"
     private const val BUSINESS_TAG = "course_reminder"
 
-    /** 发提醒前恢复渠道重要性（「上课勿扰」按钮会把它降到 LOW）。 */
+    /** 渠道重要性由系统/用户管理；上课勿扰通过独立系统规则实现。 */
     private fun ensureAudibleChannel(ctx: Context, nm: NotificationManager) {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL, "课程提醒", NotificationManager.IMPORTANCE_HIGH).apply {
@@ -42,6 +42,10 @@ object LessonReminderWorker {
     /** 按 [ReminderEvent] 发一条提醒，写去重键，刷新桌面小组件。 */
     internal fun emit(ctx: Context, store: Store, event: ReminderEvent) {
         val now = LocalTime.now()
+        val dndWindow = event.block?.let { block ->
+            val termStart = ScheduleTimes.parseDate(store.termStartDate.ifBlank { store.loadCalendar()?.startDate.orEmpty() })
+            classDndWindows(listOf(block), termStart).firstOrNull { it.endMillis > System.currentTimeMillis() }
+        }
         when (event.kind) {
             ReminderKind.BEFORE_CLASS -> {
                 val b = event.block ?: return
@@ -55,8 +59,9 @@ object LessonReminderWorker {
                     text = content,
                     ticker = "${store.shortClassroom(b.room)}  ${minutes}分钟后上课",
                     island = store.islandEnabled,
+                    dndWindow = dndWindow,
                     islandExtras = focusJson(
-                        ctx = ctx, store = store,
+                        ctx = ctx, store = store, dndWindow = dndWindow,
                         courseName = b.name, content = content, classroom = b.room,
                         startMillis = startMillis, endMillis = null,
                         timeoutSec = (minutes + 5).toInt() * 60,
@@ -76,8 +81,9 @@ object LessonReminderWorker {
                     text = "$content · 还有 $left 分钟下课",
                     ticker = "${store.shortClassroom(b.room)}  ${left}分钟后下课",
                     island = store.islandEnabled,
+                    dndWindow = dndWindow,
                     islandExtras = focusJson(
-                        ctx = ctx, store = store,
+                        ctx = ctx, store = store, dndWindow = dndWindow,
                         courseName = b.name, content = content, classroom = b.room,
                         startMillis = null, endMillis = endMillis,
                         timeoutSec = (left + 5).toInt() * 60,
@@ -98,8 +104,9 @@ object LessonReminderWorker {
                     text = summary,
                     ticker = "明天 ${lessons.first().name} 等 ${lessons.size} 节课",
                     island = store.islandEnabled,
+                    dndWindow = dndWindow,
                     islandExtras = focusJson(
-                        ctx = ctx, store = store,
+                        ctx = ctx, store = store, dndWindow = dndWindow,
                         courseName = "明天 ${lessons.size} 节课",
                         content = lessons.first().name + " 等 ${lessons.size} 门课",
                         classroom = lessons.first().room,
@@ -123,6 +130,7 @@ object LessonReminderWorker {
         ticker: String,
         island: Boolean = true,
         islandExtras: Bundle? = null,
+        dndWindow: ClassDndWindow? = null,
     ) {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureAudibleChannel(ctx, nm)
@@ -140,6 +148,16 @@ object LessonReminderWorker {
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setContentIntent(pi)
             .setAutoCancel(true)
+        dndWindow?.let { window ->
+            val action = PendingIntent.getBroadcast(
+                ctx, id,
+                Intent(ctx, ClassDndToggleReceiver::class.java).setAction(ClassDndToggleReceiver.ACTION)
+                    .putExtra(ClassDndToggleReceiver.EXTRA_START, window.startMillis)
+                    .putExtra(ClassDndToggleReceiver.EXTRA_END, window.endMillis),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            builder.addAction(android.R.drawable.ic_lock_silent_mode, "本次上课勿扰", action)
+        }
         if (island && islandExtras != null) builder.addExtras(islandExtras)
         nm.notify(id, builder.build())
     }
@@ -159,6 +177,7 @@ object LessonReminderWorker {
         endMillis: Long?,
         timeoutSec: Int,
         inClass: Boolean,
+        dndWindow: ClassDndWindow? = null,
     ): Bundle {
         val now = System.currentTimeMillis()
         val shortRoom = store.shortClassroom(classroom)
@@ -182,8 +201,12 @@ object LessonReminderWorker {
             put("timerSystemCurrent", now)
         }
 
-        val actionIntent = "intent:#Intent;action=${ClassDndToggleReceiver.ACTION};" +
-            "component=${ctx.packageName}/.work.ClassDndToggleReceiver;end"
+        val actionIntent = dndWindow?.let { window ->
+            Intent(ctx, ClassDndToggleReceiver::class.java).setAction(ClassDndToggleReceiver.ACTION)
+                .putExtra(ClassDndToggleReceiver.EXTRA_START, window.startMillis)
+                .putExtra(ClassDndToggleReceiver.EXTRA_END, window.endMillis)
+                .toUri(Intent.URI_INTENT_SCHEME)
+        }
 
         val paramV2 = JSONObject().apply {
             put("protocol", 1)
@@ -219,7 +242,7 @@ object LessonReminderWorker {
                 put("colorContentDark", "#aaaaaa")
                 put("colorSubTitle", "#222222")
                 put("colorSubTitleDark", "#eeeeee")
-                put("actionInfo", JSONObject().apply {
+                if (actionIntent != null) put("actionInfo", JSONObject().apply {
                     put("actionTitle", "上课勿扰")
                     put("actionIntentType", 2)
                     put("actionIntent", actionIntent)

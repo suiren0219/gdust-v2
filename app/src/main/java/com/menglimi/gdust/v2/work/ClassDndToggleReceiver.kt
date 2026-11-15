@@ -6,26 +6,25 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 
-/**
- * 「上课勿扰」动作：锁屏/息屏焦点通知卡上的按钮。
- * 只取消本次课程提醒、把本 App 的课程提醒渠道降到 IMPORTANCE_LOW（无需系统 DND 权限，
- * 不动用户全局勿扰状态）；下次课前提醒发出前会由 [LessonReminderWorker] 恢复渠道重要性。
- */
+/** 只处理本应用的勿扰规则；通知动作附带课时，过期卡片不能打开一个永不结束的勿扰。 */
 class ClassDndToggleReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION = "com.menglimi.gdust.v2.CLASS_DND_TOGGLE"
+        const val EXTRA_START = "class_start"
+        const val EXTRA_END = "class_end"
     }
 
     override fun onReceive(ctx: Context, intent: Intent) {
-        val nm = ctx.getSystemService(NotificationManager::class.java)
-        runCatching {
-            nm.createNotificationChannel(
-                android.app.NotificationChannel(
-                    LessonReminderWorker.CHANNEL, "课程提醒", NotificationManager.IMPORTANCE_LOW,
-                ).apply { description = "上课勿扰期间静音" }
-            )
+        when (intent.action) {
+            ACTION -> {
+                val message = ClassDndAlarms.startForLesson(
+                    ctx, intent.getLongExtra(EXTRA_START, 0), intent.getLongExtra(EXTRA_END, 0),
+                )
+                Toast.makeText(ctx, message, Toast.LENGTH_LONG).show()
+            }
+            ClassDndAlarms.ACTION_BOUNDARY,
+            NotificationManager.ACTION_NOTIFICATION_POLICY_ACCESS_GRANTED_CHANGED -> ClassDndAlarms.reschedule(ctx)
+            NotificationManager.ACTION_AUTOMATIC_ZEN_RULE_STATUS_CHANGED -> ClassDndAlarms.onRuleStatus(ctx, intent)
         }
-        runCatching { nm.cancel(21); nm.cancel(23) }
-        runCatching { Toast.makeText(ctx, "已静音课程提醒", Toast.LENGTH_SHORT).show() }
     }
 }

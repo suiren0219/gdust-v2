@@ -18,7 +18,10 @@ class App : Application() {
     )
     // SharedPreferences 仅弱引用 listener，由 Application 持有至进程结束；同步/通知/导入等所有写入都覆盖。
     private val cacheChanges = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == null || key in scheduleKeys) LessonReminderAlarms.reschedule(this, repo.store)
+        if (key == null || key in scheduleKeys) {
+            LessonReminderAlarms.reschedule(this, repo.store)
+            com.menglimi.gdust.v2.work.ClassDndAlarms.reschedule(this, repo.store)
+        }
         if (key == null || key == "todos") LessonReminderAlarms.rescheduleTodo(this, repo.store)
         if (key == null || key in widgetKeys) WidgetRefresher.refreshAll(this)
     }
@@ -54,6 +57,7 @@ class App : Application() {
         if (repo.store.autoSyncEnabled && (repo.store.hasSession || repo.store.casTicket.isNotBlank())) {
             com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(this)
         }
+        com.menglimi.gdust.v2.work.ClassDndAlarms.initialize(this)
         // 课程提醒（课前 + 次日）；开关在设置里控制
         if (repo.store.reminderEnabled) {
             com.menglimi.gdust.v2.work.LessonReminderWorker.schedule(this)

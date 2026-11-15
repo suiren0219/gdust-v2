@@ -144,7 +144,12 @@ object LessonReminderAlarms {
         )
     }
 
-    fun cancelFallback(ctx: Context) = WorkManager.getInstance(ctx).cancelUniqueWork(WORK_FALLBACK)
+    fun cancelFallback(ctx: Context) {
+        val store = com.menglimi.gdust.v2.data.Store(ctx)
+        if (!store.reminderEnabled && !store.todoReminderEnabled &&
+            !ClassDndAlarms.isEnabled(ctx) && !ClassDndAlarms.hasPendingSession(ctx)
+        ) WorkManager.getInstance(ctx).cancelUniqueWork(WORK_FALLBACK)
+    }
 
     private fun notificationAllowed(ctx: Context): Boolean =
         Build.VERSION.SDK_INT < 33 ||
@@ -186,10 +191,12 @@ class LessonReminderReceiver : BroadcastReceiver() {
                 LessonReminderAlarms.rescheduleTodo(ctx, store)
             }
             Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_TIME_CHANGED,
-            Intent.ACTION_TIMEZONE_CHANGED, Intent.ACTION_MY_PACKAGE_REPLACED -> {
+            Intent.ACTION_TIMEZONE_CHANGED, Intent.ACTION_MY_PACKAGE_REPLACED,
+            AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED -> {
                 val store = com.menglimi.gdust.v2.data.Store(ctx)
                 LessonReminderAlarms.reschedule(ctx, store)
                 LessonReminderAlarms.rescheduleTodo(ctx, store)
+                ClassDndAlarms.reschedule(ctx, store)
             }
         }
     }
@@ -204,6 +211,7 @@ class LessonReminderFallbackWorker(ctx: Context, params: WorkerParameters) : Cor
             LessonReminderAlarms.reschedule(applicationContext, store)
         }
         if (store.todoReminderEnabled) LessonReminderAlarms.rescheduleTodo(applicationContext, store)
+        ClassDndAlarms.reschedule(applicationContext, store)
         return Result.success()
     }
 }
