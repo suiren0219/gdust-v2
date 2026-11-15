@@ -68,9 +68,9 @@ fun ChxCoursesScreen(
     }
     DisposableEffect(controller) { onDispose { controller.cancel() } }
 
-    SettingSubPage("学习通课程", "当前课程页 · 任务点进度", onBack) {
+    SettingSubPage("课程与任务进度", "学习通 · 当前课程页", onBack) {
         Text(
-            "显示学习通当前课程页；其他分页与文件夹请在网页查看。任务点进度不代表作业待办。",
+            "任务点进度与作业待办分别统计。",
             fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
         )
         Spacer(Modifier.height(16.dp))
@@ -92,12 +92,18 @@ fun ChxCoursesScreen(
         if (state.authRequired) {
             Spacer(Modifier.height(8.dp))
             Button(onClick = onLogin, modifier = Modifier.fillMaxWidth(), minHeight = 48.dp) {
-                Text("登录学习通", fontSize = 16.sp)
+                Text("重新连接学习通", fontSize = 16.sp)
             }
         }
         state.error?.let { message ->
-            Text(message, color = ds.danger, fontSize = 13.sp, lineHeight = 20.sp,
-                modifier = Modifier.padding(top = 12.dp))
+            Spacer(Modifier.height(AppUiTokens.CardGap))
+            AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
+                Text(if (state.authRequired) "需要重新连接" else "课程读取失败", color = ds.danger,
+                    fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text(if (state.overview == null) "可重新连接或刷新后再试。" else "已保留上次读取的课程。",
+                    fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp))
+                ChxReadDetails(message)
+            }
         }
         val overview = state.overview
         if (overview != null) {
@@ -110,8 +116,14 @@ fun ChxCoursesScreen(
             }
             Text("最近读取 $time", fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(top = 12.dp))
             overview.progressError?.let { message ->
-                Text(message, color = ds.danger, fontSize = 13.sp, lineHeight = 20.sp,
-                    modifier = Modifier.padding(top = 8.dp))
+                val missing = overview.courses.count { it.progress == null }
+                Spacer(Modifier.height(AppUiTokens.CardGap))
+                AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
+                    Text("进度读取未完成", color = ds.danger, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Text("已读取 ${overview.courses.size - missing} 门 · 未读取 $missing 门",
+                        fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp))
+                    ChxReadDetails(message)
+                }
             }
             SectionHeader("当前课程页 · ${overview.courses.size} 门")
             Column(verticalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap)) {

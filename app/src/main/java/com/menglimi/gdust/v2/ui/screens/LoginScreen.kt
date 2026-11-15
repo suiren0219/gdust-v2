@@ -54,6 +54,7 @@ fun LoginScreen(
     onLoggedIn: () -> Unit,
     onOpenSettings: () -> Unit,
     onPreview: () -> Unit,
+    onSchoolLogin: () -> Unit,
 ) {
     val ds = LocalDs.current
     val scope = rememberCoroutineScope()
@@ -67,8 +68,10 @@ fun LoginScreen(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var netDown by remember { mutableStateOf(false) }
+    var showLegacy by remember { mutableStateOf(false) }
 
-    LaunchedEffect(seed) {
+    LaunchedEffect(seed, showLegacy) {
+        if (!showLegacy) return@LaunchedEffect
         runCatching { repo.fetchCaptcha() }
             .onSuccess {
                 captcha = BitmapFactory.decodeByteArray(it.imageBytes, 0, it.imageBytes.size)?.asImageBitmap()
@@ -94,7 +97,19 @@ fun LoginScreen(
 
         GlassCard {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("统一身份认证登录", fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = ds.text)
+                Text("一次学校登录", fontSize = 20.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = ds.text)
+                Text("在学校页面完成认证后，自动连接教务与学习通，分别确认可用状态。", fontSize = 14.sp, lineHeight = 21.sp, color = ds.sub)
+                Button("学校统一登录", onClick = onSchoolLogin)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        top.yukonga.miuix.kmp.basic.TextButton(if (showLegacy) "收起其他登录方式" else "其他登录方式", onClick = { showLegacy = !showLegacy })
+        if (showLegacy) {
+        Text("兼容入口登录后会继续学校网页登录，补全其他服务的认证。", fontSize = 13.sp, color = ds.sub,
+            modifier = Modifier.padding(vertical = 10.dp))
+        GlassCard {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("账号登录（兼容）", fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = ds.text)
                 InputField(account, { account = it }, "学号", KeyboardType.Number)
                 InputField(password, { password = it }, "密码", visual = PasswordVisualTransformation())
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -135,14 +150,15 @@ fun LoginScreen(
 
         Spacer(Modifier.height(12.dp))
         DingTalkSection(repo = repo, onLoggedIn = onLoggedIn, onError = { error = it })
+        }
 
         if (error.isNotEmpty()) {
             Text(error, fontSize = 13.sp, color = ds.danger, modifier = Modifier.padding(top = 12.dp))
         }
 
         Text(
-            "本机直连学校系统，不经过任何服务器；\n密码不落盘，只保存登录凭证与水电脑号。\n" +
-                "学习通需在「学习通联动」完成网页认证；教务登录不代表学习通已登录。",
+            "认证直接在学校和学习通页面完成，密码不落盘。\n" +
+                "已连接的服务保留在本机；部分服务暂不可用时，可以稍后继续连接。",
             fontSize = 13.sp,
             color = ds.sub,
             modifier = Modifier.padding(top = 20.dp),

@@ -154,6 +154,7 @@ fun SettingsScreen(
     var termSaved by remember { mutableStateOf(false) }
     var termError by remember { mutableStateOf<String?>(null) }
     var showWidgetPicker by rememberSaveable { mutableStateOf(false) }
+    var showDesktopAppearance by rememberSaveable { mutableStateOf(false) }
 
     // 导入与恢复后的状态重载统一由宿主处理，不能在本页直接写 Store。
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -171,6 +172,10 @@ fun SettingsScreen(
     )
     val groups = listOf(
         SettingsSection("通用", listOf(
+            SettingsEntry(
+                id = "desktop", title = "桌面名称与图标", summary = "自定义桌面入口的名称和图片", icon = MiuixIcons.Home,
+                keywords = "桌面 图标 名称 自定义 快捷方式", onClick = { showDesktopAppearance = true },
+            ),
             SettingsEntry(
                 id = "startTab", title = "启动页", summary = "下次打开时默认显示", icon = MiuixIcons.Home,
                 detail = when (startTabLocal) { 0 -> "今日"; 2 -> "电费"; 3 -> "待办"; else -> "课表" },
@@ -251,10 +256,6 @@ fun SettingsScreen(
                 keywords = "教务 成绩 绩点 GPA", onClick = onGrades,
             ),
             SettingsEntry(
-                id = "chxCourses", title = "学习通课程", summary = "课程列表与任务点进度", icon = MiuixIcons.Months,
-                keywords = "课程 任务 学习通 超星", onClick = onChxCourses,
-            ),
-            SettingsEntry(
                 id = "schoolNotices", title = "学校通知", summary = "门户通知、教务处公告与官网新闻", icon = MiuixIcons.Messages,
                 keywords = "通知 公告 教务 新闻 考试", onClick = onSchoolNotices,
             ),
@@ -263,12 +264,8 @@ fun SettingsScreen(
                 detail = "网页", keywords = "活动 五育 综合评价", onClick = onFiveEducation,
             ),
             SettingsEntry(
-                id = "chx", title = "学习通联动", summary = "通过学校统一身份认证连接", icon = MiuixIcons.Link,
-                detail = if (chxSessionSaved) "已保存，待验证" else "未联动", onClick = onChxEntry,
-            ),
-            SettingsEntry(
-                id = "chxNotifications", title = "学习通通知待办", summary = "从推送识别作业与考试", icon = MiuixIcons.Messages,
-                detail = if (store.chxNotificationsEnabled) "已开启" else "未开启", onClick = onChxNotifications,
+                id = "chx", title = "学习通", summary = "课程、作业与通知待办", icon = MiuixIcons.Link,
+                keywords = "超星 课程 任务 作业 通知 登录 联动", onClick = onChxEntry,
             ),
             SettingsEntry(
                 id = "maintenance", title = "教务夜间关闭提醒", summary = "学校教务停服时段同步失败时明确提示",
@@ -514,6 +511,9 @@ fun SettingsScreen(
     }
     if (showWidgetPicker) {
         WidgetPreviewScreen(onBack = { showWidgetPicker = false })
+    }
+    if (showDesktopAppearance) {
+        DesktopAppearanceScreen(onBack = { showDesktopAppearance = false })
     }
     }
 }

@@ -86,6 +86,7 @@ fun AppRoot(
     var showGrades by remember { mutableStateOf(false) }
     var showChxCourses by remember { mutableStateOf(false) }
     var webReturnVersion by remember { mutableIntStateOf(0) }
+    var schoolLoginMessage by remember { mutableStateOf<String?>(null) }
     val sessionVersion by repo.sessionVersion.collectAsState()
     val noticeFeed = remember(repo) {
         val publicNotices = com.menglimi.gdust.v2.data.SchoolNoticeApi()
@@ -200,6 +201,25 @@ fun AppRoot(
             syncing = false
             syncJob = null
         }
+    }
+
+    val schoolLogin = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val data = result.data
+        val portal = data?.getBooleanExtra(com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.EXTRA_PORTAL_READY, false) == true
+        val teaching = data?.getBooleanExtra(com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.EXTRA_TEACHING_READY, false) == true
+        webReturnVersion++
+        if (portal || teaching) {
+            loggedIn.value = true
+            if (repo.store.autoSyncEnabled) com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(context)
+            sync()
+            if (teaching && repo.store.birthdayMonthDay.isBlank()) scope.launch { repo.refreshTeachingBirthday() }
+        }
+        schoolLoginMessage = data?.getStringExtra(com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.EXTRA_MESSAGE)?.takeIf { it.isNotBlank() }
+    }
+    fun openSchoolLogin() {
+        schoolLogin.launch(com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.intent(context))
     }
 
     fun loadNotices() { noticeFeed.refresh(scope) }
@@ -321,16 +341,19 @@ fun AppRoot(
             }
             "grades" -> androidx.compose.runtime.key(webReturnVersion) {
                 GradesScreen(repo = repo, onBack = { showGrades = false },
-                    onWebLogin = { openServiceWeb(ChxSso.teachingWebUrl) })
+                    onWebLogin = ::openSchoolLogin)
             }
             "chx_courses" -> androidx.compose.runtime.key(webReturnVersion) {
                 ChxCoursesScreen(repo = repo, onBack = { showChxCourses = false },
-                    onLogin = { openServiceWeb(ChxSso.fyssoUrl) }, onOpenCourse = ::openServiceWeb)
+                    onLogin = ::openSchoolLogin, onOpenCourse = ::openServiceWeb)
             }
             "chx_entry" -> {
                 androidx.activity.compose.BackHandler { showChxEntry = false }
-                ChxEntryScreen(repo = repo, onBack = { showChxEntry = false },
-                    onCourses = { showChxCourses = true })
+                androidx.compose.runtime.key(webReturnVersion) {
+                    ChxEntryScreen(repo = repo, onBack = { showChxEntry = false },
+                        onCourses = { showChxCourses = true }, onConnect = ::openSchoolLogin,
+                        onNotifications = { showChxNotifications = true })
+                }
             }
             "notices" -> {
                 DisposableEffect(noticeFeed) { onDispose { noticeFeed.cancelRefresh() } }
@@ -361,12 +384,11 @@ fun AppRoot(
                 repo = repo,
                 onLoggedIn = {
                     loggedIn.value = true
-                    // 登录成功即开启定时同步
-                    if (repo.store.autoSyncEnabled) runCatching { com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(context) }
-                    sync()
+                    openSchoolLogin()
                 },
                 onOpenSettings = { showSettings.value = true },
                 onPreview = { loggedIn.value = true },
+                onSchoolLogin = ::openSchoolLogin,
             )
             "settings" -> SettingsScreen(
                 repo = repo,
@@ -448,6 +470,11 @@ fun AppRoot(
             },
         )
     }
+    com.menglimi.gdust.v2.ui.screens.BirthdayCelebration(repo,
+        enabled = loggedIn.value && !loggingOut && !disclaimerShown && schoolLoginMessage == null &&
+            webImportReport == null && directFallbackMessage == null && importReport == null &&
+            !netDown && !needLogin && syncError == null && !showWebImport)
+    if (schoolLoginMessage != null) InfoDialog("学校服务连接", schoolLoginMessage!!, onDismiss = { schoolLoginMessage = null })
     if (webImportReport != null) InfoDialog("网页登录导入完成", webImportReport!!, onDismiss = { webImportReport = null })
     if (directFallbackMessage != null) {
         androidx.compose.material3.AlertDialog(

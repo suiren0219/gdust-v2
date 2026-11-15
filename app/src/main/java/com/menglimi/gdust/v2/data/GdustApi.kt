@@ -63,11 +63,26 @@ class AuthFailed(val code: Int, msg: String) : Exception(msg)
 
 // ─────────────────────────────── 客户端 ───────────────────────────────
 
+/** OkHttp 对 503 + Retry-After:0 的 follow-up 独立于连接重试开关；一次票也必须禁用它。 */
+internal fun schoolAuthenticationClient(base: OkHttpClient): OkHttpClient = base.newBuilder()
+    .retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false)
+    .readTimeout(20, TimeUnit.SECONDS).callTimeout(25, TimeUnit.SECONDS)
+    .addNetworkInterceptor { chain ->
+        val response = chain.proceed(chain.request())
+        if (response.code == 503 && response.header("Retry-After")?.toLongOrNull() == 0L) {
+            // 保留真实 HTTP 503 与响应体；仅阻止 OkHttp 在调用者看见失败前自动重放请求。
+            response.newBuilder().header("Retry-After", "1").build()
+        } else response
+    }.build()
+
 class GdustApi {
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
         .build()
+
+    // 换票不可让 OkHttp 自动重试或跟随不明跳转；身份验证也不把 TOKEN 带到其他主机。
+    private val authHttp = schoolAuthenticationClient(http)
 
     companion object {
         const val CAS = "https://cas.gdust.edu.cn"
@@ -81,15 +96,16 @@ class GdustApi {
     private fun jsonObj(text: String) = JsonParser.parseString(text).asJsonObject
     private fun str(v: Any?): String = "\"" + v.toString().replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
-    private fun request(url: String, token: String? = null, postJson: String? = null, form: FormBody? = null): String {
+    private fun request(url: String, token: String? = null, postJson: String? = null, form: FormBody? = null,
+        authentication: Boolean = false): String {
         val b = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0 (Linux; Android 13)")
         token?.let { b.header("TOKEN", it) }
         postJson?.let { b.post(it.toRequestBody("application/json; charset=utf-8".toMediaType())) }
         form?.let { b.post(it) }
-        http.newCall(b.build()).execute().use { r ->
+        (if (authentication || token != null) authHttp else http).newCall(b.build()).execute().use { r ->
             val text = r.body?.string().orEmpty()
             if (token != null) schoolAuthFailure(r.code, text)?.let { throw it }
-            if (!r.isSuccessful) throw RuntimeException("HTTP ${r.code}: ${text.take(120)}")
+            if (!r.isSuccessful) throw RuntimeException("学校请求失败（HTTP ${r.code}）")
             return text
         }
     }
@@ -108,7 +124,7 @@ class GdustApi {
     /** 账号密码登录，返回 ticket（GKCAS...）。验证码错误 code=30001 单独抛 AuthFailed。 */
     suspend fun login(account: String, password: String, code: String, uuid: String): String = io {
         val body = """{"loginName":${str(account)},"loginPwd":${str(password)},"code":${str(code)},"uuid":${str(uuid)}}"""
-        val resp = jsonObj(request("$CAS/cas-api/cas/loginByAccount", postJson = body))
+        val resp = jsonObj(request("$CAS/cas-api/cas/loginByAccount", postJson = body, authentication = true))
         if ((resp.num("code") ?: 0) != 0) throw AuthFailed(resp.num("code") ?: 0, resp.str("msg") ?: "登录失败")
         resp.str("data").orEmpty()
     }
@@ -124,7 +140,7 @@ class GdustApi {
             .addQueryParameter("loginCode", ticket.trim())
             .addQueryParameter("appId", "portalRemote")
             .build().toString()
-        val root = jsonObj(request(url))
+        val root = jsonObj(request(url, authentication = true))
         val token = root.getAsJsonObject("data")?.getAsJsonObject("userBase")?.str("token").orEmpty()
         if (token.isBlank()) error("门户未返回 TOKEN（票据可能已被使用或过期）")
         token

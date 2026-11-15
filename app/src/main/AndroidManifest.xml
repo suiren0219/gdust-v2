@@ -27,6 +27,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.screens.SchoolLoginActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- 学习通/教务网页登录：独立 Activity 承载 WebView（Compose AndroidView 会白屏，见类注释） -->
         <activity
             android:name=".ui.screens.ChxWebActivity"
