@@ -32,6 +32,84 @@ object WidgetPresentation {
         else -> Shape.MEDIUM
     }
 
+    /** 尺寸预算使用字体放大后的行高；空间不够时隐藏次要内容，不把正文缩到 11sp。 */
+    data class Layout(
+        val shape: Shape,
+        val padding: Dp,
+        val contentWidth: Float,
+        val contentHeight: Float,
+        val fontScale: Float,
+    ) {
+        fun line(sp: Float): Float = sp * fontScale * 1.3f
+        val headerHeight: Float get() = line(WidgetStyle.Type.title) + WidgetStyle.Space.smallGap
+        val rowHeight: Dp get() = maxOf(WidgetStyle.Space.row, line(WidgetStyle.Type.body) + 12f).dp
+        val narrow: Boolean get() = contentWidth < 72f * fontScale
+        val showHeaderSummary: Boolean get() = contentWidth >= 245f * fontScale
+        val showColumns: Boolean get() = contentWidth >= 254f * fontScale
+        val showRangeSwitch: Boolean get() = contentWidth >= 250f * fontScale
+        val showRowDetail: Boolean get() = contentWidth >= 225f * fontScale
+        val numberSp: Float get() = if (contentWidth < 110f * fontScale) WidgetStyle.Type.compactNumber else WidgetStyle.Type.number
+        val showTallFooter: Boolean get() = !narrow && contentHeight >= line(numberSp) + line(WidgetStyle.Type.label) * 5 + 16f
+        val showTallLabel: Boolean get() = contentHeight >= line(numberSp) + line(WidgetStyle.Type.label) * 2 + 8f
+
+        fun visibleRows(total: Int): Int {
+            if (total <= 0) return 0
+            val available = contentHeight - headerHeight - WidgetStyle.Space.gap
+            return minOf(total, 4, (available / rowHeight.value).toInt().coerceAtLeast(0))
+        }
+
+        fun showMore(total: Int): Boolean = total > visibleRows(total) &&
+            contentHeight - headerHeight - WidgetStyle.Space.gap - visibleRows(total) * rowHeight.value >= line(WidgetStyle.Type.caption)
+
+        /** 中卡先保住标题、数字/课程名，再按剩余空间给一行或两行详情。 */
+        val detailLines: Int get() = ((contentHeight - headerHeight - line(WidgetStyle.Type.number) - 12f) /
+            (line(WidgetStyle.Type.body) + WidgetStyle.Space.smallGap)).toInt().coerceIn(0, 2)
+        val showExtraDetail: Boolean get() = detailLines == 2 && contentHeight >=
+            headerHeight + line(WidgetStyle.Type.number) + line(WidgetStyle.Type.body) * 3 + 20f
+
+        /** 图轴至少留 12sp 刻度和 24dp 绘图区；放不下就保留大字与更新时间。 */
+        val chartHeight: Dp get() {
+            val available = contentHeight - headerHeight - line(WidgetStyle.Type.number) - WidgetStyle.Space.gap
+            val minimum = line(WidgetStyle.Type.caption) * 2 + 24f
+            return if (contentWidth < 128f * fontScale || available < minimum) 0.dp
+            else minOf(available, 96f).dp
+        }
+    }
+
+    fun layout(width: Dp, height: Dp, fontScale: Float): Layout {
+        val scale = fontScale.takeIf { it.isFinite() && it > 0f }?.coerceAtLeast(1f) ?: 1f
+        val shape = shapeOf(width, height)
+        val padding = when {
+            width.value < 80f * scale -> WidgetStyle.Space.narrowCard
+            shape == Shape.TALL || shape == Shape.ROW || height < 150.dp || width < 170.dp -> WidgetStyle.Space.compactCard
+            else -> WidgetStyle.Space.card
+        }
+        return Layout(shape, padding.dp, (width.value - padding * 2).coerceAtLeast(1f),
+            (height.value - padding * 2).coerceAtLeast(1f), scale)
+    }
+
+    data class Metric(val text: String, val sizeSp: Float)
+
+    /** 只对核心数字做适配，保留完整小数与符号；不把 19.9 度悄悄取整成 20 度。 */
+    fun metric(value: String, layout: Layout): Metric {
+        val units = value.sumOf {
+            when (it) {
+                '.', ',' -> 0.30
+                in '0'..'9' -> 0.62
+                '-', '—' -> 0.65
+                else -> 1.0
+            }
+        }.toFloat().coerceAtLeast(1f)
+        val height = when (layout.shape) {
+            Shape.TALL -> layout.contentHeight - layout.line(WidgetStyle.Type.label)
+            Shape.ROW -> layout.contentHeight
+            else -> layout.contentHeight - layout.headerHeight - WidgetStyle.Space.smallGap
+        }
+        val fitWidth = layout.contentWidth / (units * layout.fontScale)
+        val fitHeight = height / (1.3f * layout.fontScale)
+        return Metric(value, minOf(layout.numberSp, fitWidth, fitHeight).coerceAtLeast(WidgetStyle.Type.caption / layout.fontScale))
+    }
+
     // ── 课表口径：以"堂"计数，标题随展示日期 ─────────────────────────────────
 
     /** 标题行：今天/明天各用各自日期的星期；周次未知（开学前/无校历）不硬编。 */
@@ -181,7 +259,7 @@ object WidgetPresentation {
     } ?: ""
 
     /** 电力大字；样本缺失显示占位。 */
-    fun powerValue(odd: Double?): String = odd?.let { "%.1f".format(it) } ?: "--"
+    fun powerValue(odd: Double?): String = odd?.let { "%.1f".format(it) } ?: "—"
 
     fun powerLow(odd: Double?, warnTh: Float): Boolean = odd != null && odd < warnTh
 

@@ -141,7 +141,8 @@ fun LoginScreen(
         }
 
         Text(
-            "本机直连学校系统，不经过任何服务器；\n密码不落盘，只保存登录凭证与水电脑号。",
+            "本机直连学校系统，不经过任何服务器；\n密码不落盘，只保存登录凭证与水电脑号。\n" +
+                "学习通需在「学习通联动」完成网页认证；教务登录不代表学习通已登录。",
             fontSize = 13.sp,
             color = ds.sub,
             modifier = Modifier.padding(top = 20.dp),

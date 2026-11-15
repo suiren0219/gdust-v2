@@ -135,18 +135,21 @@ class NoticeFeedTest {
     }
 
     @Test
-    fun latestSameSourceRequestWinsWithoutChangingNoticeReadIdentity() = Fixture().use { f ->
+    fun repeatedRefreshWhileLoadingReusesOneRequestAndDoesNotQueueAnother() = Fixture().use { f ->
         f.feed.refresh(f.scope)
-        f.feed.refresh(f.scope)
-        assertTrue(f.requests[0].job.isCancelled)
+        repeat(5) { f.feed.refresh(f.scope) }
+        assertEquals(1, f.requests.size)
+        assertFalse(f.requests[0].job.isCancelled)
         val latest = notice("最新门户结果")
         val readId = latest.readId
-        f.requests[1].complete(listOf(latest))
-        f.requests[0].complete(listOf(notice("较早门户结果")))
+        f.requests[0].complete(listOf(latest))
         assertEquals(listOf(latest), f.feed.state.value.notices)
         assertEquals(readId, f.feed.state.value.notices.single().readId)
         assertNull(f.feed.state.value.error)
         assertFalse(f.feed.state.value.loading)
+        assertEquals(1, f.requests.size)
+        f.feed.refresh(f.scope)
+        assertEquals(2, f.requests.size)
     }
 
     @Test
@@ -197,13 +200,131 @@ class NoticeFeedTest {
         assertTrue(f.requests[0].job.isCancelled)
         assertEquals(NoticeFeedState(), f.feed.state.value)
         f.session = null
-        f.feed.refresh(f.scope, NoticeSource.ACADEMIC)
+        f.feed.refresh(f.scope, NoticeSource.PORTAL)
         assertEquals(1, f.requests.size)
-        assertEquals(NoticeSource.ACADEMIC, f.feed.state.value.source)
-        assertEquals("请先登录学校门户后再获取教务处公告。", f.feed.state.value.error)
+        assertEquals(NoticeSource.PORTAL, f.feed.state.value.source)
+        assertEquals("请先登录学校门户后再获取门户通知。", f.feed.state.value.error)
         f.requests[0].complete(listOf(notice("退出后的迟到响应")))
         assertTrue(f.feed.state.value.notices.isEmpty())
         assertFalse(f.feed.state.value.loading)
+    }
+
+    @Test
+    fun selectingSourcesDoesNotFetchAndRestoresEachSourcesLastSuccess() = Fixture().use { f ->
+        f.feed.select(NoticeSource.ACADEMIC)
+        assertTrue(f.requests.isEmpty())
+        assertEquals(NoticeFeedState(source = NoticeSource.ACADEMIC), f.feed.state.value)
+        f.feed.refresh(f.scope)
+        val academic = notice("缓存的公开公告")
+        f.requests[0].complete(listOf(academic))
+        f.feed.select(NoticeSource.CAMPUS)
+        assertEquals(1, f.requests.size)
+        assertEquals(NoticeFeedState(source = NoticeSource.CAMPUS), f.feed.state.value)
+        f.now = 2_000L
+        f.feed.refresh(f.scope)
+        val campus = notice("缓存的官网新闻")
+        f.requests[1].complete(listOf(campus))
+        f.feed.select(NoticeSource.ACADEMIC)
+        assertEquals(2, f.requests.size)
+        assertEquals(listOf(academic), f.feed.state.value.notices)
+        assertEquals(1_000L, f.feed.state.value.updatedAt)
+        f.feed.select(NoticeSource.CAMPUS)
+        assertEquals(listOf(campus), f.feed.state.value.notices)
+        assertEquals(2_000L, f.feed.state.value.updatedAt)
+    }
+
+    @Test
+    fun selectingAnotherSourceCancelsRefreshAndLateResponseCannotReplaceCache() = Fixture().use { f ->
+        val previous = notice("上次成功公告")
+        f.feed.refresh(f.scope, NoticeSource.ACADEMIC)
+        f.requests[0].complete(listOf(previous))
+        f.feed.refresh(f.scope)
+        val cancelled = f.requests[1]
+        f.feed.select(NoticeSource.CAMPUS)
+        assertTrue(cancelled.job.isCancelled)
+        assertEquals(2, f.requests.size)
+        f.feed.select(NoticeSource.ACADEMIC)
+        assertEquals(listOf(previous), f.feed.state.value.notices)
+        assertFalse(f.feed.state.value.loading)
+        cancelled.complete(listOf(notice("已取消的迟到公告")))
+        assertEquals(listOf(previous), f.feed.state.value.notices)
+        assertEquals(1_000L, f.feed.state.value.updatedAt)
+        assertNull(f.feed.state.value.error)
+    }
+
+    @Test
+    fun leavingThePageCancelsPendingRefreshWithoutClearingTheLastSuccess() = Fixture().use { f ->
+        f.feed.refresh(f.scope, NoticeSource.ACADEMIC)
+        val previous = notice("离页保留的公告")
+        f.requests[0].complete(listOf(previous))
+        f.feed.refresh(f.scope)
+        f.feed.cancelRefresh()
+        assertTrue(f.requests[1].job.isCancelled)
+        assertFalse(f.feed.state.value.loading)
+        assertEquals(listOf(previous), f.feed.state.value.notices)
+        assertEquals(1_000L, f.feed.state.value.updatedAt)
+        f.requests[1].complete(listOf(notice("离页后的迟到结果")))
+        assertEquals(listOf(previous), f.feed.state.value.notices)
+        f.feed.refresh(f.scope)
+        assertEquals(3, f.requests.size)
+    }
+
+    @Test
+    fun publicAcademicNoticesLoadWithoutPortalSessionAndNeverReceiveCredentials() = Fixture().use { f ->
+        f.session = null
+        f.feed.select(NoticeSource.ACADEMIC)
+        assertTrue(f.requests.isEmpty())
+        f.feed.refresh(f.scope)
+        assertEquals(1, f.requests.size)
+        assertNull(f.requests[0].session)
+        val academic = notice("公开教务公告")
+        f.requests[0].complete(listOf(academic))
+        assertEquals(listOf(academic), f.feed.state.value.notices)
+        assertEquals(1_000L, f.feed.state.value.updatedAt)
+        assertNull(f.feed.state.value.error)
+        f.session = PortalSession("test-account", "synthetic-unused-token", 3L)
+        f.feed.refresh(f.scope)
+        assertNull(f.requests[1].session)
+    }
+
+    @Test
+    fun publicFailureKeepsCachedResultsAndDoesNotAskForPortalLogin() = Fixture().use { f ->
+        f.session = null
+        f.feed.refresh(f.scope, NoticeSource.ACADEMIC)
+        val previous = notice("公开公告旧结果")
+        f.requests[0].complete(listOf(previous))
+        f.now = 2_000L
+        f.feed.refresh(f.scope)
+        f.requests[1].fail(SchoolNoticeUnavailable())
+        assertEquals(listOf(previous), f.feed.state.value.notices)
+        assertEquals(1_000L, f.feed.state.value.updatedAt)
+        assertEquals("教务处公开公告暂时无法读取，请稍后重试或查看官网。", f.feed.state.value.error)
+        assertFalse(f.feed.state.value.loading)
+        f.feed.select(NoticeSource.PORTAL)
+        f.feed.select(NoticeSource.ACADEMIC)
+        assertEquals(listOf(previous), f.feed.state.value.notices)
+        assertEquals(1_000L, f.feed.state.value.updatedAt)
+        assertEquals(2, f.requests.size)
+    }
+
+    @Test
+    fun switchingAccountsOrClearingDiscardsEverySourcesCacheWithoutFetching() = Fixture().use { f ->
+        f.feed.refresh(f.scope)
+        f.requests[0].complete(listOf(notice("旧账号门户缓存")))
+        f.feed.refresh(f.scope, NoticeSource.ACADEMIC)
+        f.requests[1].complete(listOf(notice("旧账号公告缓存")))
+        f.session = PortalSession("test-account-b", "synthetic-token-b", 2L)
+        f.feed.select(NoticeSource.PORTAL)
+        assertEquals(NoticeFeedState(), f.feed.state.value)
+        f.feed.select(NoticeSource.ACADEMIC)
+        assertEquals(NoticeFeedState(source = NoticeSource.ACADEMIC), f.feed.state.value)
+        assertEquals(2, f.requests.size)
+        f.feed.refresh(f.scope)
+        f.requests[2].complete(listOf(notice("新结果")))
+        f.feed.clear()
+        f.feed.select(NoticeSource.ACADEMIC)
+        assertEquals(NoticeFeedState(source = NoticeSource.ACADEMIC), f.feed.state.value)
+        assertEquals(3, f.requests.size)
     }
 
     private fun notice(title: String, time: Long = 1_000L) = Notice(
@@ -222,6 +343,10 @@ class NoticeFeedTest {
                 val job = currentCoroutineContext()[Job]!!
                 suspendCoroutine { continuation -> requests += Pending(session, source, job, continuation) }
             },
+            fetchAcademic = {
+                val job = currentCoroutineContext()[Job]!!
+                suspendCoroutine { continuation -> requests += Pending(null, NoticeSource.ACADEMIC, job, continuation) }
+            },
             clock = { now },
         )
 
@@ -233,7 +358,7 @@ class NoticeFeedTest {
     }
 
     private class Pending(
-        val session: PortalSession,
+        val session: PortalSession?,
         val source: NoticeSource,
         val job: Job,
         private val continuation: Continuation<List<Notice>>,

@@ -58,8 +58,8 @@ class WebViewProbeActivity : ComponentActivity() {
                         Box(Modifier.weight(1f)) { WebHost(url, variant) }
                     }
 
-                    "crossfade" -> Crossfade(targetState = 1) {
-                        Box(Modifier.fillMaxSize()) { WebHost(url, variant) }
+                    "crossfade" -> Crossfade(targetState = url) { page ->
+                        Box(Modifier.fillMaxSize()) { WebHost(page, variant) }
                     }
 
                     else -> Box(Modifier.fillMaxSize()) { WebHost(url, variant) }

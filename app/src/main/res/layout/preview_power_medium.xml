@@ -1,49 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@drawable/preview_glass"
-    android:orientation="vertical"
-    android:padding="12dp">
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="0dp" android:layout_weight="1"
-        android:layout_height="wrap_content"
-        android:text="主分区_23栋A8"
-        android:textSize="11sp"
-        android:textColor="@color/widget_sub" android:textStyle="bold" />
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="更新于 17:59"
-        android:textSize="11sp"
-        android:textColor="@color/widget_sub" android:gravity="end" />
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/preview_glass" android:orientation="vertical" android:padding="@dimen/widget_padding">
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="宿舍电量" android:textSize="@dimen/widget_text_title" android:textStyle="bold"
+        android:textColor="@color/widget_text" android:maxLines="1" android:ellipsize="end" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="bottom"
+        android:layout_marginTop="@dimen/widget_small_gap">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="—" android:textSize="@dimen/widget_text_number" android:textStyle="bold"
+            android:textColor="@color/widget_text" android:maxLines="1" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="@dimen/widget_small_gap"
+            android:text="度" android:textSize="@dimen/widget_text_label" android:textColor="@color/widget_sub" android:maxLines="1" />
     </LinearLayout>
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="72.9"
-        android:textSize="26sp"
-        android:textColor="@color/widget_text" android:textStyle="bold" />
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text=" 度"
-        android:textSize="11sp"
-        android:textColor="@color/widget_sub" />
-    </LinearLayout>
-    <View android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="╲────────●─"
-        android:textSize="11sp"
-        android:textColor="@color/widget_accent" />
+    <TextView android:layout_width="1dp" android:layout_height="0dp" android:layout_weight="1" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="等待采样积累走势" android:textSize="@dimen/widget_text_caption" android:textColor="@color/widget_sub"
+        android:maxLines="2" android:ellipsize="end" />
 </LinearLayout>

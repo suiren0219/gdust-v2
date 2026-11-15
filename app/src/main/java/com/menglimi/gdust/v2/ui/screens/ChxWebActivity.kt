@@ -16,23 +16,22 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
-import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -44,7 +43,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.platform.ComposeView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.google.gson.JsonParser
 import com.menglimi.gdust.v2.App
 import com.menglimi.gdust.v2.data.ChxSso
@@ -52,6 +53,7 @@ import com.menglimi.gdust.v2.data.ChxWebSession
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.AppTheme
 import com.menglimi.gdust.v2.ui.LocalDs
+import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
@@ -82,22 +84,39 @@ class ChxWebActivity : ComponentActivity() {
     private var mainPageFailed = false
     private var logoutAttemptFailed = false
     private var sentCasTicket = false
+    private var sessionVersion = 0L
+    private var chxVersion = 0L
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         repo = (application as App).repo
+        sessionVersion = savedInstanceState?.getLong("session_version") ?: repo.sessionVersion.value
+        if (!repo.isCurrentSession(sessionVersion) || repo.store.webLogoutPending) {
+            finish()
+            return
+        }
+        repo.invalidateChxRequests()
+        chxVersion = repo.chxSessionVersion.value
         val initialUrl = intent.getStringExtra(EXTRA_URL) ?: ChxSso.fyssoUrl
         logout = intent.getBooleanExtra(EXTRA_LOGOUT, false) || ChxSso.isSchoolLogoutUrl(initialUrl)
         setResult(RESULT_CANCELED, Intent().putExtra(EXTRA_LOGOUT_CONFIRMED, false))
         web = WebView(this)
         configure(web)
         onBackPressedDispatcher.addCallback(this) { navigateBack() }
-        setContent {
+        // 学校 CAS 使用 100vh；WebView 放进 Compose AndroidView 会出现零高视口白屏。
+        // Compose 只画工具栏，网页由原生 LinearLayout 独立测量（与教务网页登录一致）。
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val toolbar = ComposeView(this)
+        toolbar.setContent {
             AppTheme {
                 val ds = LocalDs.current
-                Column(Modifier.fillMaxSize().background(ds.bg).safeDrawingPadding().imePadding()) {
+                SideEffect {
+                    root.setBackgroundColor(ds.bg.toArgb())
+                    web.setBackgroundColor(ds.bg.toArgb())
+                }
+                Column(Modifier.fillMaxWidth().background(ds.bg)) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = ::navigateBack, modifier = Modifier.size(48.dp)) {
@@ -123,11 +142,30 @@ class ChxWebActivity : ComponentActivity() {
                                 fontSize = 13.sp, lineHeight = 20.sp)
                         }
                     }
-                    AndroidView(factory = { web }, modifier = Modifier.fillMaxWidth().weight(1f),
-                        update = { it.setBackgroundColor(ds.bg.toArgb()) })
+                    if (!logout && (pageError != null || currentPage?.let(ChxSso::isLoginUrl) == true)) {
+                        Button(onClick = { openLogin(ChxSso.DIRECT_LOGIN) },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text("使用学习通账号网页登录", fontSize = 14.sp)
+                        }
+                    }
                 }
             }
         }
+        // AppTheme 内部使用 fillMaxSize；ScrollView 以不限定高度测量工具栏，避免其抢占网页高度。
+        val toolbarContainer = ScrollView(this).apply {
+            isFillViewport = false
+            addView(toolbar, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        root.addView(toolbarContainer, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(web, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        setContentView(root)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val padding = insets.getInsets(WindowInsetsCompat.Type.systemBars() or
+                WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
+            view.setPadding(padding.left, padding.top, padding.right, padding.bottom)
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
         // 登出始终重新请求，不能用缓存中的成功页面确认这次服务器退出。
         if (logout || savedInstanceState?.getBundle("web_state")?.let(web::restoreState) == null) {
             if (logout) loadLogout(initialUrl) else web.loadUrl(initialUrl)
@@ -138,7 +176,8 @@ class ChxWebActivity : ComponentActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putBundle("web_state", Bundle().also { web.saveState(it) })
+        outState.putLong("session_version", sessionVersion)
+        if (::web.isInitialized) outState.putBundle("web_state", Bundle().also { web.saveState(it) })
         super.onSaveInstanceState(outState)
     }
 
@@ -170,8 +209,18 @@ class ChxWebActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    private fun isCurrentSession(): Boolean = repo.isCurrentSession(sessionVersion) &&
+        repo.chxSessionVersion.value == chxVersion && !repo.store.webLogoutPending
+
     private fun navigateBack() {
         if (!logout && web.canGoBack()) web.goBack() else finishBrowsing()
+    }
+
+    private fun openLogin(url: String) {
+        if (!isCurrentSession()) return
+        pageVersion++
+        web.stopLoading()
+        web.loadUrl(url)
     }
 
     private fun reloadPage() {
@@ -193,6 +242,7 @@ class ChxWebActivity : ComponentActivity() {
         if (isFinishing || isDestroyed) return
         pageVersion++ // 关闭后到达的 JS/网络回调不再更新结果。
         web.stopLoading()
+        if (!logout && isCurrentSession()) saveCookieIfAny()
         runCatching { CookieManager.getInstance().flush() }
         // 普通登录页返回仅带“已保存”信息；已有 Cookie 不得把 RESULT_OK 当成已验证登录。
         setResult(if (logout && logoutConfirmed) RESULT_OK else RESULT_CANCELED,
@@ -202,12 +252,9 @@ class ChxWebActivity : ComponentActivity() {
     }
 
     private fun saveCookieIfAny(): Boolean {
-        val cookie = ChxSso.cookieProbes.firstNotNullOfOrNull { url ->
-            CookieManager.getInstance().getCookie(url)?.takeIf(ChxSso::hasSessionCookie)
-        } ?: return false
-        val before = repo.store.hasChxSession
-        repo.saveChxCandidate(cookie, repo.sessionVersion.value)
-        return before || repo.store.hasChxSession
+        if (!isCurrentSession()) return false
+        val cookie = ChxWebSession.candidateCookie() ?: return false
+        return repo.saveChxCandidate(cookie, sessionVersion, chxVersion)
     }
 
     private fun showLoadError(message: String) {
@@ -268,13 +315,14 @@ class ChxWebActivity : ComponentActivity() {
             }
 
             override fun onPageFinished(view: WebView, url: String) {
-                if (isFinishing || isDestroyed || currentPage != url) return
+                if (isFinishing || isDestroyed || currentPage != url || !isCurrentSession()) return
                 pageProgress = 100
                 if (mainPageFailed) return
                 if (logout) {
                     val version = pageVersion
                     view.evaluateJavascript("document.body ? document.body.innerText : ''") { result ->
-                        if (isFinishing || isDestroyed || version != pageVersion || view.url != url) return@evaluateJavascript
+                        if (isFinishing || isDestroyed || version != pageVersion || view.url != url ||
+                            !isCurrentSession()) return@evaluateJavascript
                         val text = runCatching { JsonParser.parseString(result).asString }.getOrNull()
                         logoutConfirmed = ChxSso.confirmsSchoolLogout(url, text, !mainPageFailed && !logoutAttemptFailed, sentCasTicket)
                         if (logoutConfirmed) finishBrowsing()
@@ -284,18 +332,19 @@ class ChxWebActivity : ComponentActivity() {
                 }
                 // 教务网页登录落地即保存入口：学习通联动完成后，「网页登录导入」可直接读取学期课表
                 val teachingSaved = ChxSso.isTeachingWebEntry(url) &&
-                    runCatching { repo.saveWebSession(url, repo.sessionVersion.value) }.getOrDefault(false)
+                    runCatching { repo.saveWebSession(url, sessionVersion) }.getOrDefault(false)
                 pageMessage = buildString {
                     if (teachingSaved) append("教务网页入口已保存，可在「网页登录导入」直接读取学期课表。")
                     append(
                         when {
+                            // 登录页优先于旧 Cookie 候选，避免尚未认证就提示会话已保存。
+                            ChxSso.isLoginUrl(url) ->
+                                "当前仍在登录页，尚未完成学习通认证。教务登录不等于学习通已登录；" +
+                                    "请完成网页认证，学校入口不可用时可使用学习通账号网页登录。"
                             saveCookieIfAny() -> "学习通会话已保存，返回后可检查是否有效。"
                             teachingSaved -> ""
-                            // 还停在 CAS 登录页：说明还没完成登录，给出明确下一步而不是含糊的「没成功」
-                            ChxSso.isLoginUrl(url) ->
-                                "还停在统一认证登录页：完成扫码或账号登录后会自动跳转并保存会话。"
-                            else -> "尚未取得可验证的学习通会话。若网页里已登录成功，请点刷新后再关闭；" +
-                                "若页面空白，可能是学校统一认证暂时不可达。"
+                            else -> "尚未取得可验证的学习通会话。请先在网页里完成认证；" +
+                                "若已登录，可进入学习通首页后再返回检查。"
                         },
                     )
                 }

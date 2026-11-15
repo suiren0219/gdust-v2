@@ -116,14 +116,14 @@ internal fun parseGradeForm(html: String): GradePageForm {
     if (isGradeLoginHtml(html)) throw gradeAuthFailed()
     val document = Jsoup.parse(html)
     val keys = document.select("input#pkey[value]")
-    if (keys.size != 1) failGrade(GradeFailure.STRUCTURE)
+    if (keys.size != 1) failGrade(GradeFailure.FORM)
     fun options(id: String): Set<String> {
         val selects = document.select("select#$id")
-        if (selects.size != 1 || selects.single().hasAttr("disabled")) failGrade(GradeFailure.STRUCTURE)
+        if (selects.size != 1 || selects.single().hasAttr("disabled")) failGrade(GradeFailure.FORM)
         return selects.single().select("option[value]")
             .filter { !it.hasAttr("disabled") && it.parent()?.hasAttr("disabled") != true }
             .map { it.attr("value") }.filter { it.isNotEmpty() }.toSet()
-            .ifEmpty { failGrade(GradeFailure.STRUCTURE) }
+            .ifEmpty { failGrade(GradeFailure.FORM) }
     }
     // 空值也有效，但元素缺失不是空 pkey；每次 load 都重新读取页面。
     return GradePageForm(keys.single().attr("value"), options("xnm"), options("xqm"))
@@ -135,28 +135,25 @@ internal data class TeachingGradePage(
 
 internal fun parseGradePage(body: String): TeachingGradePage {
     if (isGradeLoginHtml(body)) throw gradeAuthFailed()
+    if (body.trim().removePrefix("\uFEFF").trim().startsWith('<')) failGrade(GradeFailure.HTML)
     val root = gradeJson(body)
     gradeJsonAuthCode(root)?.let { throw gradeAuthFailed(it) }
     if (!root.isJsonObject) failGrade(GradeFailure.STRUCTURE)
     val obj = root.asJsonObject
-    if (obj.get("success")?.let { it.isJsonPrimitive && it.asString == "false" } == true) {
-        failGrade(GradeFailure.RESPONSE)
+    obj.checkGradeResponse()
+    // 列表与分页可以同在 data 内；兼容旧版「data 列表 + 顶层分页」，不跨层拼凑缺失字段。
+    val page = if (obj.has("items")) obj else {
+        obj.get("data")?.takeIf { it.isJsonObject }?.asJsonObject ?: failGrade(GradeFailure.STRUCTURE)
     }
-    for (key in listOf("code", "status", "statusCode")) {
-        obj.get(key)?.let {
-            if (!it.isJsonNull && (!it.isJsonPrimitive || it.asString !in setOf("0", "200"))) {
-                failGrade(GradeFailure.RESPONSE)
-            }
-        }
+    if (page !== obj) page.checkGradeResponse()
+    val items = (if (page.has("items")) page.get("items") else page.get("rows"))
+        ?.takeIf { it.isJsonArray }?.asJsonArray ?: failGrade(GradeFailure.STRUCTURE)
+    val outerPagination = obj.gradePagination()
+    val innerPagination = if (page !== obj) page.gradePagination() else null
+    if (outerPagination != null && innerPagination != null && outerPagination != innerPagination) {
+        failGrade(GradeFailure.INCOMPLETE)
     }
-    // 兼容顶层 items 与 data.items / data.rows 包装（不同正方版本结构不一）。
-    val items = runCatching {
-        obj.get("items")?.takeIf { it.isJsonArray }?.asJsonArray
-            ?: obj.getAsJsonObject("data")?.let { data ->
-                data.get("items")?.takeIf { it.isJsonArray }?.asJsonArray
-                    ?: data.get("rows")?.takeIf { it.isJsonArray }?.asJsonArray
-            }
-    }.getOrNull() ?: failGrade(GradeFailure.STRUCTURE)
+    val pagination = innerPagination ?: outerPagination ?: failGrade(GradeFailure.STRUCTURE)
     if (items.size() > GRADE_PAGE_SIZE) failGrade(GradeFailure.INCOMPLETE)
     val entries = items.map { element ->
         if (!element.isJsonObject) failGrade(GradeFailure.STRUCTURE)
@@ -175,8 +172,27 @@ internal fun parseGradePage(body: String): TeachingGradePage {
             degreeCourse = item.optionalGradeString("sfxwkc"), courseMark = item.optionalGradeString("kcbj"),
         )
     }
-    // items 中嵌套的 queryModel 是记录元数据，不能拿来补顶层缺失的分页字段。
-    return TeachingGradePage(entries, obj.gradeInt("currentPage"), obj.gradeInt("totalPage"), obj.gradeInt("totalResult"))
+    return TeachingGradePage(entries, pagination.first, pagination.second, pagination.third)
+}
+
+private fun JsonObject.checkGradeResponse() {
+    gradeJsonAuthCode(this)?.let { throw gradeAuthFailed(it) }
+    if (get("success")?.let { it.isJsonPrimitive && it.asString == "false" } == true) {
+        failGrade(GradeFailure.RESPONSE)
+    }
+    for (key in listOf("code", "status", "statusCode")) {
+        get(key)?.let {
+            if (!it.isJsonNull && (!it.isJsonPrimitive || it.asString !in setOf("0", "200"))) {
+                failGrade(GradeFailure.RESPONSE)
+            }
+        }
+    }
+}
+
+private fun JsonObject.gradePagination(): Triple<Int, Int, Int>? {
+    // items 内的 queryModel 是记录元数据，不能用它补分页；任一层提供分页就必须完整。
+    if (listOf("currentPage", "totalPage", "totalResult").none(::has)) return null
+    return Triple(gradeInt("currentPage"), gradeInt("totalPage"), gradeInt("totalResult"))
 }
 
 private fun JsonObject.gradeString(key: String): String {
@@ -198,7 +214,7 @@ private fun JsonObject.gradeInt(key: String): Int {
 }
 
 private fun gradeJson(body: String): JsonElement = try {
-    JsonReader(StringReader(body.removePrefix("\uFEFF"))).use { reader ->
+    JsonReader(StringReader(body.trim().removePrefix("\uFEFF").trim())).use { reader ->
         reader.strictness = Strictness.STRICT
         val root = JsonParser.parseReader(reader)
         if (reader.peek() != JsonToken.END_DOCUMENT) failGrade(GradeFailure.STRUCTURE)
@@ -226,10 +242,10 @@ private fun gradeResponseBody(response: SessionResponse): String {
     if (response.status in 300..399 && response.location?.let(::isGradeLoginUrl) == true) throw gradeAuthFailed()
     val body = response.body.trim().removePrefix("\uFEFF").trim()
     if (isGradeLoginHtml(body)) throw gradeAuthFailed()
+    if (response.status !in 200..299) failGrade(GradeFailure.RESPONSE)
     if (body.startsWith("{") || body in setOf("401", "901", "\"401\"", "\"901\"")) {
         gradeJsonAuthCode(gradeJson(body))?.let { throw gradeAuthFailed(it) }
     }
-    if (response.status !in 200..299) failGrade(GradeFailure.RESPONSE)
     if (body.isEmpty()) failGrade(GradeFailure.STRUCTURE)
     return body
 }

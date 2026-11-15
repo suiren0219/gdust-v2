@@ -3,6 +3,10 @@
     <!-- 研究线诊断页只进 debug 包，release 不受影响 -->
     <application>
         <activity
+            android:name=".debug.DndVerificationActivity"
+            android:exported="true"
+            android:label="勿扰离线验证" />
+        <activity
             android:name=".debug.WebViewProbeActivity"
             android:exported="true"
             android:label="WebView 探针" />

@@ -27,7 +27,7 @@ class ChxCourseApi internal constructor(private val http: SessionHttpClient) {
         internal const val PROGRESS_URL = "https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu-job-info"
         private const val COURSE_HOST = "mooc1.chaoxing.com"
         private const val COURSE_PATH = "/visit/stucoursemiddle"
-        private const val USER_AGENT =
+        internal const val USER_AGENT =
             "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
         private const val UNKNOWN_LIST = "未能识别当前课程页，请稍后重试或在学习通网页查看。"
         private const val UNKNOWN_PROGRESS = "任务点进度暂时无法读取，课程列表已保留。"
@@ -42,7 +42,7 @@ class ChxCourseApi internal constructor(private val http: SessionHttpClient) {
                 )
 
         /** 同一编排用于真实客户端与虚构响应测试，测试不需要 Cookie、WebView 或网络。 */
-        internal suspend fun loadWith(execute: suspend (Request) -> SessionResponse): ChxCourseOverview {
+        internal suspend fun discoverWith(execute: suspend (Request) -> SessionResponse): List<ChxCourse> {
             val home = request(ChxSso.HOME).get().build()
             val homepage = executeChecked(execute, home, "学习通首页暂时无法读取，请稍后重试。")
             val homeBody = requireBody(homepage, home.url, "学习通首页暂时无法读取，请稍后重试。")
@@ -53,7 +53,11 @@ class ChxCourseApi internal constructor(private val http: SessionHttpClient) {
             }
             val listRequest = courseListRequest()
             val listResponse = executeChecked(execute, listRequest, "课程页暂时无法读取，请稍后重试。")
-            val courses = parseCourses(requireBody(listResponse, listRequest.url, "课程页暂时无法读取，请稍后重试。"))
+            return parseCourses(requireBody(listResponse, listRequest.url, "课程页暂时无法读取，请稍后重试。"))
+        }
+
+        internal suspend fun loadWith(execute: suspend (Request) -> SessionResponse): ChxCourseOverview {
+            val courses = discoverWith(execute)
             currentCoroutineContext().ensureActive()
             return try {
                 val progressRequest = progressRequest(courses)
@@ -64,9 +68,9 @@ class ChxCourseApi internal constructor(private val http: SessionHttpClient) {
             } catch (_: AuthFailed) {
                 currentCoroutineContext().ensureActive()
                 ChxCourseOverview(courses, "学习通会话已失效，任务点进度未知，请重新登录。", progressAuthRequired = true)
-            } catch (_: Exception) {
+            } catch (error: Exception) {
                 currentCoroutineContext().ensureActive()
-                ChxCourseOverview(courses, UNKNOWN_PROGRESS)
+                ChxCourseOverview(courses, if (error is ChxCourseReadException) error.message else UNKNOWN_PROGRESS)
             }
         }
 
@@ -95,7 +99,7 @@ class ChxCourseApi internal constructor(private val http: SessionHttpClient) {
             .header("User-Agent", USER_AGENT)
             .header("Referer", ChxSso.HOME)
 
-        private suspend fun executeChecked(
+        internal suspend fun executeChecked(
             execute: suspend (Request) -> SessionResponse,
             request: Request,
             error: String,
@@ -107,9 +111,17 @@ class ChxCourseApi internal constructor(private val http: SessionHttpClient) {
                 throw cancelled
             } catch (auth: AuthFailed) {
                 throw auth
-            } catch (_: Exception) {
+            } catch (failure: Exception) {
                 currentCoroutineContext().ensureActive()
-                throw ChxCourseReadException(error)
+                val reason = when (failure) {
+                    is java.net.SocketTimeoutException, is java.io.InterruptedIOException -> "请求超时"
+                    is java.net.UnknownHostException -> "域名解析失败"
+                    is javax.net.ssl.SSLException -> "安全连接失败"
+                    is java.net.ConnectException -> "无法连接服务器"
+                    is java.io.IOException -> "网络传输失败"
+                    else -> "请求未完成"
+                }
+                throw ChxCourseReadException("$error（$reason）")
             }
             currentCoroutineContext().ensureActive()
             return response
@@ -121,9 +133,10 @@ class ChxCourseApi internal constructor(private val http: SessionHttpClient) {
                 if (isTrustedLoginRedirect(url, response.location)) {
                     throw AuthFailed(401, "学习通会话已失效，请重新登录。")
                 }
-                throw ChxCourseReadException(error)
+                throw ChxCourseReadException("$error（HTTP ${response.status}；目标 ${ChxReadDiagnostics.route(url, response.location)}）")
             }
-            if (response.status !in 200..299 || response.body.isBlank()) throw ChxCourseReadException(error)
+            if (response.status !in 200..299) throw ChxCourseReadException("$error（HTTP ${response.status}）")
+            if (response.body.isBlank()) throw ChxCourseReadException("$error（响应为空）")
             // 仅真实表单中的密码框与登录文案共同出现才是登录证据；普通正文不触发失效。
             val document = Jsoup.parse(response.body)
             val login = document.select("form").any { form ->
@@ -134,20 +147,28 @@ class ChxCourseApi internal constructor(private val http: SessionHttpClient) {
             return response.body
         }
 
-        private fun isTrustedLoginRedirect(base: HttpUrl, location: String?): Boolean {
+        internal fun isTrustedLoginRedirect(base: HttpUrl, location: String?): Boolean {
             if (location.isNullOrBlank() || location.any { it.code <= 32 || it.code == 127 } || '\\' in location) return false
             val target = try { URI(base.toString()).resolve(URI(location)) } catch (_: Exception) { return false }
             if (target.scheme != "https" || target.userInfo != null || target.port !in setOf(-1, 443)) return false
             val parsed = target.toString().toHttpUrlOrNull() ?: return false
-            if (parsed.host !in setOf("mooc2-ans.chaoxing.com", "passport.chaoxing.com", "passport2.chaoxing.com", "cas.gdust.edu.cn")) return false
+            if (parsed.host !in setOf("mooc1.chaoxing.com", "mooc2-ans.chaoxing.com", "passport.chaoxing.com", "passport2.chaoxing.com", "cas.gdust.edu.cn")) return false
             return ChxSso.isLoginUrl(parsed.toString())
         }
 
         internal fun parseCourses(html: String): List<ChxCourse> {
             val document = Jsoup.parse(html)
             val containers = document.select("#courseList")
-            if (containers.size != 1) throw ChxCourseReadException(UNKNOWN_LIST)
-            val rows = containers.single().select(".course.learnCourse")
+            if (containers.size > 1) throw ChxCourseReadException(UNKNOWN_LIST)
+            // 两种版式均来自现有 fixtures：默认列表与置顶/普通分区。不能限定为 div，现代页也使用 li。
+            val splitContainers = document.select("#stuTopCourseListDiv, #stuNormalCourseListDiv")
+            val splitLayout = containers.isEmpty()
+            if (splitLayout && (splitContainers.isEmpty() ||
+                    splitContainers.groupBy { it.id() }.any { it.value.size != 1 })) {
+                throw ChxCourseReadException(UNKNOWN_LIST)
+            }
+            val rows = if (splitLayout) splitContainers.flatMap { it.select(".course.learnCourse") }
+                else containers.single().select(".course.learnCourse").toList()
             // 页面含隐藏的“暂无课程”模板，不能用文案或 HTTP 200 判成功空列表。
             if (rows.isEmpty()) throw ChxCourseReadException(UNKNOWN_LIST)
             val courses = linkedMapOf<String, ChxCourse>()
@@ -155,10 +176,15 @@ class ChxCourseApi internal constructor(private val http: SessionHttpClient) {
                 val clazzId = hidden(row, "clazzId").takeIf(::isId) ?: throw ChxCourseReadException(UNKNOWN_LIST)
                 val courseId = hidden(row, "courseId").takeIf(::isId) ?: throw ChxCourseReadException(UNKNOWN_LIST)
                 val curPersonId = hidden(row, "curPersonId").takeIf(::isId) ?: throw ChxCourseReadException(UNKNOWN_LIST)
-                if (hidden(row, "role") != "0" || row.attr("info") != "${clazzId}_${curPersonId}") {
+                val role = hidden(row, "role")
+                val info = row.attr("info")
+                if ((!splitLayout && (role != "0" || info != "${clazzId}_${curPersonId}")) ||
+                    (splitLayout && ((role.isNotEmpty() && role != "0") ||
+                        (info.isNotEmpty() && info != "${clazzId}_${curPersonId}")))) {
                     throw ChxCourseReadException(UNKNOWN_LIST)
                 }
-                val name = row.selectFirst(".course-info .course-name[title]")?.attr("title")?.trim().orEmpty()
+                val name = row.selectFirst(if (splitLayout) ".course-name[title]" else ".course-info .course-name[title]")
+                    ?.attr("title")?.trim().orEmpty()
                 if (name.isEmpty()) throw ChxCourseReadException(UNKNOWN_LIST)
                 val description = listOf("p.margint10.line2.color2[title]", "p.line2.color3[title]")
                     .mapNotNull { selector -> row.selectFirst(selector)?.attr("title")?.trim()?.takeIf { it.isNotEmpty() } }

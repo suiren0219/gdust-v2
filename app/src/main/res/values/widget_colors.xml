@@ -7,4 +7,20 @@
     <color name="widget_accent">#3482FF</color>
     <color name="widget_accent_soft">#243482FF</color>
     <color name="widget_danger">#EE4444</color>
+    <!-- 小字前景与 WidgetStyle 的对比度派生值同步；图表/装饰仍用基准蓝红。 -->
+    <color name="widget_accent_text">#2A68CC</color>
+    <color name="widget_danger_text">#C33838</color>
+
+    <dimen name="widget_text_title">16sp</dimen>
+    <dimen name="widget_text_headline">18sp</dimen>
+    <dimen name="widget_text_body">14sp</dimen>
+    <dimen name="widget_text_label">13sp</dimen>
+    <dimen name="widget_text_caption">12sp</dimen>
+    <dimen name="widget_text_number">36sp</dimen>
+    <dimen name="widget_text_tall_number">32sp</dimen>
+    <dimen name="widget_padding">16dp</dimen>
+    <dimen name="widget_padding_tall">12dp</dimen>
+    <dimen name="widget_gap">8dp</dimen>
+    <dimen name="widget_small_gap">4dp</dimen>
+    <dimen name="widget_row_height">34dp</dimen>
 </resources>

@@ -54,6 +54,7 @@ import com.menglimi.gdust.v2.ui.screens.PowerScreen
 import com.menglimi.gdust.v2.ui.screens.ProfileScreen
 import com.menglimi.gdust.v2.ui.screens.SettingsScreen
 import com.menglimi.gdust.v2.ui.screens.TodayScreen
+import com.menglimi.gdust.v2.ui.screens.TermImportScreen
 import com.menglimi.gdust.v2.ui.screens.TodoScreen
 import com.menglimi.gdust.v2.ui.screens.WidgetPreviewScreen
 import com.menglimi.gdust.v2.widget.PowerWidget
@@ -107,12 +108,15 @@ private class PreviewContext(base: Context) : ContextWrapper(base) {
 }
 
 private val mainPages = listOf("today", "schedule", "power", "todo")
-private val previewPages = mainPages + listOf("history", "widgets", "settings", "profile", "about", "widget_render")
+private val previewPages = mainPages + listOf("history", "widgets", "settings", "profile", "about", "widget_render", "term_import", "identity", "identity_pending")
 
 private data class PreviewRequest(
     val screen: String = "today",
     val kind: String = "schedule",
     val shape: String = "wide",
+    val width: Int = 0,
+    val height: Int = 0,
+    val section: String? = null,
     val revision: Int = 0,
 ) {
     companion object {
@@ -122,7 +126,10 @@ private data class PreviewRequest(
             kind = intent.getStringExtra("kind")?.lowercase(Locale.ROOT)
                 ?.takeIf { it in listOf("schedule", "power", "todo") } ?: "schedule",
             shape = intent.getStringExtra("shape")?.lowercase(Locale.ROOT)
-                ?.takeIf { it in listOf("wide", "medium", "tall") } ?: "wide",
+                ?.takeIf { it in listOf("wide", "medium", "tall", "row") } ?: "wide",
+            width = intent.getIntExtra("width", 0).takeIf { it in 57..420 } ?: 0,
+            height = intent.getIntExtra("height", 0).takeIf { it in 48..600 } ?: 0,
+            section = intent.getStringExtra("section"),
         )
     }
 }
@@ -133,7 +140,7 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
     val store = repo.store
     var screen by rememberSaveable { mutableStateOf(request.screen) }
     var tab by rememberSaveable { mutableStateOf(mainPages.indexOf(request.screen).coerceAtLeast(0)) }
-    val openSection = rememberSaveable { mutableStateOf<String?>(null) }
+    val openSection = rememberSaveable { mutableStateOf(request.section) }
     val calendar = remember(repo) { store.loadCalendar() }
     val blocks = remember(repo) { store.loadBlocks() }
     val offlineAction: () -> Unit = {
@@ -185,9 +192,18 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
                 "todo" -> TodoScreen(repo)
                 "history" -> PowerHistoryScreen(repo, onBack = back)
                 "widgets" -> WidgetPreviewScreen(onBack = back)
+                "identity", "identity_pending" -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    com.menglimi.gdust.v2.ui.screens.AccountIdentityContent(
+                        name = "示例同学", account = "demo-0001",
+                        state = if (screen == "identity") com.menglimi.gdust.v2.data.AccountLoginState.VALID
+                            else com.menglimi.gdust.v2.data.AccountLoginState.UNAVAILABLE,
+                        canVerify = true, onVerify = offlineAction, onOpenProfile = { screen = "profile" },
+                    )
+                }
                 "profile" -> ProfileScreen(repo, onBack = back)
                 "about" -> AboutScreen(repo, onBack = back)
-                "widget_render" -> RealWidgetPreview(request.kind, request.shape)
+                "widget_render" -> RealWidgetPreview(request.kind, request.shape, request.width, request.height)
+                "term_import" -> TermImportScreen(repo, onBack = back, onImported = { _, _ -> offlineAction() })
                 "settings" -> SettingsScreen(
                     repo = repo,
                     syncError = null,
@@ -227,12 +243,14 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
 
 /** 直接走生产 Glance 布局，默认假 widget ID + 内存 state，不申请 launcher 绑定。 */
 @Composable
-private fun RealWidgetPreview(kind: String, shape: String) {
+private fun RealWidgetPreview(kind: String, shape: String, width: Int, height: Int) {
     val context = LocalContext.current
-    val size = remember(shape) {
-        when (shape) {
+    val size = remember(shape, width, height) {
+        if (width > 0 && height > 0) DpSize(width.dp, height.dp)
+        else when (shape) {
             "medium" -> DpSize(180.dp, 180.dp)
             "tall" -> DpSize(96.dp, 192.dp)
+            "row" -> DpSize(340.dp, 74.dp)
             else -> DpSize(340.dp, 170.dp)
         }
     }

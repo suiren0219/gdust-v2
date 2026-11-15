@@ -14,9 +14,10 @@ import java.util.Locale
  * - 实测：未登录时 `http://gdkjxy.fysso.chaoxing.com/sso/gdkjxy` 302 回 `cas.gdust.edu.cn/lyuapServer/login`，
  *   登录页标题「广科统一身份认证」——学习通与教务共用同一套 CAS。
  *
- * 因此联动方式是复用 CAS 网页会话（TGC 存在 WebView 的 CookieManager 里）：
- * 用户在同一 WebView 里登录后可尝试复用认证，是否有效以各站点实际验证为准。
- * CAS ticket 一次性，不能拿同一张票换两个系统，所以这里不做 ticket 复用。
+ * 联动只复用应用内 CAS 网页会话（由 CookieManager 按域名/路径发送）：
+ * 原生 loginByAccount / 钉钉 ticket、门户 TOKEN 和教务 JSESSIONID 都不是 CAS 网页会话，
+ * 不能据此生成 TGC、复制 Cookie 到超星或重放 ticket。没有网页会话时由学校页面完成认证。
+ * 即使有 CAS Cookie，也必须以超星自己的响应验证联动结果。
  */
 object ChxSso {
     private const val CAS_LOGIN = "https://cas.gdust.edu.cn/lyuapServer/login?service="
@@ -24,9 +25,9 @@ object ChxSso {
     /** 泛雅 / 广科智课（机构 fid=420）。该加速域没开 HTTPS，实测 443 无响应，必须走 http。 */
     private const val FYSSO_SERVICE = "http://gdkjxy.fysso.chaoxing.com/sso/gdkjxy"
 
-    /** 新版超星课程中心。 */
+    /** 2026-11-15 只读核对门户 index.js：service 解码一次后的 refer 是原始 URL，不能再预编码。 */
     private const val MH_SERVICE =
-        "https://gdkj.mh.chaoxing.com/sso/login/3rd?wfwfid=420&refer=https%3A%2F%2Fgdkj.mh.chaoxing.com"
+        "https://gdkj.mh.chaoxing.com/sso/login/3rd?wfwfid=420&refer=https://gdkj.mh.chaoxing.com"
 
     /** 教务（正方）网页入口，同样走 CAS，验证「一次登录双通」用。 */
     private const val TEACHING_SERVICE = "http://gkjx.gdust.edu.cn/sso/lyiotlogin"
@@ -39,6 +40,16 @@ object ChxSso {
     val fyssoUrl: String get() = sso(FYSSO_SERVICE)
     val mhUrl: String get() = sso(MH_SERVICE)
     val teachingWebUrl: String get() = sso(TEACHING_SERVICE)
+
+    /** 只检测 CAS 网页会话候选，不能把匿名 JSESSIONID 或原生登录 ticket 当成已认证。 */
+    val casCookieProbes = listOf("https://cas.gdust.edu.cn/lyuapServer/login", "https://cas.gdust.edu.cn/cas/login")
+
+    fun linkingHint(hasCasWebSession: Boolean): String = if (hasCasWebSession) {
+        "检测到学校网页会话，可尝试学校单点登录；是否联动成功仍需验证学习通会话。"
+    } else {
+        "本机尚未检测到学校网页认证会话。教务或门户登录不代表已登录学习通；" +
+            "请打开学校单点登录完成认证，或使用学习通账号网页登录。"
+    }
 
     /** 学习通首页（HAR 实测存在的入口，用于探活与回到主页）。 */
     const val HOME = "https://mooc2-ans.chaoxing.com/mooc2-ans/visit/interaction"
@@ -86,9 +97,11 @@ object ChxSso {
     /** 只认登录主机/路径，不拿 query 里的 login 或 passport 字样判失效。 */
     internal fun isLoginUrl(url: String): Boolean {
         val uri = parseUrl(url) ?: return false
+        if (uri.scheme != "https" || uri.userInfo != null || uri.port !in setOf(-1, 443)) return false
         val host = uri.host?.lowercase(Locale.ROOT) ?: return false
         val path = uri.path.orEmpty().trimEnd('/').lowercase(Locale.ROOT)
-        if (host == "cas.gdust.edu.cn") return path in setOf("/cas/login", "/lyuapserver/login")
+        // 2026-11-15 未登录入口实际重定向到 /cas/（标题「广科统一身份认证」）。
+        if (host == "cas.gdust.edu.cn") return path in setOf("/cas", "/cas/login", "/lyuapserver/login")
         if (!isChaoxingHost(host)) return false
         val passport = host.substringBefore('.') in setOf("passport", "passport2")
         return path in setOf("/login", "/login.html", "/login/index", "/fanyalogin") ||
