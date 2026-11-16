@@ -69,6 +69,10 @@
         </receiver>
 
         <receiver
+            android:name=".work.LessonNotificationExpiryReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".work.ClassDndToggleReceiver"
             android:exported="false">
             <intent-filter>

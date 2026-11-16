@@ -13,14 +13,17 @@ internal enum class SchoolConnection {
 }
 
 /** 只接收各服务业务接口的验证结果；URL、Cookie 存在与网页加载完成都不是成功事件。 */
-internal class SchoolLoginFlow(saved: List<String>? = null) {
-    private val connections = SchoolService.entries.associateWith { SchoolConnection.PENDING }.toMutableMap()
-    var current: SchoolService? = SchoolService.PORTAL
+internal class SchoolLoginFlow(saved: List<String>? = null, startAt: SchoolService = SchoolService.PORTAL) {
+    private val connections = SchoolService.entries.associateWith {
+        if (it.ordinal < startAt.ordinal) SchoolConnection.SKIPPED else SchoolConnection.PENDING
+    }.toMutableMap()
+    var current: SchoolService? = startAt
         private set
     var closed: Boolean = false
         private set
     private var revision = 0L
     private var pageUrl: String? = null
+    private var pendingUrl: String? = null
     private var pageFinished = false
     private var pageFailed = false
     private var activeProbe: Probe? = null
@@ -30,7 +33,9 @@ internal class SchoolLoginFlow(saved: List<String>? = null) {
         if (saved?.size == SchoolService.entries.size) {
             for (service in SchoolService.entries) {
                 val state = SchoolConnection.entries.firstOrNull { it.name == saved[service.ordinal] }
-                if (state != SchoolConnection.VERIFIED && state != SchoolConnection.SKIPPED) break
+                if (state == null || state !in setOf(SchoolConnection.VERIFIED, SchoolConnection.SKIPPED, SchoolConnection.UNAVAILABLE)) break
+                if (state == SchoolConnection.UNAVAILABLE &&
+                    saved.getOrNull(service.ordinal + 1) in listOf(null, SchoolConnection.PENDING.name)) break
                 connections[service] = state
                 current = SchoolService.entries.getOrNull(service.ordinal + 1)
             }
@@ -46,9 +51,10 @@ internal class SchoolLoginFlow(saved: List<String>? = null) {
     val complete: Boolean get() = current == null
 
     /** 在 loadUrl/stopLoading 前同步调用；旧 Job 即使还未结束，也不能占住新页探活。 */
-    fun navigating(): Boolean {
+    fun navigating(target: String? = null): Boolean {
         if (closed || complete) return false
         invalidatePage()
+        pendingUrl = target
         connections[current!!] = SchoolConnection.CONNECTING
         return true
     }
@@ -65,6 +71,10 @@ internal class SchoolLoginFlow(saved: List<String>? = null) {
     fun matchesPage(url: String, actualUrl: String?): Boolean =
         !closed && !complete && pageUrl?.substringBefore('#') == url.substringBefore('#') &&
             actualUrl?.substringBefore('#') == url.substringBefore('#')
+
+    /** 失败时 WebView.url 可能仍停在跳转前的 CAS；按已请求的主框架目标接收错误。 */
+    fun matchesFailure(url: String): Boolean = !closed && !complete && !pageFailed &&
+        listOfNotNull(pendingUrl, pageUrl).any { it.substringBefore('#') == url.substringBefore('#') }
 
     fun pageFinished(url: String, actualUrl: String?): Boolean {
         if (!matchesPage(url, actualUrl) || pageFailed) return false
@@ -117,6 +127,12 @@ internal class SchoolLoginFlow(saved: List<String>? = null) {
         advance()
     }
 
+    fun continueAfterFailure(): Boolean {
+        if (closed || complete || connection(current!!) != SchoolConnection.UNAVAILABLE) return false
+        advance()
+        return true
+    }
+
     fun close() {
         closed = true
         invalidatePage()
@@ -130,6 +146,7 @@ internal class SchoolLoginFlow(saved: List<String>? = null) {
     private fun invalidatePage() {
         revision++
         pageUrl = null
+        pendingUrl = null
         pageFinished = false
         pageFailed = false
         activeProbe = null

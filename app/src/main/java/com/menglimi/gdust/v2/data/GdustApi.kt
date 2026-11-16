@@ -75,11 +75,11 @@ internal fun schoolAuthenticationClient(base: OkHttpClient): OkHttpClient = base
         } else response
     }.build()
 
-class GdustApi {
-    private val http = OkHttpClient.Builder()
+class GdustApi internal constructor(private val http: OkHttpClient) {
+    constructor() : this(OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
-        .build()
+        .build())
 
     // 换票不可让 OkHttp 自动重试或跟随不明跳转；身份验证也不把 TOKEN 带到其他主机。
     private val authHttp = schoolAuthenticationClient(http)
@@ -97,41 +97,53 @@ class GdustApi {
     private fun str(v: Any?): String = "\"" + v.toString().replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
     private fun request(url: String, token: String? = null, postJson: String? = null, form: FormBody? = null,
-        authentication: Boolean = false): String {
+        authentication: SchoolAuthenticationStage? = null): String {
         val b = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0 (Linux; Android 13)")
         token?.let { b.header("TOKEN", it) }
         postJson?.let { b.post(it.toRequestBody("application/json; charset=utf-8".toMediaType())) }
         form?.let { b.post(it) }
-        (if (authentication || token != null) authHttp else http).newCall(b.build()).execute().use { r ->
-            val text = r.body?.string().orEmpty()
-            if (token != null) schoolAuthFailure(r.code, text)?.let { throw it }
-            if (!r.isSuccessful) throw RuntimeException("学校请求失败（HTTP ${r.code}）")
-            return text
+        try {
+            (if (authentication != null || token != null) authHttp else http).newCall(b.build()).execute().use { r ->
+                val text = r.body?.string().orEmpty()
+                if (token != null) schoolAuthFailure(r.code, text)?.let { throw it }
+                if (authentication == SchoolAuthenticationStage.PORTAL && r.code == 401) {
+                    throw AuthFailed(401, "门户未接受这次登录，请重新完成学校统一登录。")
+                }
+                if (!r.isSuccessful) {
+                    if (authentication != null) throw SchoolAuthenticationException(authentication, "学校请求失败（HTTP ${r.code}）。")
+                    throw RuntimeException("学校请求失败（HTTP ${r.code}）")
+                }
+                return text
+            }
+        } catch (error: java.io.IOException) {
+            if (authentication != null) throw SchoolAuthenticationException(authentication,
+                "连接学校服务失败，请检查网络后重试。", error)
+            throw error
         }
     }
 
     // ── CAS ──
 
     suspend fun captcha(): Captcha = io {
-        val o = jsonObj(request("$CAS/cas-api/cas/loginCode")).getAsJsonObject("data")
-        val url = o.str("codeUrl").orEmpty()
-        Captcha(
-            imageBytes = java.util.Base64.getDecoder().decode(url.substringAfter("base64,")),
-            uuid = o.str("uuid").orEmpty(),
-        )
+        parseSchoolCaptcha(request("$CAS/cas-api/cas/loginCode", authentication = SchoolAuthenticationStage.CAPTCHA))
     }
 
     /** 账号密码登录，返回 ticket（GKCAS...）。验证码错误 code=30001 单独抛 AuthFailed。 */
     suspend fun login(account: String, password: String, code: String, uuid: String): String = io {
-        val body = """{"loginName":${str(account)},"loginPwd":${str(password)},"code":${str(code)},"uuid":${str(uuid)}}"""
-        val resp = jsonObj(request("$CAS/cas-api/cas/loginByAccount", postJson = body, authentication = true))
-        if ((resp.num("code") ?: 0) != 0) throw AuthFailed(resp.num("code") ?: 0, resp.str("msg") ?: "登录失败")
-        resp.str("data").orEmpty()
+        require(account.isNotBlank() && password.isNotBlank() && code.isNotBlank() && uuid.isNotBlank()) {
+            "请填写账号、密码及已加载的验证码。"
+        }
+        val body = com.google.gson.Gson().toJson(mapOf(
+            "loginName" to account, "loginPwd" to password, "code" to code, "uuid" to uuid,
+        ))
+        parseSchoolLoginTicket(request("$CAS/cas-api/cas/loginByAccount", postJson = body,
+            authentication = SchoolAuthenticationStage.ACCOUNT))
     }
 
     // ── 门户 ──
 
     suspend fun exchangeToken(ticket: String): String = io {
+        require(ticket.isNotBlank()) { "登录票据为空，请重新登录。" }
         // ticket 是 CAS 票据（常含 +/=// 等 base64 字符）：必须用 HttpUrl 编码，
         // 直接拼进查询串会被解析成空格/分隔符 → 门户偶发拒绝，表现为「概率性换取失败」
         val url = okhttp3.HttpUrl.Builder()
@@ -140,10 +152,7 @@ class GdustApi {
             .addQueryParameter("loginCode", ticket.trim())
             .addQueryParameter("appId", "portalRemote")
             .build().toString()
-        val root = jsonObj(request(url, authentication = true))
-        val token = root.getAsJsonObject("data")?.getAsJsonObject("userBase")?.str("token").orEmpty()
-        if (token.isBlank()) error("门户未返回 TOKEN（票据可能已被使用或过期）")
-        token
+        parseSchoolPortalToken(request(url, authentication = SchoolAuthenticationStage.PORTAL))
     }
 
     suspend fun userInfo(token: String): Pair<String, String> = io {

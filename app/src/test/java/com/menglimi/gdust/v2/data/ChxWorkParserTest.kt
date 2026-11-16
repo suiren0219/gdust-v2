@@ -9,8 +9,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 学习通作业页解析（fixture 改编自真实抓包，密钥已脱敏）。
- * 结构约定见 docs/EXTENDING.md §3.4 与 ChxWorkParser 注释。
+ * 学习通作业页解析：既有样本沿用仓库的脱敏结构，新增 DOM 变体为明确标注的合成 fixture。
+ * 不读取真实 HAR 或账号数据，也不以合成测试声称 issue #6 的真实页面已回归。
  */
 class ChxWorkParserTest {
 
@@ -179,6 +179,78 @@ class ChxWorkParserTest {
         assertEquals("已完成", done.status)
         assertEquals(57726171L, done.workId)
         assertEquals("", done.remainingText)
+    }
+
+    @Test fun semanticWorkRowsSupportDataUrlAnchorsRelativeLinksAndStatusAliases() {
+        val html = javaClass.getResource("/chaoxing/work-list-variants-synthetic.html")!!.readText()
+        val course = ChxWorkCourse(201, 101, 301, "合成课程", "")
+        val items = ChxWorkParser.parseWorkList(html, course,
+            "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/list.html?enc=synthetic-page")
+        assertEquals(listOf(401L, 402L), items.map { it.workId })
+        assertEquals(listOf("未交", "已完成"), items.map { it.status })
+        assertEquals("合成待交作业完整标题", items.first().title)
+        assertEquals("剩余2小时5分钟", items.first().remainingText)
+        assertEquals("", items.last().remainingText)
+        assertTrue(items.first().detailUrl.startsWith("https://mooc1.chaoxing.com/mooc-ans/mooc2/work/task?"))
+        assertTrue(items.last().detailUrl.startsWith("https://mooc1.chaoxing.com/mooc2/work/task?"))
+    }
+
+    @Test fun cosmeticTagAndHandlerChangesDoNotHideValidWorkRows() {
+        val variants = listOf(
+            workListHtml.replace("onclick=\"goTask(this);\"", "onclick=\"goTask(this, event);\""),
+            workListHtml.replace("onclick=\"goTask(this);\"", "").replace("<p ", "<span ").replace("</p>", "</span>"),
+            workListHtml.replace("aria-label=\"作业列表\"", "").replace("<title>作业列表</title>", "<title>课程作业 - 学习通</title>"),
+        )
+        val expected = ChxWorkParser.parseWorkList(workListHtml)
+        variants.forEach { assertEquals(expected, ChxWorkParser.parseWorkList(it)) }
+    }
+
+    @Test fun missingConflictingAndUnsafeWorkFieldsRemainFailuresWithoutLeakingValues() {
+        val html = javaClass.getResource("/chaoxing/work-list-variants-synthetic.html")!!.readText()
+        val course = ChxWorkCourse(201, 101, 301, "合成课程", "")
+        val page = "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/list.html" +
+            "?enc=private-enc&cookie=private-cookie&account=private-account"
+        val invalid = listOf(
+            html.replace("work-title", "unknown-title") to "标题",
+            html.replace("work-status", "unknown-status") to "status",
+            html.replace("未提交", "private-status") to "status",
+            html.replace("workId=401", "workId=0") to "workId",
+            html.replace("answerId=501", "answerId=0") to "answerId",
+            html.replace("enc=synthetic-pending", "missing=private-enc") to "enc",
+            html.replace("courseId=201", "courseId=999") to "courseId",
+            html.replace("classId=101", "classId=999") to "classId",
+            html.replace("cpi=301", "cpi=999") to "cpi",
+            html.replace("workId=401", "workId=401&amp;workId=401") to "workId",
+            html.replace("enc=synthetic-pending", "enc=synthetic-pending&amp;enc=private-enc") to "enc",
+            html.replace("data-url=\"task?", "data-url=\"https://unknown.example/task?") to "详情地址",
+            html.replace("data-url=\"task?", "data-url=\"javascript:openTask?") to "详情地址",
+            html.replace("class=\"work-item\"", "class=\"work-item\" data=\"/mooc-ans/mooc2/work/task?enc=private-conflict\"") to "详情地址冲突",
+            html.replace("workId=402", "workId=401") to "workId",
+            html.replace("</body>", "<div id='taskList'></div></body>") to "作业容器不唯一",
+        )
+        invalid.forEach { (body, field) ->
+            val error = assertThrows(ChxCourseReadException::class.java) { ChxWorkParser.parseWorkList(body, course, page) }
+            assertTrue(error.message.orEmpty(), error.message.orEmpty().contains(field))
+            assertTrue(!error.message.orEmpty().contains("private"))
+            assertTrue(!error.message.orEmpty().contains("synthetic"))
+            assertTrue(!error.message.orEmpty().contains("999"))
+        }
+    }
+
+    @Test fun validRowsCannotMaskIncompleteRowsLoginOrTemplateOnlyPages() {
+        val html = javaClass.getResource("/chaoxing/work-list-variants-synthetic.html")!!.readText()
+        // 只嵌入 body 片段：完整文档的 head/body 会改变 template 的解析位置，文件首注释也不能嵌套。
+        val fragment = org.jsoup.Jsoup.parse(html).body().html()
+        val login = "<form><input type='password'><button>用户登录</button></form>"
+        for ((name, body) in listOf(
+            "incomplete-row" to html.replace("<article class=\"task-item\">", "<article class=\"work-item\"></article><article class=\"task-item\">"),
+            "login-form" to html.replace("<body>", "<body>$login"),
+            "template-only" to "<template>$fragment</template>",
+            "comment-only" to "<!-- $fragment -->",
+            "empty-list-with-template" to "<div id='workList'><template>$fragment</template>暂无作业</div>",
+        )) {
+            assertThrows(name, ChxCourseReadException::class.java) { ChxWorkParser.parseWorkList(body) }
+        }
     }
 
     @Test fun remainingTimeCanBeConvertedToMillis() {

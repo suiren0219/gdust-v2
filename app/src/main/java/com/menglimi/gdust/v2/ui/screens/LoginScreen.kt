@@ -22,7 +22,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,14 +41,12 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.menglimi.gdust.v2.data.AuthFailed
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.data.isNetworkDown
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.ui.pageBackground
-import kotlinx.coroutines.launch
 
 @Composable
 fun LoginScreen(
@@ -61,27 +61,22 @@ fun LoginScreen(
 
     var account by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var code by remember { mutableStateOf("") }
-    var captcha by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
-    var uuid by remember { mutableStateOf("") }
-    var seed by remember { mutableStateOf(0) }
-    var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
-    var netDown by remember { mutableStateOf(false) }
     var showLegacy by remember { mutableStateOf(false) }
-
-    LaunchedEffect(seed, showLegacy) {
-        if (!showLegacy) return@LaunchedEffect
-        runCatching { repo.fetchCaptcha() }
-            .onSuccess {
-                captcha = BitmapFactory.decodeByteArray(it.imageBytes, 0, it.imageBytes.size)?.asImageBitmap()
-                uuid = it.uuid
-                error = ""
+    val login = remember(repo, scope) {
+        LegacyLoginController(scope, {
+            repo.fetchCaptcha().also {
+                check(BitmapFactory.decodeByteArray(it.imageBytes, 0, it.imageBytes.size) != null)
             }
-            .onFailure {
-                netDown = it.isNetworkDown()
-                error = "验证码获取失败：${it.message}"
-            }
+        }, { account, password, code, uuid -> repo.login(account, password, code, uuid) })
+    }
+    val loginState by login.state.collectAsState()
+    val captcha = remember(loginState.captcha) {
+        loginState.captcha?.imageBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }
+    }
+    DisposableEffect(login, showLegacy) {
+        if (showLegacy) login.refreshCaptcha()
+        onDispose { login.cancel() }
     }
 
     Column(
@@ -110,40 +105,34 @@ fun LoginScreen(
         GlassCard {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("账号登录（兼容）", fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = ds.text)
-                InputField(account, { account = it }, "学号", KeyboardType.Number)
-                InputField(password, { password = it }, "密码", visual = PasswordVisualTransformation())
+                InputField(account, { account = it }, "学号", KeyboardType.Number, enabled = !loginState.submitting)
+                InputField(password, { password = it }, "密码", visual = PasswordVisualTransformation(), enabled = !loginState.submitting)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    InputField(code, { code = it }, "验证码", modifier = Modifier.weight(1f))
+                    InputField(loginState.code, login::changeCode, "验证码", modifier = Modifier.weight(1f),
+                        enabled = !loginState.submitting && !loginState.loadingCaptcha && captcha != null)
                     Box(
                         Modifier
                             .width(112.dp)
                             .height(46.dp)
                             .background(ds.bg, androidx.compose.foundation.shape.RoundedCornerShape(AppUiTokens.ItemCorner))
-                            .clickable { seed++ },
+                            .clickable(enabled = !loginState.submitting && !loginState.loadingCaptcha) { login.refreshCaptcha() },
                         contentAlignment = Alignment.Center,
                     ) {
                         captcha?.let {
                             Image(it, "验证码", contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize())
-                        } ?: Text("点击加载", fontSize = 13.sp, color = ds.sub)
+                        } ?: Text(if (loginState.loadingCaptcha) "加载中…" else "点击重试", fontSize = 13.sp, color = ds.sub)
                     }
                 }
-                Button("登录并同步", enabled = !busy && account.isNotBlank() && password.isNotBlank() && code.isNotBlank()) {
-                    busy = true
+                loginState.loginError?.let {
+                    Text(it, fontSize = 13.sp, lineHeight = 20.sp, color = ds.danger)
+                }
+                loginState.captchaError?.let {
+                    Text(it, fontSize = 13.sp, lineHeight = 20.sp, color = ds.danger)
+                }
+                Button(if (loginState.submitting) "正在登录…" else "登录并同步",
+                    enabled = captcha != null && loginState.canSubmit(account, password)) {
                     error = ""
-                    scope.launch {
-                        runCatching { repo.login(account.trim(), password, code.trim(), uuid) }
-                            .onSuccess { onLoggedIn() }
-                            .onFailure {
-                                netDown = it.isNetworkDown()
-                                if (it is AuthFailed && it.code == 30001) {
-                                    error = "验证码不对，已换一张，再试一次"
-                                } else {
-                                    error = "登录失败：${it.message}"
-                                }
-                                seed++
-                            }
-                        busy = false
-                    }
+                    login.submit(account, password, onLoggedIn)
                 }
             }
         }
@@ -185,7 +174,6 @@ fun LoginScreen(
         Spacer(Modifier.height(40.dp))
     }
 
-    NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
 }
 
 @Composable
@@ -196,11 +184,13 @@ fun InputField(
     keyboardType: KeyboardType = KeyboardType.Text,
     modifier: Modifier = Modifier,
     visual: VisualTransformation = VisualTransformation.None,
+    enabled: Boolean = true,
 ) {
     val ds = LocalDs.current
     BasicTextField(
         value = value,
         onValueChange = onChange,
+        enabled = enabled,
         modifier = modifier
             .fillMaxWidth()
             .background(ds.bg, androidx.compose.foundation.shape.RoundedCornerShape(AppUiTokens.ItemCorner))

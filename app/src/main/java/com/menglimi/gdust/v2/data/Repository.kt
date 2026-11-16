@@ -905,13 +905,18 @@ class Repository(context: Context) {
                 .any(teachingCookies::hasSessionFor)
         }
         val page = sessionGuard.withCurrent(version) { store.loadWebImportPage() }
-        val blocks = if (TeachingEndpoints.isLandingPage(page)) {
-            // 新网页登录优先，避免旧 OkHttp Cookie 遮住刚建立的学校共享会话。
-            fetchWebTerm(cal, page, version)
-        } else if (hasDirectCookie) {
-            teachingSso.fetchWithCookies(cal, teachingSessionJar(version))
-        } else {
-            throw AuthFailed(401, "教务会话已失效，请完成学校统一登录。")
+        val blocks = try {
+            if (TeachingEndpoints.isLandingPage(page)) {
+                // 新网页登录优先，避免旧 OkHttp Cookie 遮住刚建立的学校共享会话。
+                fetchWebTerm(cal, page, version)
+            } else if (hasDirectCookie) {
+                teachingSso.fetchWithCookies(cal, teachingSessionJar(version))
+            } else {
+                throw AuthFailed(401, "教务会话已失效，请完成学校统一登录。")
+            }
+        } catch (e: Exception) {
+            // 校历门户请求和本机存储不在标记范围内；认证失效与取消原样抛出。
+            throw e.asTeachingSyncFailure()
         }
         sessionGuard.withCurrent(version) {
             store.saveCalendar(cal)

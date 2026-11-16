@@ -86,9 +86,14 @@ class SchoolLoginActivity : ComponentActivity() {
         const val EXTRA_TEACHING_READY = "school_teaching_ready"
         const val EXTRA_CHX_READY = "school_chx_ready"
         const val EXTRA_MESSAGE = "school_login_message"
+        private const val EXTRA_START_SERVICE = "school_start_service"
+        private const val EXTRA_TEACHING_ONLY = "school_teaching_only"
         private val processInstance = java.util.UUID.randomUUID().toString()
 
         fun intent(context: Context): Intent = Intent(context, SchoolLoginActivity::class.java)
+        fun teachingIntent(context: Context): Intent = intent(context)
+            .putExtra(EXTRA_START_SERVICE, SchoolService.TEACHING.name).putExtra(EXTRA_TEACHING_ONLY, true)
+        fun learningIntent(context: Context): Intent = intent(context).putExtra(EXTRA_START_SERVICE, SchoolService.CHX.name)
     }
 
     private lateinit var repo: Repository
@@ -107,6 +112,9 @@ class SchoolLoginActivity : ComponentActivity() {
     private var currentService by mutableStateOf<SchoolService?>(SchoolService.PORTAL)
     private var pageFailed = false
     private var openedChxHome = false
+    private var teachingOnly = false
+    private var teachingEntry by mutableStateOf(ChxSso.teachingWebUrl)
+    private var triedCampus = false
     private var closing = false
     private var probeJob: Job? = null
     private var pageJob: Job? = null
@@ -118,6 +126,14 @@ class SchoolLoginActivity : ComponentActivity() {
         enableEdgeToEdge()
         repo = (application as App).repo
         val sameProcess = savedInstanceState?.getString("process_instance") == processInstance
+        val requestedStart = intent.getStringExtra(EXTRA_START_SERVICE)?.let { name ->
+            SchoolService.entries.firstOrNull { it.name == name }
+        } ?: SchoolService.PORTAL
+        teachingOnly = intent.getBooleanExtra(EXTRA_TEACHING_ONLY, false)
+        teachingEntry = savedInstanceState?.getString("teaching_entry")
+            ?.takeIf { it in setOf(ChxSso.teachingWebUrl, ChxSso.campusTeachingWebUrl, ChxSso.TEACHING_VPN_LOGIN) }
+            ?: ChxSso.teachingWebUrl
+        triedCampus = teachingEntry != ChxSso.teachingWebUrl
         sessionVersion = if (sameProcess) savedInstanceState!!.getLong("session_version") else repo.sessionVersion.value
         if (!repo.isCurrentSession(sessionVersion)) {
             finish()
@@ -135,8 +151,9 @@ class SchoolLoginActivity : ComponentActivity() {
                     val saved = requireNotNull(savedInstanceState)
                     chxVersion = saved.getLong("chx_version")
                     if (!currentSession()) return@launch finishFlow()
-                    flow = SchoolLoginFlow(saved.getStringArrayList("flow_connections"))
+                    flow = SchoolLoginFlow(saved.getStringArrayList("flow_connections"), requestedStart)
                 } else {
+                    flow = SchoolLoginFlow(startAt = requestedStart)
                     val preparedVersion = repo.prepareSchoolWebLogin()
                     currentCoroutineContext().ensureActive()
                     if (closing || preparedVersion != sessionVersion || !repo.isCurrentSession(sessionVersion)) {
@@ -147,7 +164,8 @@ class SchoolLoginActivity : ComponentActivity() {
                 initialized = true
                 summary = flow.summary()
                 // 已保存的 TOKEN 不证明本次网页账号；门户页面仍须完成认证并独立核对身份。
-                startCurrentService()
+                if (teachingOnly && flow.isVerified(SchoolService.TEACHING)) finishFlow()
+                else startCurrentService()
             } catch (cancelled: CancellationException) {
                 if (!closing && !repo.isCurrentSession(sessionVersion)) finishFlow()
                 throw cancelled
@@ -204,10 +222,40 @@ class SchoolLoginActivity : ComponentActivity() {
                         Text(pageError ?: message, color = if (pageError != null) ds.danger else ds.sub,
                             fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 6.dp))
                     }
+                    if (initialized && currentService == SchoolService.TEACHING) {
+                        Button(onClick = {
+                            teachingEntry = if (teachingEntry == ChxSso.teachingWebUrl)
+                                ChxSso.campusTeachingWebUrl else ChxSso.teachingWebUrl
+                            triedCampus = teachingEntry == ChxSso.campusTeachingWebUrl
+                            startCurrentService()
+                        }, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
+                            Text(if (teachingEntry == ChxSso.teachingWebUrl) "切换校园网教务入口" else "切换公网教务入口", fontSize = 13.sp)
+                        }
+                    }
+                    if (initialized && currentService == SchoolService.TEACHING && pageError != null) {
+                        Button(onClick = {
+                            triedCampus = true
+                            teachingEntry = ChxSso.TEACHING_VPN_LOGIN
+                            startCurrentService()
+                        }, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
+                            Text("使用校外 WebVPN", fontSize = 13.sp)
+                        }
+                    }
+                    if (initialized && currentService == SchoolService.CHX) {
+                        Button(onClick = {
+                            replaceWebView()
+                            navigate(ChxSso.DIRECT_LOGIN)
+                            summary = flow.summary()
+                        }, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
+                            Text("使用学习通账号登录", fontSize = 13.sp)
+                        }
+                    }
                     if (initialized && currentService != null) {
                         Button(onClick = ::skipService,
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
-                            Text("暂时跳过${currentService?.label.orEmpty()}，继续连接", fontSize = 13.sp)
+                            Text(if (teachingOnly) "返回课表导入"
+                                else if (currentService == SchoolService.CHX) "稍后连接学习通"
+                                else "暂时跳过${currentService?.label.orEmpty()}，继续连接", fontSize = 13.sp)
                         }
                     }
                 }
@@ -256,13 +304,12 @@ class SchoolLoginActivity : ComponentActivity() {
             delay(30_000L)
             if (closing || pageFailed || flow.complete) return@launch
             if (!currentSession()) return@launch finishFlow()
-            failed("学校网页加载超时，请点右上角重试，或暂时跳过当前服务。已连接的服务会保留。")
-            web.stopLoading()
+            handleLoadFailure("学校网页加载超时，请重试或切换入口。已连接的服务会保留。")
         }
     }
 
     private fun navigate(url: String) {
-        if (closing || !flow.navigating()) return
+        if (closing || !flow.navigating(url)) return
         cancelProbe()
         currentPage = null
         pageFailed = false
@@ -303,7 +350,7 @@ class SchoolLoginActivity : ComponentActivity() {
             else "正在复用学校网页会话连接${service.label}，请等待验证。"
         openedChxHome = false
         replaceWebView()
-        navigate(SchoolLoginWeb.entry(service))
+        navigate(if (service == SchoolService.TEACHING) teachingEntry else SchoolLoginWeb.entry(service))
         summary = flow.summary()
     }
 
@@ -316,7 +363,7 @@ class SchoolLoginActivity : ComponentActivity() {
 
     private fun skipService() {
         if (!initialized || closing) return
-        if (!currentSession()) return finishFlow()
+        if (!currentSession() || teachingOnly) return finishFlow()
         flow.skip()
         cancelProbe()
         summary = flow.summary()
@@ -330,7 +377,35 @@ class SchoolLoginActivity : ComponentActivity() {
         probing = false
         CookieManager.getInstance().flush()
         summary = flow.summary()
-        startCurrentService()
+        if (teachingOnly && probe.service == SchoolService.TEACHING) finishFlow()
+        else startCurrentService()
+    }
+
+    private fun handleLoadFailure(error: String) {
+        if (closing || !initialized || pageFailed || flow.complete) return
+        if (!currentSession()) return finishFlow()
+        failed(error)
+        web.stopLoading()
+        // 默认错误文档会显示带 ticket 的地址；恢复提示和操作由原生工具栏承载。
+        web.visibility = android.view.View.INVISIBLE
+        if (flow.current != SchoolService.TEACHING) return
+        if (!triedCampus) {
+            triedCampus = true
+            pageError = "$error 正在切换校园网教务入口…"
+            pageJob = lifecycleScope.launch {
+                delay(800L)
+                if (closing || !currentSession()) return@launch
+                teachingEntry = ChxSso.campusTeachingWebUrl
+                startCurrentService()
+            }
+        } else if (!teachingOnly) {
+            pageError = "$error 教务暂未连接，正在继续连接学习通。"
+            pageJob = lifecycleScope.launch {
+                delay(1_500L)
+                if (closing || !currentSession() || !flow.continueAfterFailure()) return@launch
+                startCurrentService()
+            }
+        }
     }
 
     private fun failed(message: String, probe: SchoolLoginFlow.Probe? = null) {
@@ -487,7 +562,7 @@ class SchoolLoginActivity : ComponentActivity() {
             "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
         view.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                if (view !== web) return true
+                if (view !== web || pageFailed) return true
                 if (closing || (initialized && !currentSession())) {
                     if (!closing) finishFlow()
                     return true
@@ -495,7 +570,7 @@ class SchoolLoginActivity : ComponentActivity() {
                 val scheme = request.url.scheme.orEmpty().lowercase(java.util.Locale.ROOT)
                 if (scheme in setOf("http", "https")) {
                     if (request.isForMainFrame && !SchoolLoginWeb.isFragmentNavigation(view.url, request.url.toString())) {
-                        flow.navigating()
+                        flow.navigating(request.url.toString())
                         cancelProbe()
                         currentPage = null
                         pageFailed = false
@@ -518,7 +593,7 @@ class SchoolLoginActivity : ComponentActivity() {
             }
 
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-                if (view !== web || closing || !initialized) return
+                if (view !== web || closing || !initialized || pageFailed) return
                 if (!currentSession()) return finishFlow()
                 if (!flow.pageStarted(url)) return
                 cancelProbe()
@@ -542,20 +617,20 @@ class SchoolLoginActivity : ComponentActivity() {
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (view === web && request.isForMainFrame && flow.matchesPage(request.url.toString(), view.url)) {
-                    failed("网页加载失败，请检查网络后重试当前服务。")
+                if (view === web && request.isForMainFrame && flow.matchesFailure(request.url.toString())) {
+                    handleLoadFailure("网页加载失败，请检查网络或切换入口。")
                 }
             }
 
             override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
-                if (view === web && request.isForMainFrame && flow.matchesPage(request.url.toString(), view.url)) {
-                    failed("学校网页暂时不可用（HTTP ${response.statusCode}），可重试或继续其他服务。")
+                if (view === web && request.isForMainFrame && flow.matchesFailure(request.url.toString())) {
+                    handleLoadFailure("当前入口返回 HTTP ${response.statusCode}，可重试或切换入口。")
                 }
             }
 
             override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
                 handler.cancel()
-                if (view === web && flow.matchesPage(error.url, view.url)) failed("网页安全证书验证失败，已停止连接。")
+                if (view === web && flow.matchesFailure(error.url)) handleLoadFailure("网页安全证书验证失败，已停止此连接。")
             }
         }
         view.webChromeClient = object : WebChromeClient() {
@@ -580,7 +655,7 @@ class SchoolLoginActivity : ComponentActivity() {
         if (::web.isInitialized) web.stopLoading()
         CookieManager.getInstance().flush()
         val current = initialized && currentSession()
-        setResult(if (current && flow.schoolReady) RESULT_OK else RESULT_CANCELED,
+        setResult(if (current && (flow.schoolReady || flow.isVerified(SchoolService.CHX))) RESULT_OK else RESULT_CANCELED,
             Intent().putExtra(EXTRA_PORTAL_READY, current && flow.isVerified(SchoolService.PORTAL))
                 .putExtra(EXTRA_TEACHING_READY, current && flow.isVerified(SchoolService.TEACHING))
                 .putExtra(EXTRA_CHX_READY, current && flow.isVerified(SchoolService.CHX))
@@ -593,6 +668,7 @@ class SchoolLoginActivity : ComponentActivity() {
         outState.putString("process_instance", processInstance)
         outState.putBoolean("flow_prepared", initialized)
         outState.putLong("chx_version", chxVersion)
+        outState.putString("teaching_entry", teachingEntry)
         outState.putStringArrayList("flow_connections", ArrayList(flow.snapshot()))
         // 不序列化网页历史：配置变化后从当前 service 重启，避免恢复并重放 ticket。
         super.onSaveInstanceState(outState)

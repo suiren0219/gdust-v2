@@ -76,6 +76,44 @@ class ChxWorkApiTest {
         assertNull(ChxApi.redirectTarget(course.url.toHttpUrl(), landing.replace("https://", "http://").replace(".com/", ".com:8080/")))
     }
 
+    @Test fun followsNewCourseLandingPathsWithoutExpandingTheTrustedHosts() = runBlocking {
+        // 路径变体为合成回归输入，并非 issue #6 的抓包回放。
+        for (path in listOf("/mycourse/studentcourse", "/mooc-ans/mycourse/stu.html", "/mooc-ans/mycourse/studentcourse")) {
+            for (scheme in listOf("https", "http")) {
+                val target = "$scheme://mooc1.chaoxing.com$path?courseid=201&clazzid=101&cpi=301&enc=synthetic"
+                val requests = mutableListOf<Request>()
+                val api = ChxApi { request ->
+                    requests += request
+                    if (requests.size == 1) SessionResponse(302, "", target) else SessionResponse(200, tabsHtml, null)
+                }
+                assertEquals(tabs, api.courseTabs(course))
+                assertEquals(listOf(course.url, target.replace("http:", "https:")), requests.map { it.url.toString() })
+                assertTrue(requests.all { it.url.scheme == "https" && ChxApi.isAllowedUrl(it.url) })
+                assertTrue(requests.all { it.header("Cookie") == null && it.header("Referer") == ChxSso.HOME })
+            }
+        }
+    }
+
+    @Test fun newLandingPagesStillRequireMatchingIdentityAndRequiredFields() {
+        for ((html, field) in listOf(
+            tabsHtml.replace("id='courseId' value='201'", "id='courseId' value='999'") to "courseid",
+            tabsHtml.replace("id='workEnc'", "id='other'") to "workEnc",
+            "<title>系统维护</title>" to "courseid",
+        )) {
+            var calls = 0
+            val error = assertThrows(ChxCourseReadException::class.java) { runBlocking {
+                ChxApi {
+                    calls++
+                    if (calls == 1) SessionResponse(302, "", "/mooc-ans/mycourse/studentcourse?enc=synthetic")
+                    else SessionResponse(200, html, null)
+                }.courseTabs(course)
+            } }
+            assertEquals(2, calls)
+            assertTrue(error.message.orEmpty().contains(field))
+            assertFalse(error.message.orEmpty().contains("synthetic"))
+        }
+    }
+
     @Test fun discoveryUsesTheSameCourseParserAndNeverUsesTaskPointCountsToSkipWork() = runBlocking {
         val requests = mutableListOf<Request>()
         val api = ChxApi { request ->
@@ -109,8 +147,32 @@ class ChxWorkApiTest {
         }
     }
 
+    @Test fun newListLandingResolvesRelativeDetailsFromTheFinalUrlWithoutTrustingHtmlBase() = runBlocking {
+        val requests = mutableListOf<Request>()
+        val html = javaClass.getResource("/chaoxing/work-list-variants-synthetic.html")!!.readText()
+            .replace("<head>", "<head><base href='https://unknown.example/'>")
+        val api = ChxApi { request ->
+            requests += request
+            when (requests.size) {
+                1 -> SessionResponse(302, "", "/mooc-ans/mooc2/work/list.html?enc=synthetic-query")
+                2 -> SessionResponse(200, html, null)
+                else -> SessionResponse(200, "<div class='infoHead'>合成详情</div>", null)
+            }
+        }
+        val items = api.workList(course, tabs)
+        assertEquals(listOf(401L, 402L), items.map { it.workId })
+        assertEquals(listOf("未交", "已完成"), items.map { it.status })
+        assertEquals("/mooc-ans/mooc2/work/task", items.first().detailUrl.toHttpUrl().encodedPath)
+        assertTrue(items.all { it.detailUrl.toHttpUrl().host == "mooc1.chaoxing.com" })
+        api.workDetailHtml(items.last().detailUrl)
+        assertEquals("/mooc2/work/task", requests.last().url.encodedPath)
+        assertTrue(requests.all { it.header("Cookie") == null })
+        assertTrue(requests.mapNotNull { it.header("Referer") }.all { !it.contains("synthetic-query") })
+    }
+
     @Test fun loginRedirectIsAuthenticationFailureButOtherRedirectsAreNot() {
-        for (target in listOf("https://passport2.chaoxing.com/login?refer=synthetic", "https://cas.gdust.edu.cn/cas/")) {
+        for (target in listOf("https://passport2.chaoxing.com/login?refer=synthetic", "https://cas.gdust.edu.cn/cas/",
+            "/login?enc=synthetic", "http://mooc1.chaoxing.com/login?enc=synthetic")) {
             var calls = 0
             assertThrows(AuthFailed::class.java) { runBlocking {
                 ChxApi { calls++; SessionResponse(302, "", target) }.courseTabs(course)
@@ -118,14 +180,32 @@ class ChxWorkApiTest {
             assertEquals(1, calls)
         }
         for (target in listOf(null, "https://example.org/private?signature=synthetic", "http://unknown.example/mycourse/stu",
+            "http://mooc1.chaoxing.com.evil.example/mycourse/studentcourse", "https://unknown.chaoxing.com/work/list",
             landing.replace(".com/", ".com:8443/"), landing.replace("https://", "https://user:synthetic@"),
-            landing.replace("/mycourse/stu", "/unknown"), "https://mooc1.chaoxing.com/mooc2/work/list")) {
+            landing.replace("/mycourse/stu", "/other/../mycourse/stu"), "$landing#synthetic")) {
             var calls = 0
             val error = assertThrows(ChxCourseReadException::class.java) { runBlocking {
                 ChxApi { calls++; SessionResponse(302, "", target) }.courseTabs(course)
             } }
             assertEquals(1, calls)
             assertTrue(error.message.orEmpty().contains("HTTP 302"))
+            assertFalse(error.message.orEmpty().contains("synthetic"))
+        }
+    }
+
+    @Test fun trustedLandingCannotRelayCookiesToAnUntrustedNextHop() {
+        for (target in listOf("https://unknown.example/work/list?enc=synthetic", "http://127.0.0.1/private",
+            "http://unknown.example/work/list")) {
+            val requests = mutableListOf<Request>()
+            val error = assertThrows(ChxCourseReadException::class.java) { runBlocking {
+                ChxApi { request ->
+                    requests += request
+                    SessionResponse(302, "", if (requests.size == 1) "/mooc-ans/mycourse/studentcourse" else target)
+                }.courseTabs(course)
+            } }
+            assertEquals(2, requests.size)
+            assertTrue(requests.all { it.url.scheme == "https" && it.url.host == "mooc1.chaoxing.com" })
+            assertTrue(requests.all { it.header("Cookie") == null })
             assertFalse(error.message.orEmpty().contains("synthetic"))
         }
     }
@@ -137,6 +217,14 @@ class ChxWorkApiTest {
         } }
         assertEquals(1, calls)
         assertTrue(loop.message.orEmpty().contains("循环跳转"))
+        calls = 0
+        val tooMany = assertThrows(ChxCourseReadException::class.java) { runBlocking {
+            ChxApi { calls++; SessionResponse(302, "", "/mooc-ans/mycourse/studentcourse?hop=$calls&enc=synthetic") }
+                .courseTabs(course)
+        } }
+        assertEquals(5, calls)
+        assertTrue(tooMany.message.orEmpty().contains("跳转次数过多"))
+        assertFalse(tooMany.message.orEmpty().contains("synthetic"))
         for (status in listOf(403, 429, 500, 503)) {
             val error = assertThrows(ChxCourseReadException::class.java) { runBlocking {
                 ChxApi { SessionResponse(status, "private response body", null) }.courseTabs(course)
@@ -147,6 +235,42 @@ class ChxWorkApiTest {
         assertThrows(ChxCourseReadException::class.java) { runBlocking {
             ChxApi { SessionResponse(200, "<title>作业列表</title><p>系统维护</p>", null) }.workList(course, tabs)
         } }
+    }
+
+    @Test fun redirectedListsRejectLoginBlankAndErrorPagesWithSanitizedDiagnostics() {
+        val login = "<form><input type='password'><button>用户登录</button></form>"
+        for (response in listOf(
+            SessionResponse(401, "", null), SessionResponse(200, login, null),
+            SessionResponse(200, "", null), SessionResponse(204, "", null),
+            SessionResponse(503, workHtml, null), SessionResponse(200, "<p>系统维护</p>", null),
+            SessionResponse(200, "<title>作业列表</title><div id='workList'>暂无作业</div>", null),
+            SessionResponse(200, workHtml.replace("workId=401", "workId=0"), null),
+        )) {
+            var calls = 0
+            val expected = if (response.status == 401 || response.body == login) AuthFailed::class.java
+                else ChxCourseReadException::class.java
+            val error = assertThrows(expected) { runBlocking {
+                ChxApi {
+                    calls++
+                    if (calls == 1) SessionResponse(302, "",
+                        "/mooc-ans/mooc2/work/list.html?enc=private-enc&cookie=private-cookie&account=private-account")
+                    else response
+                }.workList(course, tabs)
+            } }
+            assertEquals(2, calls)
+            assertFalse(error.message.orEmpty().contains("private"))
+            assertFalse(error.message.orEmpty().contains("synthetic"))
+        }
+    }
+
+    @Test fun unsupportedRedirectDiagnosticsShowOnlySanitizedRoutes() {
+        val error = assertThrows(ChxCourseReadException::class.java) { runBlocking {
+            ChxApi { SessionResponse(302, "", "https://mooc1.chaoxing.com:8443/mooc-ans/mycourse/private-account/stu" +
+                "?enc=private-enc&cookie=private-cookie&account=private-account") }.courseTabs(course)
+        } }
+        assertTrue(error.message.orEmpty().contains("mooc1.chaoxing.com/mooc-ans/mycourse/…/stu"))
+        assertFalse(error.message.orEmpty().contains("private"))
+        assertFalse(error.message.orEmpty().contains("?"))
     }
 
     @Test fun networkFailuresKeepUsefulCategoriesWithoutLeakingExceptionText() {
@@ -172,7 +296,7 @@ class ChxWorkApiTest {
             "https://mooc1.chaoxing.com:8443/mooc-ans/mooc2/work/task",
             "https://user:secret@mooc1.chaoxing.com/mooc-ans/mooc2/work/task",
             "https://mooc1.chaoxing.com/other/../mooc-ans/mooc2/work/task",
-            "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/%74ask")) {
+            "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/%2e%2e/task")) {
             assertNull(ChxApi.trustedUrl(url))
             var calls = 0
             assertThrows(ChxCourseReadException::class.java) { runBlocking {
@@ -180,7 +304,17 @@ class ChxWorkApiTest {
             } }
             assertEquals(0, calls)
         }
-        assertFalse(ChxApi.isAllowedUrl("https://mooc1.chaoxing.com/unknown".toHttpUrl()))
+        for (url in listOf("https://mooc1.chaoxing.com/unknown", "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/%74ask")) {
+            var calls = 0
+            assertThrows(ChxCourseReadException::class.java) { runBlocking {
+                ChxApi { calls++; SessionResponse(200, "", null) }.workDetailHtml(url)
+            } }
+            assertEquals(0, calls)
+        }
+        for (url in listOf("https://unknown.chaoxing.com/work/list", "https://mooc1.chaoxing.com.evil.example/work/list",
+            "http://mooc1.chaoxing.com/work/list", "https://127.0.0.1/work/list")) {
+            assertFalse(ChxApi.isAllowedUrl(url.toHttpUrl()))
+        }
         assertThrows(ChxCourseReadException::class.java) { ChxApi.workListUrl(course, tabs.copy(moocDomain = "https://unknown.example")) }
     }
 }

@@ -227,6 +227,84 @@ class SchoolLoginFlowTest {
         assertEquals(SchoolConnection.PENDING, flow.connection(SchoolService.CHX))
     }
 
+    @Test
+    fun redirectFailureIsAcceptedBeforeWebViewCommitsTheTarget() {
+        val flow = SchoolLoginFlow(startAt = SchoolService.TEACHING)
+        val cas = ChxSso.teachingWebUrl
+        val callback = "http://gkjx.gdust.edu.cn/sso/lyiotlogin?ticket=fixture"
+        flow.pageStarted(cas)
+        flow.navigating(callback)
+        assertTrue(flow.matchesFailure(callback))
+        assertFalse(flow.matchesFailure(cas))
+        assertFalse(flow.matchesPage(callback, cas))
+        assertTrue(flow.unavailable())
+        assertFalse(flow.pageFinished(callback, callback))
+        assertFalse(flow.matchesFailure(callback))
+        assertNull(flow.beginProbe())
+        assertFalse(flow.schoolReady)
+    }
+
+    @Test
+    fun fallbackDoesNotAcceptTheFailedPublicEntryOrItsOldProbe() {
+        val flow = SchoolLoginFlow(startAt = SchoolService.TEACHING)
+        val old = land(flow, "http://gkjx.gdust.edu.cn/xtgl/index_initMenu.html")
+        flow.unavailable(old)
+        flow.navigating(ChxSso.campusTeachingWebUrl)
+        assertFalse(flow.matchesFailure("http://gkjx.gdust.edu.cn/xtgl/index_initMenu.html"))
+        assertFalse(flow.verified(old))
+        assertTrue(flow.matchesFailure(ChxSso.campusTeachingWebUrl))
+    }
+
+    @Test
+    fun learningCanConnectWithoutDependingOnPortalOrTeaching() {
+        val flow = SchoolLoginFlow(startAt = SchoolService.CHX)
+        assertEquals(SchoolService.CHX, flow.current)
+        assertFalse(flow.schoolReady)
+        assertTrue(flow.verified(land(flow, ChxSso.HOME)))
+        assertTrue(flow.complete)
+        assertTrue(flow.isVerified(SchoolService.CHX))
+        assertFalse(flow.schoolReady)
+    }
+
+    @Test
+    fun failedTeachingCanContinueWithoutClaimingSuccess() {
+        val flow = SchoolLoginFlow()
+        flow.verified(land(flow, "https://portal.gdust.edu.cn/"))
+        assertFalse(flow.continueAfterFailure())
+        flow.navigating(ChxSso.teachingWebUrl)
+        flow.unavailable()
+        assertTrue(flow.continueAfterFailure())
+        assertEquals(SchoolService.CHX, flow.current)
+        assertEquals(SchoolConnection.UNAVAILABLE, flow.connection(SchoolService.TEACHING))
+        assertTrue(flow.isVerified(SchoolService.PORTAL))
+        assertFalse(flow.isVerified(SchoolService.TEACHING))
+    }
+
+    @Test
+    fun restoringFailedCurrentServiceDoesNotSkipItsRetry() {
+        val previous = SchoolLoginFlow(startAt = SchoolService.TEACHING)
+        previous.navigating(ChxSso.teachingWebUrl)
+        previous.unavailable()
+        val restored = SchoolLoginFlow(previous.snapshot(), startAt = SchoolService.TEACHING)
+        assertEquals(SchoolService.TEACHING, restored.current)
+        assertFalse(restored.schoolReady)
+        assertFalse(restored.complete)
+    }
+
+    @Test
+    fun restoringLearningAfterTeachingFailureKeepsThePartialResult() {
+        val previous = SchoolLoginFlow()
+        previous.verified(land(previous, "https://portal.gdust.edu.cn/"))
+        previous.unavailable()
+        previous.continueAfterFailure()
+        previous.navigating(ChxSso.fyssoUrl)
+        val restored = SchoolLoginFlow(previous.snapshot())
+        assertEquals(SchoolService.CHX, restored.current)
+        assertTrue(restored.isVerified(SchoolService.PORTAL))
+        assertEquals(SchoolConnection.UNAVAILABLE, restored.connection(SchoolService.TEACHING))
+        assertFalse(restored.isVerified(SchoolService.TEACHING))
+    }
+
     private fun land(flow: SchoolLoginFlow, url: String): SchoolLoginFlow.Probe {
         assertTrue(flow.navigating())
         assertTrue(flow.pageStarted(url))

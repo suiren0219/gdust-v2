@@ -48,7 +48,7 @@ class ChxSessionCookieTest {
     }
 
     @Test fun ssoUrlsStayOnSchoolCas() {
-        listOf(ChxSso.fyssoUrl, ChxSso.mhUrl, ChxSso.teachingWebUrl).forEach { url ->
+        listOf(ChxSso.fyssoUrl, ChxSso.mhUrl, ChxSso.teachingWebUrl, ChxSso.campusTeachingWebUrl).forEach { url ->
             assertTrue(url, url.startsWith("https://cas.gdust.edu.cn/lyuapServer/login?service="))
         }
     }
@@ -58,6 +58,8 @@ class ChxSessionCookieTest {
             ChxSso.fyssoUrl.toHttpUrl().queryParameter("service"))
         assertEquals("http://gkjx.gdust.edu.cn/sso/lyiotlogin",
             ChxSso.teachingWebUrl.toHttpUrl().queryParameter("service"))
+        assertEquals("http://172.16.254.1/sso/lyiotlogin",
+            ChxSso.campusTeachingWebUrl.toHttpUrl().queryParameter("service"))
         // 学校公开 index.js 的完整 collegeContentUrl，不能把 refer 的 % 再编码为 %25。
         assertEquals("https://cas.gdust.edu.cn/lyuapServer/login?service=" +
             "https%3A%2F%2Fgdkj.mh.chaoxing.com%2Fsso%2Flogin%2F3rd%3Fwfwfid%3D420%26refer%3Dhttps%3A%2F%2Fgdkj.mh.chaoxing.com",

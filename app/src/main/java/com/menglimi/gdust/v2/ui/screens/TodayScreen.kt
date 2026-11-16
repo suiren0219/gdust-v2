@@ -283,7 +283,6 @@ private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, miss
             )
             Text(active.block.name, fontSize = 18.sp, lineHeight = 26.sp,
                 fontWeight = FontWeight.SemiBold, color = ds.text, modifier = Modifier.padding(top = 16.dp))
-            Text(active.timeRange, fontSize = 15.sp, color = ds.text, modifier = Modifier.padding(top = 6.dp))
             Text(active.block.metadata(), fontSize = 14.sp, lineHeight = 21.sp,
                 color = ds.sub, modifier = Modifier.padding(top = 4.dp))
         }
@@ -307,20 +306,23 @@ private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, miss
                 }
             }
         }
-        Text(
-            text = when {
-                unknown > 0 || missingDates -> "部分课程的日期或时间待确认，请以完整课表为准。"
-                current != null && next != null -> "下一课：${next.block.name}，${next.start} 开始。"
-                current != null && courses.count { it.statusAt(now) == TodayCourseStatus.Ongoing } > 1 -> "当前有多门课程时间重叠，请查看下方课程安排。"
-                current != null -> "这是今天最后一门课。"
-                next != null -> "${next.timeRange}，${next.block.room.ifBlank { "教室待定" }}。"
-                else -> "今日 ${courses.size} 门课已全部结束，接下来安排自己的时间。"
-            },
-            fontSize = 13.sp,
-            lineHeight = 20.sp,
-            color = ds.sub,
-            modifier = Modifier.padding(top = 12.dp),
-        )
+        val hint = when {
+            unknown > 0 || missingDates -> "部分课程的日期或时间待确认，请以完整课表为准。"
+            current != null && next != null -> "下一课：${next.block.name}。"
+            current != null && courses.count { it.statusAt(now) == TodayCourseStatus.Ongoing } > 1 -> "当前有多门课程时间重叠，请查看下方课程安排。"
+            current != null -> "这是今天最后一门课。"
+            next != null -> null
+            else -> "今日 ${courses.size} 门课已全部结束，接下来安排自己的时间。"
+        }
+        if (hint != null) {
+            Text(
+                text = hint,
+                fontSize = 13.sp,
+                lineHeight = 20.sp,
+                color = ds.sub,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
     }
 }
 
