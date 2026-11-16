@@ -25,30 +25,32 @@ class ChxApi internal constructor(private val execute: suspend (Request) -> Sess
         val trusted = ChxCourseApi.trustedCourseUrl(course.url, course.classId.toString(),
             course.courseId.toString(), course.cpi.toString())
             ?: throw ChxCourseReadException("课程入口无法识别，请在学习通网页查看。")
-        val html = readPage(trusted, ChxSso.HOME, "课程页", ::isCoursePage)
-        ChxWorkParser.readCourseTabs(html, course)
+        val page = readPage(trusted, ChxSso.HOME, "课程页", ::isCoursePage)
+        ChxWorkParser.readCourseTabs(page.body, course)
     }
 
     suspend fun workList(course: ChxWorkCourse, tabs: ChxWorkTabs): List<ChxWorkItem> = withContext(Dispatchers.IO) {
         val requestUrl = workListUrl(course, tabs)
-        val html = readPage(requestUrl.toString(), COURSE_PAGE, "作业列表", ::isWorkList)
-        ChxWorkParser.parseWorkList(html, course)
+        val page = readPage(requestUrl.toString(), COURSE_PAGE, "作业列表", ::isWorkList)
+        ChxWorkParser.parseWorkList(page.body, course, page.url.toString())
     }
 
     suspend fun workDetailHtml(detailUrl: String): String = withContext(Dispatchers.IO) {
         val url = trustedUrl(detailUrl)?.takeIf(::isWorkDetail)
             ?: throw ChxCourseReadException("作业详情地址无法识别，请在学习通网页查看。")
-        readPage(url.toString(), null, "作业详情", ::isWorkDetail)
+        readPage(url.toString(), null, "作业详情", ::isWorkDetail).body
     }
+
+    private data class Page(val url: HttpUrl, val body: String)
 
     /** 不启用全局跟随：逐跳校验目标，再由 SessionHttpClient 为新 URL 读取 Cookie。 */
     private suspend fun readPage(
         initialUrl: String,
         referer: String?,
         stage: String,
-        allowedPage: (HttpUrl) -> Boolean,
-    ): String {
-        var url = trustedUrl(initialUrl)?.takeIf(allowedPage)
+        initialPage: (HttpUrl) -> Boolean,
+    ): Page {
+        var url = trustedUrl(initialUrl)?.takeIf(initialPage)
             ?: throw ChxCourseReadException("$stage 地址无法识别，请在学习通网页查看。")
         val visited = mutableSetOf<String>()
         repeat(5) {
@@ -61,11 +63,15 @@ class ChxApi internal constructor(private val execute: suspend (Request) -> Sess
                 if (ChxCourseApi.isTrustedLoginRedirect(url, response.location)) {
                     throw AuthFailed(401, "$stage 要求重新登录学习通，请在网页完成认证。")
                 }
-                val next = redirectTarget(url, response.location)?.takeIf(allowedPage)
+                // 入口路径可固定，服务端落地路径会变；逐跳限制主机，正文再校验课程身份和结构。
+                val next = redirectTarget(url, response.location)
                     ?: throw ChxCourseReadException("$stage 暂未支持该跳转（HTTP ${response.status}；目标 ${ChxReadDiagnostics.route(url, response.location)}），请在网页查看。")
+                if (ChxCourseApi.isTrustedLoginRedirect(next, next.toString())) {
+                    throw AuthFailed(401, "$stage 要求重新登录学习通，请在网页完成认证。")
+                }
                 url = next
             } else {
-                return ChxCourseApi.requireBody(response, url, "$stage 读取失败")
+                return Page(url, ChxCourseApi.requireBody(response, url, "$stage 读取失败"))
             }
         }
         throw ChxCourseReadException("$stage 跳转次数过多，请在网页查看。")
@@ -74,9 +80,10 @@ class ChxApi internal constructor(private val execute: suspend (Request) -> Sess
     companion object {
         private const val COURSE_PAGE = "https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu"
 
-        internal fun isAllowedUrl(url: HttpUrl): Boolean = ChxCourseApi.isAllowedUrl(url) ||
-            (url.scheme == "https" && url.port == 443 && url.username.isEmpty() && url.password.isEmpty() &&
-                url.fragment == null && (isCoursePage(url) || isWorkList(url) || isWorkDetail(url)))
+        /** 仅课程服务的两个精确主机；不放行任意超星子域，Cookie 仍由会话层逐 URL 读取。 */
+        internal fun isAllowedUrl(url: HttpUrl): Boolean =
+            url.scheme == "https" && url.port == 443 && url.username.isEmpty() && url.password.isEmpty() &&
+                url.fragment == null && url.host in setOf("mooc1.chaoxing.com", "mooc2-ans.chaoxing.com")
 
         private fun isCoursePage(url: HttpUrl): Boolean =
             (url.host == "mooc1.chaoxing.com" && url.encodedPath == "/visit/stucoursemiddle") ||
@@ -85,8 +92,8 @@ class ChxApi internal constructor(private val execute: suspend (Request) -> Sess
         private fun isWorkList(url: HttpUrl): Boolean = url.host == "mooc1.chaoxing.com" &&
             url.encodedPath in setOf("/mooc2/work/list", "/mooc-ans/mooc2/work/list")
 
-        private fun isWorkDetail(url: HttpUrl): Boolean = url.host == "mooc1.chaoxing.com" &&
-            url.encodedPath == "/mooc-ans/mooc2/work/task"
+        internal fun isWorkDetail(url: HttpUrl): Boolean = url.host == "mooc1.chaoxing.com" &&
+            url.encodedPath in setOf("/mooc2/work/task", "/mooc-ans/mooc2/work/task")
 
         /** URI 检查避免 HttpUrl 规范化掩盖用户信息、反斜线、路径穿越等非协议地址。 */
         internal fun trustedUrl(value: String): HttpUrl? {
@@ -103,13 +110,12 @@ class ChxApi internal constructor(private val execute: suspend (Request) -> Sess
             val target = try { URI(location) } catch (_: Exception) { return null }
             if (target.normalize().rawPath != target.rawPath) return null
             val resolved = try { URI(base.toString()).resolve(target) } catch (_: Exception) { return null }
-            // 只升级已经支持且有 HTTPS 落地证据的课程/作业地址，不向 HTTP 发送 Cookie。
+            // 可信课程服务的 HTTP Location 只尝试 HTTPS；不向 HTTP 发 Cookie，也不降级重试。
             if (resolved.scheme == "http") {
                 if (resolved.port !in setOf(-1, 80) || resolved.userInfo != null || resolved.rawFragment != null) return null
                 val parsed = resolved.toString().toHttpUrlOrNull() ?: return null
                 if (parsed.encodedPath != resolved.rawPath) return null
                 val secure = parsed.newBuilder().scheme("https").port(443).build()
-                if (!isCoursePage(secure) && !isWorkList(secure) && !isWorkDetail(secure)) return null
                 return trustedUrl(secure.toString())
             }
             return trustedUrl(resolved.toString())

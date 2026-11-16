@@ -4,7 +4,7 @@ import com.google.gson.JsonParser
 import org.jsoup.Jsoup
 
 /**
- * 学习通网页（服务端渲染 HTML）的解析器。所有规则都来自真实抓包（HAR），不猜接口：
+ * 学习通网页（服务端渲染 HTML）的解析器。基础协议沿用已有脱敏样本：
  *
  * - 课程列表 `POST mooc2-ans/visit/courselistdata`：
  *   每门课一个 `<a href="…/visit/stucoursemiddle?courseid=&clazzid=&cpi=…">`，课程名在 `span.course-name`
@@ -13,6 +13,7 @@ import org.jsoup.Jsoup
  * - 作业列表 `mooc2/work/list?courseId&classId&cpi&ut&s…&stuenc&enc`：
  *   `<li onclick="goTask(this);" data="work/task?…workId&answerId&enc">`，
  *   标题 `p.overHidden2`、状态 `p.status`(未交/已完成)、时间 `div.time`(「剩余X小时X分钟」，相对时间)
+ * 标签、链接载体和同语义 class 的兼容变体由合成 fixture 覆盖，不代表已验证 issue #6 的真实 HAR。
  */
 data class ChxWorkCourse(val courseId: Long, val classId: Long, val cpi: Long, val name: String, val url: String)
 
@@ -88,33 +89,78 @@ object ChxWorkParser {
     }
 
     /** 无可核实的空列表协议；维护页、未知结构或缺字段都不能当成“没有作业”。 */
-    fun parseWorkList(html: String, expectedCourse: ChxWorkCourse? = null): List<ChxWorkItem> {
-        fun unknown(): Nothing = throw ChxCourseReadException("作业列表结构无法识别，未确认是否有作业，请在学习通网页查看。")
+    fun parseWorkList(
+        html: String,
+        expectedCourse: ChxWorkCourse? = null,
+        pageUrl: String = "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/list",
+    ): List<ChxWorkItem> {
+        // 原因只使用客户端定义的结构/字段名，绝不带正文、URL query 或字段值。
+        fun unknown(reason: String): Nothing = throw ChxCourseReadException(
+            "作业列表结构无法识别（$reason），未确认是否有作业，请在学习通网页查看。")
+        val base = ChxApi.trustedUrl(pageUrl) ?: unknown("列表地址不可信")
         val doc = Jsoup.parse(html)
-        val containers = doc.select(".main.task-list .bottomList[aria-label=作业列表]")
-        if (doc.title().trim() != "作业列表" || containers.size != 1) unknown()
-        val rows = containers.single().select("li")
-        if (rows.isEmpty()) unknown()
+        if (doc.select("form input[type=password]").isNotEmpty()) unknown("包含登录表单")
+        doc.select("script, style, template").remove()
+        val candidates = doc.select(".bottomList, #workList, #taskList, .work-list, .task-list, [aria-label=作业列表]")
+        // 同一容器可同时命中多个标记或套在 task-list 内，只取最内层作业容器。
+        val containers = candidates.filter { outer -> candidates.none { inner ->
+            inner !== outer && inner.parents().contains(outer)
+        } }
+        if (containers.isEmpty()) unknown("缺少作业容器")
+        if (containers.size != 1) unknown("作业容器不唯一")
+        val container = containers.single()
+        val rowCandidates = container.select("li, .work-item, .task-item, [data], [data-url], a[href]")
+        val rows = rowCandidates.filter { row ->
+            row !== container && row.parents().none { it !== container && rowCandidates.contains(it) }
+        }
+        if (rows.isEmpty()) unknown("未找到作业条目，空列表尚未确认")
         val out = linkedMapOf<Long, ChxWorkItem>()
-        for (li in rows) {
-            if (li.attr("onclick").replace(" ", "") !in setOf("goTask(this);", "goTask(this)")) unknown()
-            val data = li.attr("data").trim()
-            val title = li.select("p.overHidden2").text().trim()
-            val status = li.select("p.status").text().trim()
-            if (data.isEmpty() || title.isEmpty() || status !in setOf("未交", "已完成")) unknown()
-            val detail = ChxApi.trustedUrl(if (data.startsWith("//")) "https:$data" else data) ?: unknown()
-            if (detail.host != "mooc1.chaoxing.com" || detail.encodedPath != "/mooc-ans/mooc2/work/task") unknown()
-            fun parameter(name: String): String = detail.queryParameterValues(name).singleOrNull() ?: unknown()
-            fun id(name: String): Long = parameter(name).toLongOrNull()?.takeIf { it > 0 } ?: unknown()
+        for (row in rows) {
+            fun field(selector: String, name: String, required: Boolean = true, titleAttribute: Boolean = false): String {
+                val values = row.select(selector).map {
+                    (if (titleAttribute) it.attr("title").ifBlank { it.text() } else it.text()).trim()
+                }.filter { it.isNotEmpty() }.distinct()
+                if (values.size > 1) unknown("$name 字段冲突")
+                return values.singleOrNull() ?: if (required) unknown("缺少 $name 字段") else ""
+            }
+            // 不执行 onclick；入口必须由可校验的 URL 提供，并且所有声明的入口一致。
+            val links = row.select("[data], [data-url], a[href]").flatMap { element ->
+                listOf("data", "data-url", "href").filter { element.hasAttr(it) }.map { element.attr(it).trim() }
+            }.distinct()
+            if (links.isEmpty() || links.any { it.isBlank() }) unknown("缺少详情地址 data/data-url/href")
+            val details = links.map { link ->
+                ChxApi.redirectTarget(base, link)?.takeIf(ChxApi::isWorkDetail)
+                    ?: unknown("详情地址不可信或路径不支持")
+            }.distinct()
+            if (details.size != 1) unknown("详情地址冲突")
+            val detail = details.single()
+            fun parameter(name: String): String {
+                val values = detail.queryParameterValues(name)
+                if (values.size != 1) unknown("$name 参数缺失或重复")
+                return values.single()?.takeIf { it.isNotBlank() } ?: unknown("$name 参数为空")
+            }
+            fun id(name: String): Long = parameter(name).let { value ->
+                value.takeIf { it.all { char -> char in '0'..'9' } }?.toLongOrNull()?.takeIf { it > 0 }
+                    ?: unknown("$name 参数无效")
+            }
             val courseId = id("courseId")
             val classId = id("classId")
             val cpi = id("cpi")
-            if (expectedCourse != null && (courseId != expectedCourse.courseId ||
-                    classId != expectedCourse.classId || cpi != expectedCourse.cpi)) unknown()
-            val item = ChxWorkItem(title, status, detail.toString(), id("workId"), id("answerId"),
-                parameter("enc").takeIf { it.isNotBlank() } ?: unknown(), li.select("div.time").text().trim())
+            if (expectedCourse != null) {
+                if (courseId != expectedCourse.courseId) unknown("courseId 与所选课程不符")
+                if (classId != expectedCourse.classId) unknown("classId 与所选课程不符")
+                if (cpi != expectedCourse.cpi) unknown("cpi 与所选课程不符")
+            }
+            val title = field(".overHidden2, .work-title, .task-title", "标题", titleAttribute = true)
+            val status = when (field(".status, .work-status, .task-status", "status")) {
+                "未交", "未提交" -> "未交"
+                "已完成", "已提交" -> "已完成"
+                else -> unknown("status 字段不支持")
+            }
+            val item = ChxWorkItem(title, status, detail.toString(), id("workId"), id("answerId"), parameter("enc"),
+                field(".time, .work-time, .task-time", "time", required = false))
             val previous = out.putIfAbsent(item.workId, item)
-            if (previous != null && previous != item) unknown()
+            if (previous != null && previous != item) unknown("workId 重复且条目冲突")
         }
         return out.values.toList()
     }
