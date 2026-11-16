@@ -53,6 +53,7 @@ object LessonReminderAlarms {
 
     /** 重新计算并重排下一个闹钟；课表/设置变化、开机、时间变更、闹钟触发后都调用。 */
     fun reschedule(ctx: Context, store: com.menglimi.gdust.v2.data.Store) {
+        LessonNotificationExpiry.reschedule(ctx, store)
         val alarm = ctx.getSystemService(AlarmManager::class.java)
         val pi = pendingIntent(ctx)
         alarm.cancel(pi)
@@ -209,6 +210,8 @@ class LessonReminderFallbackWorker(ctx: Context, params: WorkerParameters) : Cor
         if (store.reminderEnabled) {
             LessonReminderAlarms.fire(applicationContext)
             LessonReminderAlarms.reschedule(applicationContext, store)
+        } else {
+            LessonNotificationExpiry.reschedule(applicationContext, store)
         }
         if (store.todoReminderEnabled) LessonReminderAlarms.rescheduleTodo(applicationContext, store)
         ClassDndAlarms.reschedule(applicationContext, store)
