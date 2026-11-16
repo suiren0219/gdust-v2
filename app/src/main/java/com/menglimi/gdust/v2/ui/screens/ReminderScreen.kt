@@ -14,6 +14,8 @@ import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.work.LessonReminderWorker
 import com.menglimi.gdust.v2.work.ClassDndAlarms
+import com.menglimi.gdust.v2.work.ClassQuietMode
+import com.menglimi.gdust.v2.work.LessonNotificationExpiry
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -37,6 +39,7 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 ClassDndAlarms.reschedule(ctx, store)
+                LessonNotificationExpiry.reschedule(ctx, store)
                 revision.intValue++
             }
         }
@@ -176,35 +179,43 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
             }
         }
 
-        // ── 系统上课勿扰（独立于通知总开关） ──
-        SectionHeader("上课勿扰")
+        // ── 系统上课模式（独立于通知总开关） ──
+        SectionHeader("上课模式")
         SettingGroup {
             SettingOption(
-                title = "上课自动勿扰",
-                subtitle = "按本机课表上课开启、下课退出；允许闹钟，不受提醒总开关影响",
-                switch = ClassDndAlarms.isEnabled(ctx),
-                onSwitch = { on ->
-                    ClassDndAlarms.setEnabled(ctx, on)
-                    revision.intValue++
-                    if (on && !ClassDndAlarms.hasPolicyAccess(ctx)) ClassDndAlarms.openPolicySettings(ctx)
-                },
+                title = "上课自动模式",
+                subtitle = "按本机课表上课开启、下课退出，不受提醒总开关影响。勿扰：仅允许闹钟；静音：静音来电与通知，允许闹钟、媒体和系统声音，保留视觉通知。",
+                detail = ClassDndAlarms.mode(ctx).label,
             )
+            SettingEditor {
+                SegmentedChoice(
+                    options = ClassQuietMode.entries.map { it to it.label },
+                    selected = ClassDndAlarms.mode(ctx),
+                    onSelect = { mode ->
+                        ClassDndAlarms.setMode(ctx, mode)
+                        revision.intValue++
+                        if (mode != ClassQuietMode.OFF && !ClassDndAlarms.hasPolicyAccess(ctx)) {
+                            ClassDndAlarms.openPolicySettings(ctx)
+                        }
+                    },
+                )
+            }
             SettingOption(
                 title = "勿扰权限",
-                subtitle = "仅控制本应用的上课勿扰；手动勿扰与其他自动规则由系统保留",
+                subtitle = "勿扰和静音均需此授权；结束或关闭仅释放本应用规则，手动勿扰与其他应用规则由系统保留",
                 detail = if (ClassDndAlarms.hasPolicyAccess(ctx)) "已授权" else "去授权",
                 onClick = { ClassDndAlarms.openPolicySettings(ctx) },
             )
             SettingOption(
-                title = "课时勿扰状态",
+                title = "课时模式状态",
                 subtitle = ClassDndAlarms.status(ctx) +
                     if (com.menglimi.gdust.v2.work.LessonReminderAlarms.canScheduleExact(ctx)) "" else " · 未获精确闹钟权限，开启和退出可能延迟",
                 detail = "刷新",
                 onClick = { ClassDndAlarms.reschedule(ctx, store); revision.intValue++ },
             )
             SettingOption(
-                title = "取消本次勿扰",
-                subtitle = "退出当前课时或取消单次安排，保留后续自动计划；关闭上方开关可全部取消",
+                title = "取消本次上课模式",
+                subtitle = "退出当前课时或取消单次安排，保留后续自动计划；选择「关闭」可全部取消",
                 detail = "取消本次",
                 onClick = { ClassDndAlarms.cancelCurrent(ctx); revision.intValue++ },
             )
@@ -225,7 +236,7 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
         SettingGroup {
             SettingOption(
                 title = "超级岛样式提醒",
-                subtitle = "按 HyperOS 标准 V3 岛协议发通知；是否上岛取决于系统版本与白名单",
+                subtitle = "课程结束自动撤销通知；是否上岛取决于 HyperOS 版本与白名单，关闭会清除现有岛通知",
                 switch = store.islandEnabled,
                 onSwitch = { on -> save { store.islandEnabled = on } },
             )
@@ -326,7 +337,7 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
             )
             SettingOption(
                 title = "自启动 / 后台运行",
-                subtitle = "HyperOS 需允许自启动，提醒才不会被清理",
+                subtitle = "HyperOS 可能需允许自启动与后台运行；系统「强制停止」会阻止定时任务，重新打开应用后恢复",
                 detail = "应用详情",
                 onClick = {
                     openSystem(
@@ -337,8 +348,8 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
             )
         }
         Text(
-            "提醒按本机课表算出精确时刻，用系统闹钟触发（不再 15 分钟轮询）；另有 6 小时兜底补漏，同一节课只提醒一次。\n" +
-                "HyperOS 需允许自启动与精确定时；超级岛由系统按白名单决定是否显示。",
+            "提醒与上课模式按本机课表通过系统闹钟触发，另有持久任务兜底；普通退出或进程被回收不取消计划。\n" +
+                "系统强制停止后需重新打开应用恢复。未获精确定时或受厂商后台限制时可能延迟；超级岛由系统按白名单决定是否显示。",
             fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
             modifier = Modifier,
         )

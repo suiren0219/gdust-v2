@@ -57,6 +57,8 @@ class App : Application() {
         // 课程提醒（课前 + 次日）；开关在设置里控制
         if (repo.store.reminderEnabled) {
             com.menglimi.gdust.v2.work.LessonReminderWorker.schedule(this)
+        } else {
+            com.menglimi.gdust.v2.work.LessonNotificationExpiry.reschedule(this, repo.store)
         }
         if (repo.store.todoReminderEnabled) {
             LessonReminderAlarms.rescheduleTodo(this, repo.store)

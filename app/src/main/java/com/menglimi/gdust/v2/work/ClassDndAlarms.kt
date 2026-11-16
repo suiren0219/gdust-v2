@@ -13,6 +13,7 @@ import android.os.Build
 import android.provider.Settings
 import android.service.notification.Condition
 import android.service.notification.ConditionProviderService
+import android.service.notification.ZenPolicy
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -52,7 +53,12 @@ object ClassDndAlarms {
         reschedule(app)
     }
 
-    fun isEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean("enabled", false)
+    fun mode(ctx: Context): ClassQuietMode = prefs(ctx).let {
+        ClassQuietMode.fromStored(it.getString("mode", null), it.getBoolean("enabled", false))
+    }
+    fun isEnabled(ctx: Context): Boolean = mode(ctx) != ClassQuietMode.OFF
+    private fun sessionMode(ctx: Context): ClassQuietMode = mode(ctx).takeUnless { it == ClassQuietMode.OFF } ?: ClassQuietMode.DND
+    fun sessionLabel(ctx: Context): String = sessionMode(ctx).label
     fun hasPendingSession(ctx: Context): Boolean = prefs(ctx).getLong("manual_end", 0) > 0
     fun hasPolicyAccess(ctx: Context): Boolean = manager(ctx).isNotificationPolicyAccessGranted
 
@@ -64,10 +70,15 @@ object ClassDndAlarms {
         }
     }
 
-    fun setEnabled(ctx: Context, enabled: Boolean) {
-        prefs(ctx).edit().putBoolean("enabled", enabled)
-            .remove("manual_start").remove("manual_end").remove("skipped_until").remove("error").apply()
-        // 只有明确打开开关才允许恢复被用户在系统设置中停用的本规则。
+    /** 兼容旧调用；已选择静音时，不被恢复入口改回勿扰。 */
+    fun setEnabled(ctx: Context, enabled: Boolean) =
+        setMode(ctx, if (enabled) sessionMode(ctx) else ClassQuietMode.OFF)
+
+    fun setMode(ctx: Context, mode: ClassQuietMode) {
+        val enabled = mode != ClassQuietMode.OFF
+        prefs(ctx).edit().putString("mode", mode.value).putBoolean("enabled", enabled)
+            .remove("manual_start").remove("manual_end").remove("skipped_until").remove("error").commit()
+        // 只有明确选择模式才允许恢复被用户在系统设置中停用的本规则。
         if (enabled && hasPolicyAccess(ctx)) runCatching {
             val owned = findRule(ctx)
             if (owned == null) prefs(ctx).edit().remove("rule_id").apply()
@@ -78,7 +89,7 @@ object ClassDndAlarms {
                 }
             }
         }
-        reschedule(ctx)
+        reschedule(ctx, userAction = true)
     }
 
     /** 通知动作只能选择本机仍存在且尚未结束的真实课时，过期/测试通知不会改变系统。 */
@@ -96,7 +107,8 @@ object ClassDndAlarms {
             .remove("skipped_until").remove("error").apply()
         reschedule(ctx, userAction = true)
         val error = prefs(ctx).getString("error", null)
-        return error ?: if (now >= window.startMillis) "已开启本次上课勿扰，下课自动退出" else "已安排本次上课勿扰，上课时开启"
+        val label = sessionLabel(ctx)
+        return error ?: if (now >= window.startMillis) "已开启本次上课$label，下课自动退出" else "已安排本次上课$label，上课时开启"
     }
 
     /** 本次取消保留后续自动计划；重叠课程作为同一段，避免立即被另一门课重新开启。 */
@@ -122,12 +134,20 @@ object ClassDndAlarms {
 
     /** 可在任意恢复入口调用；不依赖提醒总开关或 POST_NOTIFICATIONS。 */
     @Synchronized
-    fun reschedule(ctx: Context, store: Store = Store(ctx), nowMillis: Long = System.currentTimeMillis(), userAction: Boolean = false) {
+    fun reschedule(
+        ctx: Context,
+        store: Store = Store(ctx),
+        nowMillis: Long = System.currentTimeMillis(),
+        userAction: Boolean = false,
+        fromBoundaryWorker: Boolean = false,
+    ) {
         val p = prefs(ctx)
         val alarm = ctx.getSystemService(AlarmManager::class.java)
         val pi = boundaryIntent(ctx)
         alarm.cancel(pi)
-        WorkManager.getInstance(ctx).cancelUniqueWork(WORK_BOUNDARY)
+        val workManager = WorkManager.getInstance(ctx)
+        // Worker 正在校准时不能先取消自己，否则进程可能在交接下一边界前失去执行资格。
+        if (!fromBoundaryWorker) workManager.cancelUniqueWork(WORK_BOUNDARY)
         val windows = windows(store)
         var manual = manual(ctx)
         if (manual != null && (manual.endMillis <= nowMillis || manual !in windows)) {
@@ -135,16 +155,14 @@ object ClassDndAlarms {
             manual = null
         }
         if (p.getLong("skipped_until", 0) <= nowMillis) p.edit().remove("skipped_until").apply()
-        if (!hasPolicyAccess(ctx)) {
-            // 系统收回策略访问权时会停用所属规则；保留自动开关，以便重新授权后校准。
+        val hasAccess = hasPolicyAccess(ctx)
+        if (!hasAccess) {
+            // 授权广播仅在进程存活时可收；待授权也保留自动计划的边界/兜底唤醒。
             p.edit().remove("manual_start").remove("manual_end").remove("active_start").remove("active_end")
                 .putBoolean("permission_missing", true)
-                .putString("error", "勿扰权限未授权，自动勿扰已暂停").apply()
-            LessonReminderAlarms.cancelFallback(ctx)
-            return
+                .putString("error", "勿扰权限未授权，上课模式已暂停").apply()
+            manual = null
         }
-        val permissionRestored = p.getBoolean("permission_missing", false)
-        p.edit().remove("permission_missing").apply()
         val plan = planClassDnd(windows, isEnabled(ctx), manual, p.getLong("skipped_until", 0), nowMillis)
         if (isEnabled(ctx) || manual != null) LessonReminderAlarms.scheduleFallback(ctx)
         else LessonReminderAlarms.cancelFallback(ctx)
@@ -159,25 +177,30 @@ object ClassDndAlarms {
                     }
                 } else alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
             }
-            WorkManager.getInstance(ctx).enqueueUniqueWork(
-                WORK_BOUNDARY, ExistingWorkPolicy.REPLACE,
+            workManager.enqueueUniqueWork(
+                WORK_BOUNDARY,
+                if (fromBoundaryWorker) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.REPLACE,
                 OneTimeWorkRequestBuilder<ClassDndBoundaryWorker>()
                     .setInitialDelay((at - nowMillis).coerceAtLeast(0), TimeUnit.MILLISECONDS).build(),
             )
         }
+        if (!hasAccess) return
+        val permissionRestored = p.getBoolean("permission_missing", false)
+        p.edit().remove("permission_missing").apply()
         runCatching {
             var owned = findRule(ctx)
             if (owned == null && (isEnabled(ctx) || manual != null)) {
                 if (p.contains("rule_id") && !permissionRestored) {
-                    p.edit().putBoolean("enabled", false).remove("manual_start").remove("manual_end").apply()
+                    p.edit().putString("mode", ClassQuietMode.OFF.value).putBoolean("enabled", false)
+                        .remove("manual_start").remove("manual_end").apply()
                     alarm.cancel(pi)
                     WorkManager.getInstance(ctx).cancelUniqueWork(WORK_BOUNDARY)
                     error("本应用勿扰规则已在系统中移除")
                 }
                 val rule = AutomaticZenRule(
-                    "上课勿扰", ComponentName(ctx, ClassDndConditionProvider::class.java), conditionId(ctx),
+                    "上课${sessionLabel(ctx)}", ComponentName(ctx, ClassDndConditionProvider::class.java), conditionId(ctx),
                     NotificationManager.INTERRUPTION_FILTER_ALARMS, true,
-                )
+                ).apply { configureMode(this, sessionMode(ctx)) }
                 val id = checkNotNull(manager(ctx).addAutomaticZenRule(rule)) { "无法创建勿扰规则" }
                 p.edit().putString("rule_id", id).commit()
                 owned = id to rule
@@ -188,11 +211,15 @@ object ClassDndAlarms {
                     check(manager(ctx).updateAutomaticZenRule(id, rule))
                 }
                 if (!rule.isEnabled) {
-                    p.edit().putBoolean("enabled", false).remove("manual_start").remove("manual_end").apply()
+                    p.edit().putString("mode", ClassQuietMode.OFF.value).putBoolean("enabled", false)
+                        .remove("manual_start").remove("manual_end").apply()
                     report(ctx, id, false)
                     alarm.cancel(pi)
                     WorkManager.getInstance(ctx).cancelUniqueWork(WORK_BOUNDARY)
                     error("本应用勿扰规则已在系统中停用")
+                }
+                if ((isEnabled(ctx) || manual != null) && configureMode(rule, sessionMode(ctx))) {
+                    check(manager(ctx).updateAutomaticZenRule(id, rule)) { "无法更新上课模式" }
                 }
                 val active = plan.active
                 // 进程错过下课后又在另一节课重启，也先结清旧课时的 snooze 状态。
@@ -207,11 +234,28 @@ object ClassDndAlarms {
         }
     }
 
+    /** 静音只拦截来电/通知声音与振动；允许媒体、闹钟和系统声音，并保留视觉通知。 */
+    private fun configureMode(rule: AutomaticZenRule, mode: ClassQuietMode): Boolean {
+        val filter = if (mode == ClassQuietMode.SILENT) NotificationManager.INTERRUPTION_FILTER_PRIORITY
+            else NotificationManager.INTERRUPTION_FILTER_ALARMS
+        val policy = if (mode == ClassQuietMode.SILENT) ZenPolicy.Builder()
+            .disallowAllSounds().allowAlarms(true).allowMedia(true).allowSystem(true)
+            .showAllVisualEffects().apply {
+                if (Build.VERSION.SDK_INT >= 35) allowPriorityChannels(false)
+            }.build() else null
+        val name = "上课${mode.label}"
+        if (rule.interruptionFilter == filter && rule.zenPolicy == policy && rule.name == name) return false
+        rule.name = name
+        rule.interruptionFilter = filter
+        rule.zenPolicy = policy
+        return true
+    }
+
     private fun findRule(ctx: Context): Pair<String, AutomaticZenRule>? {
         val p = prefs(ctx)
         val nm = manager(ctx)
         val id = p.getString("rule_id", null)
-        if (id != null) nm.getAutomaticZenRule(id)?.let { return id to it }
+        if (id != null) nm.getAutomaticZenRule(id)?.takeIf { it.conditionId == conditionId(ctx) }?.let { return id to it }
         // 系统规则可能比进程持久：恢复时按独有 conditionId 找回，不创建重复规则。
         return nm.automaticZenRules.entries.firstOrNull { it.value.conditionId == conditionId(ctx) }
             ?.let { p.edit().putString("rule_id", it.key).apply(); it.key to it.value }
@@ -237,7 +281,8 @@ object ClassDndAlarms {
                     val current = runCatching { manager(ctx).getAutomaticZenRule(id) }.getOrNull()
                     if (status == NotificationManager.AUTOMATIC_RULE_STATUS_DISABLED && current?.isEnabled == true) return
                     if (status == NotificationManager.AUTOMATIC_RULE_STATUS_REMOVED && current != null) return
-                    prefs(ctx).edit().putBoolean("enabled", false).remove("manual_start").remove("manual_end").apply()
+                    prefs(ctx).edit().putString("mode", ClassQuietMode.OFF.value).putBoolean("enabled", false)
+                        .remove("manual_start").remove("manual_end").commit()
                 }
                 reschedule(ctx)
             }
@@ -248,7 +293,7 @@ object ClassDndAlarms {
 
     fun status(ctx: Context): String {
         if (!isEnabled(ctx) && !hasPendingSession(ctx)) return "未开启"
-        if (!hasPolicyAccess(ctx)) return "勿扰权限未授权，自动勿扰已暂停"
+        if (!hasPolicyAccess(ctx)) return "勿扰权限未授权，上课模式已暂停"
         prefs(ctx).getString("error", null)?.let { return it }
         val p = prefs(ctx)
         val plan = planClassDnd(windows(Store(ctx)), isEnabled(ctx), manual(ctx), p.getLong("skipped_until", 0), System.currentTimeMillis())
@@ -263,10 +308,10 @@ object ClassDndAlarms {
                         } else manager(ctx).currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALL
                     } == true
                 }.getOrDefault(false)
-                if (state) "本次上课勿扰至 ${format.format(Date(plan.active.endMillis))}"
-                else "当前课时勿扰被系统暂停，可取消本次或检查系统规则"
+                if (state) "本次上课${sessionLabel(ctx)}至 ${format.format(Date(plan.active.endMillis))}"
+                else "当前上课模式被系统暂停，可取消本次或检查系统规则"
             }
-            plan.nextAtMillis != null -> "下次上课勿扰 ${format.format(Date(plan.nextAtMillis))}"
+            plan.nextAtMillis != null -> "下次上课${sessionLabel(ctx)} ${format.format(Date(plan.nextAtMillis))}"
             isEnabled(ctx) -> "已开启，暂无可定时的课程"
             else -> "未开启"
         }
@@ -289,7 +334,7 @@ class ClassDndConditionProvider : ConditionProviderService() {
 
 class ClassDndBoundaryWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
-        ClassDndAlarms.reschedule(applicationContext)
+        ClassDndAlarms.reschedule(applicationContext, fromBoundaryWorker = true)
         return Result.success()
     }
 }
