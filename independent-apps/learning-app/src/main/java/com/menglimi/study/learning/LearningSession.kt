@@ -9,6 +9,7 @@ import com.menglimi.chaoxing.ChxApi
 import com.menglimi.chaoxing.ChxCourseApi
 import com.menglimi.chaoxing.ChxCourseOverview
 import com.menglimi.chaoxing.ChxCourseWorkResult
+import com.menglimi.chaoxing.ChxHttpExchange
 import com.menglimi.chaoxing.ChxResponse
 import com.menglimi.chaoxing.ChxSso
 import com.menglimi.chaoxing.ChxWorkCourse
@@ -21,16 +22,12 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import okhttp3.Call
-import okhttp3.Callback
 import okhttp3.CookieJar
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Response
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 internal fun currentLearningAccount(): String? =
     learningAccountFingerprint(CookieManager.getInstance().getCookie(ChxSso.HOME))
@@ -74,7 +71,7 @@ internal class LearningSessionHttpClient(
                     .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }.build()
             }
         }
-        val received = client.newCall(authenticated).readResponse()
+        val received = ChxHttpExchange(client, checkSession = ::checkSession).execute(authenticated)
         checkSession()
         withContext(Dispatchers.Main.immediate) {
             guard.mutex.withLock {
@@ -107,31 +104,7 @@ internal class LearningSessionHttpClient(
     private fun checkAccount() {
         if (currentLearningAccount() != account) throw LearningAccountChanged()
     }
-    private data class Received(val response: ChxResponse, val cookies: List<String>)
-    private suspend fun Call.readResponse(): Received = suspendCancellableCoroutine { continuation ->
-        continuation.invokeOnCancellation { cancel() }
-        enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                if (continuation.isActive) continuation.resumeWithException(e)
-            }
-            override fun onResponse(call: Call, response: Response) {
-                try {
-                    val received = response.use {
-                        val body = it.peekBody(MAX_BODY_BYTES + 1).bytes()
-                        if (body.size > MAX_BODY_BYTES) throw IOException("学习通响应过大")
-                        val charset = it.body?.contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8
-                        Received(ChxResponse(it.code, body.toString(charset), it.header("Location"),
-                            it.header("Retry-After"), it.header("Date")), it.headers("Set-Cookie"))
-                    }
-                    if (continuation.isActive) continuation.resume(received)
-                } catch (failure: Exception) {
-                    if (continuation.isActive) continuation.resumeWithException(failure)
-                }
-            }
-        })
-    }
     private companion object {
-        const val MAX_BODY_BYTES = 4L * 1024 * 1024
         val client: OkHttpClient = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
             .retryOnConnectionFailure(false).cookieJar(CookieJar.NO_COOKIES).connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS).callTimeout(45, TimeUnit.SECONDS).build()

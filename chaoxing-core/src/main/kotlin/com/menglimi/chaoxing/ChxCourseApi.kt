@@ -125,6 +125,9 @@ class ChxCourseApi(
                 throw auth
             } catch (failure: ChxCourseReadException) {
                 throw failure
+            } catch (failure: ChxTransportFailure) {
+                currentCoroutineContext().ensureActive()
+                throw ChxCourseReadException("$error（${failure.diagnostic}；请求=${request.method} ${ChxReadDiagnostics.route(request.url, request.url.toString())}）")
             } catch (failure: Exception) {
                 currentCoroutineContext().ensureActive()
                 val reason = when (failure) {

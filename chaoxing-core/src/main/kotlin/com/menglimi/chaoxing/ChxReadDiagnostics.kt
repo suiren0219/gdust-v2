@@ -13,7 +13,7 @@ object ChxReadDiagnostics {
     private val staticSegments = setOf(
         "visit", "stucoursemiddle", "mooc-ans", "mooc2-ans", "mycourse", "stu", "stu.html",
         "mooc2", "work", "list", "task", "login", "login.html", "mlogin", "fanyalogin",
-        "error", "error.html", "auth", "index", "index.html",
+        "error", "error.html", "auth", "index", "index.html", "interaction", "courselistdata", "stu-job-info",
     )
 
     /** 计数只接收客户端生成的固定原因，最多展示三类，避免首个失败掩盖其他卡点。 */

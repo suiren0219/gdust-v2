@@ -20,15 +20,15 @@ fun StudyRoot(
     onCoursesRefresh: () -> Unit, onOpenPage: (String) -> Unit,
     onWorkClearError: () -> Unit, onCoursesClearError: () -> Unit,
     onDisconnect: () -> Unit, onClearCache: () -> Unit,
-    preview: Boolean = false, onResumeRead: () -> Unit = onWorkRefresh,
+    preview: Boolean = false, onResumeRead: () -> Unit = onWorkRefresh, diagnostic: String? = null,
 ) {
     BackHandler(tab != 0) { onTab(0) }
     KsuScaffold(tab, onTab, listOf(NavItem("作业", Glyph.BOOK), NavItem("课程", Glyph.CHART), NavItem("设置", Glyph.SETTINGS))) { page ->
         when (page) {
             0 -> LearningScreen(work, onWorkRefresh, onRetryCourse, onLogin, onOpenPage, onWorkClearError,
-                Modifier.fillMaxSize(), preview, onResumeRead)
+                Modifier.fillMaxSize(), preview, onResumeRead, diagnostic)
             1 -> CoursesScreen(courses, onCoursesRefresh, onLogin, onOpenPage, onCoursesClearError,
-                Modifier.fillMaxSize(), preview, onResumeRead)
+                Modifier.fillMaxSize(), preview, onResumeRead, diagnostic)
             else -> SettingsScreen(appearance, work, courses, onAppearance, onLogin, onDisconnect, onClearCache,
                 Modifier.fillMaxSize(), preview)
         }

@@ -38,6 +38,11 @@ class PreviewActivity : ComponentActivity() {
                 dynamic = intent.getBooleanExtra("dynamic", false), amoled = intent.getBooleanExtra("amoled", false))) }
             var work by remember { mutableStateOf(workState(now, scenario)) }
             var courses by remember { mutableStateOf(courseState(now, scenario)) }
+            // transport 场景演示“复制本次诊断”：只有固定阶段/类型/路由，不含异常原文或 Cookie。
+            val diagnostic = if (scenario == "transport") "学习助手 ${com.menglimi.study.BuildConfig.VERSION_NAME}\n" +
+                "学习通首页暂时无法读取，请稍后重试。（连接中断；阶段=等待响应头；类型=NET_SOCKET；" +
+                "HTTP=未收到完整响应；新连接恢复=1/1；请求=GET https://mooc2-ans.chaoxing.com/mooc2-ans/visit/interaction）"
+            else null
             KsuTheme(appearance) {
                 StudyRoot(tab, { tab = it }, appearance, work, courses, { appearance = it },
                     onLogin = offline, onWorkRefresh = offline, onRetryCourse = { offline() },
@@ -45,7 +50,8 @@ class PreviewActivity : ComponentActivity() {
                     onWorkClearError = { work = work.copy(error = null) },
                     onCoursesClearError = { courses = courses.copy(error = null) },
                     onDisconnect = { work = LearningUiState(); courses = CoursesUiState(); offline() },
-                    onClearCache = { work = LearningUiState(); courses = CoursesUiState(); offline() }, preview = true)
+                    onClearCache = { work = LearningUiState(); courses = CoursesUiState(); offline() },
+                    preview = true, diagnostic = diagnostic)
             }
         }
     }
@@ -54,6 +60,9 @@ class PreviewActivity : ComponentActivity() {
         if (scenario == "logged-out") return LearningUiState()
         if (scenario == "loading") return LearningUiState(loading = true)
         if (scenario == "error") return LearningUiState(error = "合成网络失败：尚未确认课程作业，请稍后重试。")
+        if (scenario == "transport") return LearningUiState(error = "学习通首页暂时无法读取，请稍后重试。" +
+            "（连接中断；阶段=等待响应头；类型=NET_SOCKET；HTTP=未收到完整响应；新连接恢复=1/1；" +
+            "请求=GET https://mooc2-ans.chaoxing.com/mooc2-ans/visit/interaction）")
         val failure = ChxWorkCourse(44, 55, 66, "示例课程 · 数据结构", "https://mooc1.chaoxing.com/visit/stucoursemiddle")
         return LearningUiState(connected = scenario != "cached", hasSnapshot = true, fromCache = scenario == "cached",
             updatedAt = now - 300_000, courseCount = 4, readControl = readControl(now, scenario),
@@ -81,6 +90,7 @@ class PreviewActivity : ComponentActivity() {
         if (scenario == "logged-out") return CoursesUiState()
         if (scenario == "loading") return CoursesUiState(loading = true)
         if (scenario == "error") return CoursesUiState(error = "合成网络失败：课程列表尚未确认。")
+        if (scenario == "transport") return CoursesUiState(error = "合成网络失败：课程列表尚未确认。")
         return CoursesUiState(connected = scenario != "cached", hasSnapshot = true, fromCache = scenario == "cached", updatedAt = now - 300_000,
             readControl = readControl(now, scenario),
             progressError = "部分课程的任务点进度未知，可稍后刷新。", courses = listOf(

@@ -32,9 +32,10 @@ class MainActivity : ComponentActivity() {
             val appearance by app.appearance.state.collectAsStateWithLifecycle()
             val work by app.learning.state.collectAsStateWithLifecycle()
             val courses by app.learning.courses.collectAsStateWithLifecycle()
+            val diagnostic by app.learning.diagnostic.collectAsStateWithLifecycle()
             KsuTheme(appearance) {
                 StudyRoot(tab = selectedTab.intValue, onTab = { selectedTab.intValue = it },
-                    appearance = appearance, work = work, courses = courses,
+                    appearance = appearance, work = work, courses = courses, diagnostic = diagnostic,
                     onAppearance = app.appearance::update,
                     onLogin = { startActivity(Intent(this, LearningWebActivity::class.java)
                         .putExtra("courseProgress", selectedTab.intValue == 1)) },

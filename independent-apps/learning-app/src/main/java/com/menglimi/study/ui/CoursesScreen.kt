@@ -12,12 +12,20 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.menglimi.study.BuildConfig
 import com.menglimi.ksu.ui.EmptyCard
 import com.menglimi.ksu.ui.Glyph
 import com.menglimi.ksu.ui.HeroCard
@@ -36,7 +44,10 @@ fun CoursesScreen(
     state: CoursesUiState, onRefresh: () -> Unit, onLogin: () -> Unit,
     onOpenCourse: (String) -> Unit, onClearError: () -> Unit,
     modifier: Modifier = Modifier, preview: Boolean = false, onResumeRead: () -> Unit = onRefresh,
+    diagnostic: String? = null,
 ) {
+    val clipboard = LocalClipboardManager.current
+    var copiedError by rememberSaveable { mutableStateOf(false) }
     LazyColumn(modifier, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 116.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { PageHeader("课程", if (preview) "合成预览 · 不访问网络或正式数据" else "课程与任务点，进度心中有数", onRefresh, state.loading) }
@@ -50,7 +61,15 @@ fun CoursesScreen(
             }
         }
         if (state.readControl.active) item { ReadControlCard(state.readControl, state.loading, onResumeRead, onOpenCourse) }
-        state.error?.let { item { MessageCard(it, onClearError) } }
+        state.error?.let { error -> item {
+            MessageCard(error, onClearError)
+            Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = {
+                    clipboard.setText(AnnotatedString(diagnostic ?: "学习助手 ${BuildConfig.VERSION_NAME}\n$error"))
+                    copiedError = true
+                }) { Text(if (copiedError) "诊断已复制" else "复制本次诊断") }
+            }
+        } }
         state.progressError?.let { item { MessageCard(it) } }
         if (state.fromCache) item {
             KCard(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondaryContainer) {

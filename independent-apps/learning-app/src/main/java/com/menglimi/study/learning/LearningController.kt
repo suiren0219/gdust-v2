@@ -5,6 +5,7 @@ import com.menglimi.chaoxing.ChxAuthFailed
 import com.menglimi.chaoxing.ChxCourseOverview
 import com.menglimi.chaoxing.ChxCourseReadException
 import com.menglimi.chaoxing.ChxCourseWorkResult
+import com.menglimi.chaoxing.ChxTransportFailure
 import com.menglimi.chaoxing.ChxRequestGate
 import com.menglimi.chaoxing.ChxSso
 import com.menglimi.chaoxing.ChxWorkCourse
@@ -39,6 +40,9 @@ class LearningController internal constructor(
     val state = mutableState.asStateFlow()
     private val mutableCourses = MutableStateFlow(CoursesUiState())
     val courses = mutableCourses.asStateFlow()
+    /** 仅本次失败的可复制诊断；成功刷新后清空，避免复制到上一次的失败。 */
+    private val mutableDiagnostic = MutableStateFlow<String?>(null)
+    val diagnostic = mutableDiagnostic.asStateFlow()
     private val guard = LearningSessionGuard(ChxRequestGate(now))
     private var readControl = LearningReadControl()
     private var workRows = emptyList<CourseHomework>()
@@ -104,6 +108,7 @@ class LearningController internal constructor(
                     token = beginLocked(LearningLane.WORK, operation[Job])
                     recovering = readControl.pause != null
                     if (recovering) guard.requests.beginRecovery(checkNotNull(token), afterWebVerification)
+                    mutableDiagnostic.value = null
                     mutableState.update { it.copy(loading = true, retryingCourse = retryKey, error = null) }
                 }
                 val request = checkNotNull(token)
@@ -190,6 +195,7 @@ class LearningController internal constructor(
                     if (failure is LearningAccountChanged || accountProvider() != account) accountChangedLocked()
                     else {
                         if (failure is ChxCourseReadException && failure.pausesRequests) recordPauseLocked(failure, request)
+                        recordDiagnosticLocked(failure)
                         saveLocked()
                         mutableState.update { it.copy(connected = failure !is ChxAuthFailed && (verified || it.connected),
                             error = learningFailureMessage(failure), fromCache = it.hasSnapshot, readControl = readControl) }
@@ -226,6 +232,7 @@ class LearningController internal constructor(
                     account = accountProvider()
                     token = beginLocked(LearningLane.COURSES, operation[Job])
                     if (readControl.pause != null) guard.requests.beginRecovery(checkNotNull(token), afterWebVerification)
+                    mutableDiagnostic.value = null
                     mutableCourses.update { it.copy(loading = true, error = null) }
                 }
                 val request = checkNotNull(token)
@@ -259,6 +266,7 @@ class LearningController internal constructor(
                         accountChangedLocked()
                     } else {
                         if (failure is ChxCourseReadException && failure.pausesRequests) recordPauseLocked(failure, request)
+                        recordDiagnosticLocked(failure)
                         saveLocked()
                         mutableCourses.update { it.copy(connected = false, fromCache = it.hasSnapshot,
                             error = learningFailureMessage(failure), readControl = readControl) }
@@ -304,6 +312,15 @@ class LearningController internal constructor(
         publishReadControlLocked()
     }
 
+    /** 只保留固定阶段/类型/路由，不含异常原文、Cookie 或带签名的 query。 */
+    private fun recordDiagnosticLocked(failure: Exception) {
+        val detail = when (failure) {
+            is ChxTransportFailure -> "${learningFailureMessage(failure)}\n${failure.diagnostic}"
+            else -> learningFailureMessage(failure)
+        }
+        mutableDiagnostic.value = "学习助手 ${com.menglimi.study.BuildConfig.VERSION_NAME}\n$detail"
+    }
+
     private fun publishReadControlLocked() {
         mutableState.update { it.copy(readControl = readControl) }
         mutableCourses.update { it.copy(readControl = readControl) }
@@ -327,6 +344,7 @@ class LearningController internal constructor(
                 workRows = emptyList()
                 cacheLoaded = true
                 if (removeCookies) { readControl = LearningReadControl(); guard.requests.restore(null) }
+                mutableDiagnostic.value = null
                 mutableState.value = LearningUiState(readControl = readControl)
                 mutableCourses.value = CoursesUiState(readControl = readControl)
                 val errors = mutableListOf<String>()
@@ -386,6 +404,7 @@ class LearningController internal constructor(
         readControl = LearningReadControl()
         guard.requests.restore(null)
         cacheLoaded = true
+        mutableDiagnostic.value = null
         mutableState.value = LearningUiState()
         mutableCourses.value = CoursesUiState()
         val error = clearStoreLocked()

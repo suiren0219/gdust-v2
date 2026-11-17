@@ -53,11 +53,13 @@ fun LearningScreen(
     state: LearningUiState, onRefresh: () -> Unit, onRetryCourse: (String) -> Unit,
     onLogin: () -> Unit, onOpenWork: (String) -> Unit, onClearError: () -> Unit,
     modifier: Modifier = Modifier, preview: Boolean = false, onResumeRead: () -> Unit = onRefresh,
+    diagnostic: String? = null,
 ) {
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var showFailures by rememberSaveable { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
     var copiedFailure by rememberSaveable { mutableStateOf<String?>(null) }
+    var copiedError by rememberSaveable { mutableStateOf(false) }
     val now = System.currentTimeMillis()
     val pending = selectHomework(state.works, WorkFilter.PENDING, now)
     val approaching = selectHomework(state.works, WorkFilter.DUE_SOON, now)
@@ -94,7 +96,15 @@ fun LearningScreen(
             }
         }
         if (state.readControl.active) item { ReadControlCard(state.readControl, state.loading, onResumeRead, onOpenWork) }
-        state.error?.let { error -> item { MessageCard(error, onClearError) } }
+        state.error?.let { error -> item {
+            MessageCard(error, onClearError)
+            Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = {
+                    clipboard.setText(AnnotatedString(diagnostic ?: "学习助手 ${BuildConfig.VERSION_NAME}\n$error"))
+                    copiedError = true
+                }) { Text(if (copiedError) "诊断已复制" else "复制本次诊断") }
+            }
+        } }
         if (state.failures.isNotEmpty()) item {
             KCard(Modifier.fillMaxWidth()) {
                 Text("${state.failures.size} 门课程待重试", style = MaterialTheme.typography.titleMedium)
