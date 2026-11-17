@@ -122,6 +122,38 @@ class PowerControllerTest {
         assertFalse(state.busy)
     }
 
+    @Test fun repeatedRefreshSharesRequestAndCancellationKeepsPersistedHistory() = runTest {
+        val store = storage(bound = true)
+        val old = now - 600_000L
+        val reading = PowerReading(detail, old)
+        val samples = listOf(PowerSample(old, 42.0))
+        store.update(binding) { PowerMonitorState(binding.key, reading, old, old, samples) }
+        val release = CompletableDeferred<Unit>()
+        var requests = 0
+        val controller = controller(store, source = PowerDetailSource {
+            requests++
+            release.await()
+            detail.copy(odd = 39.0)
+        })
+        advanceUntilIdle()
+        val first = controller.refresh()
+        runCurrent()
+        assertSame(first, controller.refresh())
+        assertEquals(1, requests)
+        assertEquals(reading, controller.state.value.reading)
+        controller.cancelRefresh()
+        runCurrent()
+        assertTrue(first.isCancelled)
+        assertFalse(controller.state.value.busy)
+        assertEquals(reading, store.state().reading)
+        assertEquals(samples, store.state().samples)
+        release.complete(Unit)
+        controller.refresh()
+        advanceUntilIdle()
+        assertEquals(2, requests)
+        assertEquals(39.0, controller.state.value.reading!!.detail.odd!!, 0.0)
+    }
+
     @Test fun unbindingDuringRefreshCannotRestoreReadingOrSendAnOldWarning() = runTest {
         val store = storage(bound = true)
         val release = CompletableDeferred<Unit>()

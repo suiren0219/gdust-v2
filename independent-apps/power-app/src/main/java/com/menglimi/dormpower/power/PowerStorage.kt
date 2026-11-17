@@ -78,7 +78,7 @@ internal class PowerStorage(private val persistence: PowerPersistence) : PowerRe
         save(before.copy(
             config = before.config.copy(binding = binding),
             roomName = roomName,
-            monitor = PowerMonitorState(),
+            monitor = if (before.config.binding == binding) before.monitor else PowerMonitorState(),
             bindingRevision = before.bindingRevision + 1,
         ))
     }

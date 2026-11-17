@@ -67,6 +67,36 @@ class PowerPresentationTest {
         assertEquals(3, axis.ticks.size)
     }
 
+    @Test fun onlyRealLowBalanceTurnsHeroRedRegardlessOfFreshness() {
+        for (age in listOf(600_000L, 3 * 3600_000L)) {
+            for (error in listOf(null, "synthetic failure")) {
+                val healthy = readingPresentation(state(40.9, age).copy(error = error), now)
+                assertFalse(healthy.warning)
+                assertFalse(healthy.tags.contains("低电量"))
+                val low = readingPresentation(state(8.0, age).copy(error = error), now)
+                assertTrue(low.warning)
+                assertTrue(low.tags.contains("低电量"))
+            }
+        }
+        assertEquals("电量为零", readingPresentation(state(0.0), now).tags.first())
+        assertEquals("负余额", readingPresentation(state(-1.0), now).tags.first())
+        assertFalse(readingPresentation(state(null).copy(error = "failed"), now).warning)
+        assertTrue(readingPresentation(state(40.9).copy(busy = true), now).tags.contains("更新中"))
+        assertFalse(readingPresentation(state(40.9, age = 0), now).cached)
+    }
+
+    @Test fun missingAndInvalidUsageAreNotPresentedAsZeroOrNegativeConsumption() {
+        assertEquals("—", usageValue(null))
+        assertEquals("—", usageValue(Double.NaN))
+        assertEquals("—", usageValue(-1.0))
+        assertEquals("0.00", usageValue(0.0))
+        assertEquals("0.00", powerValue(-0.0))
+        assertEquals("暂无法估算", estimateTitle(com.menglimi.power.PowerUsageEstimate(
+            com.menglimi.power.PowerEstimateState.INSUFFICIENT)))
+        assertEquals("不足 1 天", estimateTitle(com.menglimi.power.PowerUsageEstimate(
+            com.menglimi.power.PowerEstimateState.AVAILABLE, dailyUse = 3.0, daysLeft = 0.2)))
+    }
+
     @Test fun customerCodeAcceptsOnlyPositiveIntegerWithoutTruncation() {
         assertEquals(1000145, schoolCode(" 1000145 "))
         listOf("", "0", "-1", "1.5", "1e6", "9999999999999999", "学校").forEach { assertNull(schoolCode(it)) }

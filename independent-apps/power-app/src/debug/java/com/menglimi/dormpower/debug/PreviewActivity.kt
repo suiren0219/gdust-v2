@@ -49,7 +49,12 @@ class PreviewActivity : ComponentActivity() {
                     refreshJob = scope.launch {
                         delay(800)
                         power = if (scenario == "error") power.copy(busy = false, error = "合成预览：网络不可用，已保留上次成功数据。")
-                        else power.copy(busy = false, message = "合成预览：刷新完成，未发起网络请求")
+                        else {
+                            val refreshedAt = System.currentTimeMillis()
+                            power.copy(busy = false, reading = power.reading?.copy(updatedAt = refreshedAt),
+                                lastSampleAt = refreshedAt, lastAttemptAt = refreshedAt,
+                                message = "合成预览：刷新完成，未发起网络请求")
+                        }
                     }
                 },
                 cancelRefresh = { refreshJob?.cancel(); power = power.copy(busy = false, message = "合成预览：刷新已取消") },
@@ -102,7 +107,7 @@ class PreviewActivity : ComponentActivity() {
 private fun syntheticState(now: Long, scenario: String): PowerUiState {
     if (scenario == "unbound" || scenario == "empty") return PowerUiState()
     val updated = if (scenario == "stale") now - 2 * 86_400_000L else now - 600_000L
-    val remaining = if (scenario == "low") 8.6 else 42.6
+    val remaining = when (scenario) { "low" -> 8.6; "zero" -> 0.0; "debt" -> -1.2; else -> 42.6 }
     val samples = (0..28).map { index ->
         val balance = if (index < 8) 30.0 - index * 0.6 else remaining + (28 - index) * 0.65
         PowerSample(updated - (28 - index) * 6 * 3600_000L, balance)
@@ -110,9 +115,11 @@ private fun syntheticState(now: Long, scenario: String): PowerUiState {
     return PowerUiState(
         config = PowerMonitorConfig(binding = PowerBinding("synthetic-account", 1000145, "synthetic-room")),
         roomName = "合成宿舍 · 6 栋 408", bindingRevision = 1,
-        reading = if (scenario == "unknown") null else PowerReading(PowerDetail(remaining, 2.3,
-            listOf("周一" to 2.7, "周二" to 2.4, "周三" to 3.1, "周四" to 2.8, "周五" to 2.5, "周六" to 3.0, "周日" to 2.3),
-            78.4, 200.0), updated),
+        reading = if (scenario == "unknown") null else PowerReading(PowerDetail(remaining,
+            if (scenario == "partial") null else 2.3,
+            if (scenario == "partial") emptyList() else listOf("周一" to 2.7, "周二" to 2.4, "周三" to 3.1,
+                "周四" to 2.8, "周五" to 2.5, "周六" to 3.0, "周日" to 2.3),
+            if (scenario == "partial") null else 78.4, 200.0), updated),
         samples = if (scenario == "unknown") emptyList() else samples,
         lastSampleAt = updated, lastAttemptAt = updated,
         busy = scenario == "loading",

@@ -49,11 +49,13 @@ internal fun PowerRoot(
     onRetryScheduling: () -> Unit = {},
     preview: Boolean = false,
 ) {
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var clockTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    // 新快照到达时同步读时钟，避免读数晚于上一次 30 秒 tick 被误判为时间回退。
+    val now = remember(clockTick, state) { System.currentTimeMillis() }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (true) { now = System.currentTimeMillis(); delay(30_000) }
+            while (true) { clockTick = System.currentTimeMillis(); delay(30_000) }
         }
     }
     val tabs = remember { listOf(NavItem("电量", Glyph.BOLT), NavItem("历史", Glyph.CHART), NavItem("设置", Glyph.SETTINGS)) }

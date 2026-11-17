@@ -59,14 +59,15 @@ class PowerStorageTest {
         assertEquals(0, calls)
     }
 
-    @Test fun confirmingSameRoomAlsoClearsCacheAndInvalidatesPreviousSession() {
+    @Test fun confirmingSameRoomPreservesHistoryButInvalidatesPreviousSession() {
         val store = bound()
         store.update(binding) { PowerMonitorState(binding.key, PowerReading(detail, now), now, now,
             listOf(PowerSample(now, 1.0)), now, now) }
         val previousSession = store.monitorStore()
+        val previousMonitor = store.state()
         val revision = store.snapshot().bindingRevision
         val changed = store.bind(binding, "测试宿舍", revision)
-        assertEquals(PowerMonitorState(), changed.monitor)
+        assertEquals(previousMonitor, changed.monitor)
         assertEquals(revision + 1, changed.bindingRevision)
         assertFalse(previousSession.update(binding) { it.copy(lowWarnAt = now) })
     }
@@ -154,6 +155,34 @@ class PowerStorageTest {
         PowerMonitor(store.monitorStore(), PowerDetailSource { detail }, later, { accepted }).query(force = true)
         assertEquals(now + 60_000, store.state().lowWarnAt)
         assertEquals(1, store.state().samples.size)
+    }
+
+    @Test fun persistedHistorySurvivesRestartInvalidRefreshAndLaterSuccessfulUpdate() = runBlocking {
+        val persistence = MemoryPersistence()
+        val store = bound(persistence)
+        val old = now - 86_400_000L
+        val oldReading = PowerReading(detail.copy(odd = 40.9), old)
+        val oldSamples = listOf(PowerSample(old, 40.9))
+        store.update(binding) { PowerMonitorState(binding.key, oldReading, old, old, oldSamples) }
+        store.configure { it.copy(lowThreshold = 10.0) }
+        val saved = persistence.value
+        val restarted = PowerStorage(persistence)
+        assertEquals(store.snapshot(), restarted.snapshot())
+        assertEquals(saved, persistence.value)
+        val bad = PowerMonitor(restarted.monitorStore(), PowerDetailSource { detail.copy(odd = null) }, clock)
+        assertTrue(runCatching { bad.query(force = true) }.isFailure)
+        val afterFailure = PowerStorage(persistence)
+        assertEquals(oldReading, afterFailure.state().reading)
+        assertEquals(oldSamples, afterFailure.state().samples)
+        assertEquals(old, afterFailure.state().lastSampleAt)
+        assertEquals(now, afterFailure.state().lastAttemptAt)
+        val newDetail = detail.copy(odd = 37.9)
+        PowerMonitor(afterFailure.monitorStore(), PowerDetailSource { newDetail }, clock).query(force = true)
+        val afterUpdate = PowerStorage(persistence)
+        assertEquals(PowerReading(newDetail, now), afterUpdate.state().reading)
+        assertEquals(oldSamples + PowerSample(now, 37.9), afterUpdate.state().samples)
+        assertEquals(binding, afterUpdate.config().binding)
+        assertEquals(10.0, afterUpdate.config().lowThreshold, 0.0)
     }
 
     @Test fun cancellationFromWarningIsNotPersistedAsSuccessfulDelivery() {

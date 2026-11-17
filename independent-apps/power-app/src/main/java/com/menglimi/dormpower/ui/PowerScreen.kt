@@ -18,9 +18,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.menglimi.dormpower.power.PowerUiState
-import com.menglimi.dormpower.power.ReadingStatus
+import com.menglimi.dormpower.power.estimateTitle
 import com.menglimi.dormpower.power.powerValue
-import com.menglimi.dormpower.power.readingStatus
+import com.menglimi.dormpower.power.readingPresentation
+import com.menglimi.dormpower.power.usageValue
 import com.menglimi.dormpower.power.schoolCode
 import com.menglimi.ksu.ui.*
 import com.menglimi.power.PowerQueryPolicy
@@ -31,9 +32,8 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
     var bindingOpen by rememberSaveable { mutableStateOf(false) }
     val bound = state.config.binding?.isValid == true
     val reading = state.reading.takeIf { bound }
-    val status = readingStatus(state, now)
-    val stale = status == ReadingStatus.STALE || status == ReadingStatus.ERROR
-    val low = reading?.detail?.odd?.let { it <= state.config.effectiveLowThreshold } == true
+    val presentation = readingPresentation(state, now)
+    val stale = presentation.cached
     val roomName = state.roomName.ifBlank { "已绑定宿舍" }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 124.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -41,15 +41,19 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
             onRefresh = if (bound) actions.refresh else null, loading = state.busy || state.localLoading) }
         item {
             HeroCard(
-                tags = listOf(status.title, if (preview) "合成预览" else if (bound) state.config.preset.title else "无需密码"),
-                title = if (bound) "${powerValue(reading?.detail?.odd)} 度" else "未绑定宿舍",
-                subtitle = if (bound) "剩余电量 · $roomName\n数据时间：${displayTime(reading?.updatedAt ?: 0)}" +
-                    if (stale && reading != null) "\n上次成功读数已过期，请刷新确认当前余额。" else ""
+                tags = presentation.tags + if (preview) "合成预览" else if (bound) state.config.preset.title else "无需密码",
+                title = if (!bound) "未绑定宿舍" else if (reading?.detail?.odd?.isFinite() == true)
+                    "${powerValue(reading.detail.odd)} 度" else "暂无读数",
+                subtitle = if (bound) "剩余电量 · $roomName\n上次更新：${displayTime(reading?.updatedAt ?: 0)}" +
+                    presentation.notice?.let { "\n$it" }.orEmpty()
                     else "填写电费账号与学校代码，查询并选择房间后即可查看。",
-                glyph = Glyph.BOLT, warning = stale || low,
+                glyph = Glyph.BOLT, warning = presentation.warning,
             ) {
-                if (bound && !state.busy) TextButton(onClick = actions.refresh, modifier = Modifier.heightIn(min = 48.dp)) {
-                    KIcon(Glyph.REFRESH, color = MaterialTheme.colorScheme.primary)
+                val foreground = if (presentation.warning) MaterialTheme.colorScheme.onErrorContainer
+                    else MaterialTheme.colorScheme.onPrimaryContainer
+                if (bound && !state.busy) TextButton(onClick = actions.refresh, modifier = Modifier.heightIn(min = 48.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = foreground)) {
+                    KIcon(Glyph.REFRESH, color = foreground)
                     Spacer(Modifier.width(8.dp)); Text("刷新电量")
                 }
             }
@@ -77,8 +81,8 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
         } else {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard(powerValue(reading?.detail?.todayUse), "今日用电 / 度 · 服务端")
-                    StatCard(powerValue(reading?.detail?.monthUse), "上月用电 / 度 · 服务端")
+                    StatCard(usageValue(reading?.detail?.todayUse), "今日用电 / 度")
+                    StatCard(usageValue(reading?.detail?.monthUse), "上月用电 / 度")
                 }
                 if (stale) Text("以上为上次成功返回的统计，尚未验证最新数据。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -88,29 +92,30 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
             item {
                 val estimate = PowerQueryPolicy.estimate(state.samples, now)
                 KCard(Modifier.fillMaxWidth()) {
-                    Text("${powerValue(estimate.daysLeft)} 天", style = MaterialTheme.typography.headlineMedium)
-                    Text("估算日均 ${powerValue(estimate.dailyUse)} 度", style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(top = 8.dp))
+                    Text(estimateTitle(estimate), style = MaterialTheme.typography.headlineMedium)
+                    if (estimate.dailyUse?.let { it.isFinite() && it > 0 } == true)
+                        Text("估算日均 ${powerValue(estimate.dailyUse)} 度", style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 8.dp))
                     Text(estimate.state.explanation, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
-                    if (stale) Text("当前缓存已过期，估算仅供参考。", color = MaterialTheme.colorScheme.error,
+                    if (stale && estimate.daysLeft != null) Text("电量待更新，估算基于上次读数。", color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
                 }
             }
             item { SectionTitle("近七日用电", "服务端统计") }
             item {
                 KCard(Modifier.fillMaxWidth()) {
-                    Text("直接展示服务端返回值，不用余额差冒充耗电。", style = MaterialTheme.typography.bodySmall,
+                    Text("用电统计由电费服务提供，缺失项显示为 —。", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     val week = reading?.detail?.weekUse.orEmpty()
                     if (week.isEmpty()) Text("— · 服务端暂无近七日统计", modifier = Modifier.padding(top = 16.dp))
                     week.forEach { (label, use) ->
                         Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(label.ifBlank { "未标注日期" }, Modifier.weight(1f))
-                            Text("${powerValue(use)} 度")
+                            Text("${usageValue(use)} 度")
                         }
                     }
-                    Text("累计购电 ${powerValue(reading?.detail?.sumBuy)} 度", style = MaterialTheme.typography.bodySmall,
+                    Text("累计购电 ${usageValue(reading?.detail?.sumBuy)} 度", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 18.dp))
                 }
             }
@@ -189,7 +194,7 @@ private fun PowerBindingDialog(state: PowerUiState, actions: PowerActions, close
                         Text(room.name, Modifier.weight(1f).padding(vertical = 8.dp))
                     }
                 }
-                if (state.config.binding != null) Text("确认更换后将清除旧宿舍的缓存、历史与预警冷却记录。",
+                if (state.config.binding != null) Text("选择同一宿舍会保留记录；更换宿舍将清除旧宿舍的缓存、历史与预警记录。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
