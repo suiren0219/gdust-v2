@@ -137,6 +137,33 @@ class LearningControllerTest {
         assertEquals(0, store.writes)
     }
 
+    @Test fun webCheckKeepsPartialHomeworkOpenUntilTheCourseCanBeReadAgain() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        var blocked = true
+        val controller = LearningController(MemoryStore(cached()), { accountA }, {}, { _, _, _ -> backend(
+            works = { if (blocked) listOf(ChxCourseWorkResult.Failure(workCourse,
+                com.menglimi.chaoxing.ChxCourseReadException("请完成验证码", verificationRequired = true)))
+                else success("验证后的作业") }) }, dispatcher, dispatcher)
+        assertTrue(controller.verifyFromWeb(false) != null)
+        assertEquals(1, controller.state.value.failedCourses)
+        blocked = false
+        assertNull(controller.verifyFromWeb(false))
+        assertEquals("验证后的作业", controller.state.value.works.single().title)
+    }
+
+    @Test fun courseWebCheckUsesProgressAndNeverReadsHomework() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        var blocked = true
+        var workCalls = 0
+        val controller = LearningController(MemoryStore(null), { accountA }, {}, { _, _, _ -> backend(
+            works = { workCalls++; success("不应读取") },
+            courses = { ChxCourseOverview(listOf(course), if (blocked) "请完成验证码" else null) }) }, dispatcher, dispatcher)
+        assertEquals("请完成验证码", controller.verifyFromWeb(true))
+        blocked = false
+        assertNull(controller.verifyFromWeb(true))
+        assertEquals(0, workCalls)
+    }
+
     private fun backend(works: suspend () -> List<ChxCourseWorkResult> = { success("合成新作业") },
                         courses: suspend () -> ChxCourseOverview = { ChxCourseOverview(listOf(course), loadedAt = 200) }): LearningBackend {
         val readWorks = works

@@ -142,6 +142,24 @@ class ChxCourseApi(
             error: String,
             isAdditionalLoginUrl: (String) -> Boolean = { false },
         ): String {
+            val verification = runCatching { JsonParser.parseString(response.body).asJsonObject }.getOrNull()
+            val verificationCode = verification?.let { json ->
+                listOf("code", "errorCode").any { name ->
+                    json.get(name)?.takeIf { it.isJsonPrimitive }?.asString == "9010"
+                }
+            } == true
+            val verificationPage = Jsoup.parse(response.body).apply { select("script, style, template").remove() }
+            val verificationForm = verificationPage.select("form").any { form ->
+                form.select("input").any { input ->
+                    listOf(input.id(), input.attr("name")).any {
+                        it.lowercase() in setOf("captcha", "verifycode", "validatecode")
+                    }
+                } && listOf("验证码", "安全验证").any { it in form.text() }
+            }
+            if (verificationCode || verificationForm) {
+                throw ChxCourseReadException("学习通要求验证码或安全验证，请打开对应课程网页完成验证，再点“完成检查”重新读取。",
+                    verificationRequired = true)
+            }
             if (response.status == 401) throw ChxAuthFailed(401, "学习通会话已失效，请重新登录。")
             if (response.status in 300..399) {
                 if (isTrustedLoginRedirect(url, response.location, isAdditionalLoginUrl)) {
@@ -307,4 +325,8 @@ class ChxCourseApi(
 }
 
 /** 只包含固定、可展示的错误文案，不携带响应正文、请求头或账户数据。 */
-class ChxCourseReadException(message: String, val missingField: String? = null) : Exception(message)
+class ChxCourseReadException(
+    message: String,
+    val missingField: String? = null,
+    val verificationRequired: Boolean = false,
+) : Exception(message)

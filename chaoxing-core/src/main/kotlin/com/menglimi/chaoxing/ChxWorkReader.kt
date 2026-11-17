@@ -93,6 +93,9 @@ class ChxWorkReader(
                     } catch (auth: ChxAuthFailed) {
                         // 详情页认证失败说明这门课程的读取结果不完整，整课报告失败。
                         throw auth
+                    } catch (failure: ChxCourseReadException) {
+                        if (failure.verificationRequired) throw failure
+                        0L
                     } catch (_: Exception) {
                         0L
                     }

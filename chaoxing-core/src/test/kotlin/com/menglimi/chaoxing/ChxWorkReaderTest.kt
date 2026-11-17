@@ -84,6 +84,47 @@ class ChxWorkReaderTest {
         assertEquals(4, (results[1] as ChxCourseWorkResult.Success).items.size)
     }
 
+    @Test fun eachCourseKeepsItsOwnMenuSignaturesAndReferer() = runBlocking {
+        val courses = listOf(course(1), course(2))
+        val api = ChxApi { request ->
+            val selected = courses.single { it.courseId.toString() ==
+                (request.url.queryParameter("courseid") ?: request.url.queryParameter("courseId")) }
+            when (request.url.encodedPath) {
+                "/visit/stucoursemiddle" -> ChxResponse(200, tabsHtml(selected)
+                    .replace("synthetic-stu", "stu-${selected.courseId}")
+                    .replace("synthetic-work", "work-${selected.courseId}") +
+                    "<a data-url='https://mooc1.chaoxing.com/mooc2/work/list?enc=work-${selected.courseId}'>作业</a>")
+                "/mooc2/work/list" -> {
+                    assertEquals("stu-${selected.courseId}", request.url.queryParameter("stuenc"))
+                    assertEquals(listOf("work-${selected.courseId}"), request.url.queryParameterValues("enc"))
+                    assertEquals(selected.url, request.header("Referer"))
+                    ChxResponse(200, workList(selected, completedOnly = true))
+                }
+                else -> error("不能把进度或其他课程入口用作作业")
+            }
+        }
+        assertTrue(ChxWorkReader(api).read(courses).all { it is ChxCourseWorkResult.Success })
+    }
+
+    @Test fun detailVerificationIsReportedAndTheNextReadFetchesFreshCourseParameters() = runBlocking {
+        var blocked = true
+        var pages = 0
+        val selected = course(1)
+        val api = ChxApi { request ->
+            when (request.url.encodedPath) {
+                "/visit/stucoursemiddle" -> { pages++; ChxResponse(200, tabsHtml(selected)) }
+                "/mooc2/work/list" -> ChxResponse(200, workList(selected))
+                else -> ChxResponse(200, if (blocked) """{"code":9010}""" else "<p>没有截止时间</p>")
+            }
+        }
+        val reader = ChxWorkReader(api)
+        val failure = reader.read(listOf(selected)).single() as ChxCourseWorkResult.Failure
+        assertTrue((failure.error as ChxCourseReadException).verificationRequired)
+        blocked = false
+        assertTrue(reader.read(listOf(selected)).single() is ChxCourseWorkResult.Success)
+        assertEquals(2, pages)
+    }
+
     @Test fun cancellationIsNeverConvertedToAPartialCourseFailure() {
         for (cancelPath in listOf("/visit/stucoursemiddle", "/mooc2/work/list", "/mooc2/work/task")) {
             val cancelled = CancellationException("合成取消")

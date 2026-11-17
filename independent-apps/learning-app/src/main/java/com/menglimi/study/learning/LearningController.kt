@@ -53,6 +53,19 @@ class LearningController internal constructor(
         }
     }
 
+    suspend fun verifyFromWeb(courseProgress: Boolean): String? {
+        if (courseProgress) {
+            refreshCourses()
+            val result = courses.value
+            return result.error ?: result.progressError ?: if (result.connected) null
+                else "尚未确认课程进度，请在网页完成登录或验证后重试。"
+        }
+        refresh()
+        val result = state.value
+        return result.error ?: if (result.connected && result.failedCourses == 0) null
+            else "作业尚未读取完整，请在对应课程网页完成验证后重试。"
+    }
+
     suspend fun refresh(): Unit = refreshWorks(null)
     suspend fun retryCourse(courseKey: String): Unit = refreshWorks(courseKey)
 

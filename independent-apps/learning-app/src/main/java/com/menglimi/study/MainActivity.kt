@@ -36,11 +36,13 @@ class MainActivity : ComponentActivity() {
                 StudyRoot(tab = selectedTab.intValue, onTab = { selectedTab.intValue = it },
                     appearance = appearance, work = work, courses = courses,
                     onAppearance = app.appearance::update,
-                    onLogin = { startActivity(Intent(this, LearningWebActivity::class.java)) },
+                    onLogin = { startActivity(Intent(this, LearningWebActivity::class.java)
+                        .putExtra("courseProgress", selectedTab.intValue == 1)) },
                     onWorkRefresh = { action { app.learning.refresh() } },
                     onRetryCourse = { key -> action { app.learning.retryCourse(key) } },
                     onCoursesRefresh = { action { app.learning.refreshCourses() } },
-                    onOpenPage = { url -> startActivity(Intent(this, LearningWebActivity::class.java).putExtra("url", url)) },
+                    onOpenPage = { url -> startActivity(Intent(this, LearningWebActivity::class.java).putExtra("url", url)
+                        .putExtra("courseProgress", selectedTab.intValue == 1)) },
                     onWorkClearError = app.learning::clearError,
                     onCoursesClearError = app.learning::clearCoursesError,
                     onDisconnect = { action { app.learning.disconnect() } },

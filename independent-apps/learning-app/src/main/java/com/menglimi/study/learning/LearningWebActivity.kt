@@ -244,15 +244,15 @@ class LearningWebActivity : ComponentActivity() {
         webView.stopLoading(); webView.onPause()
         webView.settings.javaScriptEnabled = false
         webView.visibility = View.INVISIBLE
-        message = "正在确认学习通会话并读取作业…"
+        message = if (intent.getBooleanExtra("courseProgress", false)) "正在重新读取课程进度…"
+            else "正在重新读取各门课程的作业…"
         lifecycleScope.launch {
             try {
                 CookieManager.getInstance().flush()
-                controller.refresh()
+                val error = controller.verifyFromWeb(intent.getBooleanExtra("courseProgress", false))
                 if (!destroyed && controller.browserIsCurrent(sessionGeneration)) {
-                    val result = controller.state.value
-                    if (result.connected) { setResult(RESULT_OK); finish() }
-                    else message = result.error ?: "尚未确认登录，请在官方网页完成登录后重试。"
+                    if (error == null) { setResult(RESULT_OK); finish() }
+                    else message = error
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { if (!destroyed) message = "检查未完成，请稍后重试。" }

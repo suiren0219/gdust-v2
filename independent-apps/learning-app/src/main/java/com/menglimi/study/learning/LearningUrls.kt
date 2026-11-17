@@ -10,7 +10,8 @@ import java.util.Locale
 
 /** 沿用来源的 HTTPS 超星主机边界；不启动任何外部 scheme。 */
 internal object LearningUrls {
-    const val LOGIN = "https://passport2.chaoxing.com/login?refer=https%3A%2F%2Fi.chaoxing.com"
+    val LOGIN = "https://passport2.chaoxing.com/login".toHttpUrlOrNull()!!.newBuilder()
+        .addQueryParameter("refer", ChxSso.HOME).build().toString()
 
     fun trusted(value: String?): String? {
         if (value.isNullOrBlank() || value.any { it.code <= 32 || it.code == 127 } || '\\' in value) return null

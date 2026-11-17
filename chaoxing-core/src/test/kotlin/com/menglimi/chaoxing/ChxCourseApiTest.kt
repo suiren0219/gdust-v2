@@ -150,6 +150,23 @@ class ChxCourseApiTest {
         }
     }
 
+    @Test fun verificationResponsesAreNotMisreportedAsMissingCourseFieldsOrExpiredLogin() {
+        val base = ChxCourseApi.LIST_URL.toHttpUrl()
+        for (body in listOf("""{"code":9010,"msg":"private"}""",
+            """{"errorCode":"9010"}""",
+            "<form><input name='verifyCode'><button>输入验证码</button></form>")) {
+            val failure = assertThrows(ChxCourseReadException::class.java) {
+                ChxCourseApi.requireBody(ChxResponse(200, body), base, "失败")
+            }
+            assertTrue(failure.verificationRequired)
+            assertFalse(failure.message.orEmpty().contains("private"))
+        }
+        for (body in listOf("<p>课程9010介绍验证码</p>", """{"courseId":9010}""",
+            "<script>const sample = `<form><input name='captcha'>验证码</form>`;</script>")) {
+            assertEquals(body, ChxCourseApi.requireBody(ChxResponse(200, body), base, "失败"))
+        }
+    }
+
     @Test fun unknownHomepageDoesNotFetchCoursesOrClaimSuccess() {
         var calls = 0
         val error = assertThrows(ChxCourseReadException::class.java) {

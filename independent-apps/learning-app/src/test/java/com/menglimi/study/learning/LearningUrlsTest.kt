@@ -41,7 +41,7 @@ class LearningUrlsTest {
     @Test fun loginIsNotBoundToAnySchool() {
         val url = LearningUrls.LOGIN.toHttpUrl()
         assertTrue(url.host == "passport2.chaoxing.com")
-        assertTrue(url.queryParameter("refer") == "https://i.chaoxing.com")
+        assertTrue(url.queryParameter("refer") == com.menglimi.chaoxing.ChxSso.HOME)
         assertFalse("fid" in url.queryParameterNames)
     }
 }
