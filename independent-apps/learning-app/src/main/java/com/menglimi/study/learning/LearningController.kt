@@ -3,6 +3,10 @@ package com.menglimi.study.learning
 import android.content.Context
 import com.menglimi.chaoxing.ChxAuthFailed
 import com.menglimi.chaoxing.ChxCourseOverview
+import com.menglimi.chaoxing.ChxCourseReadException
+import com.menglimi.chaoxing.ChxCourseWorkResult
+import com.menglimi.chaoxing.ChxRequestGate
+import com.menglimi.chaoxing.ChxSso
 import com.menglimi.chaoxing.ChxWorkCourse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -35,7 +39,9 @@ class LearningController internal constructor(
     val state = mutableState.asStateFlow()
     private val mutableCourses = MutableStateFlow(CoursesUiState())
     val courses = mutableCourses.asStateFlow()
-    private val guard = LearningSessionGuard()
+    private val guard = LearningSessionGuard(ChxRequestGate(now))
+    private var readControl = LearningReadControl()
+    private var workRows = emptyList<CourseHomework>()
     private val active = mutableMapOf<LearningLane, Job>()
     private val browsers = mutableSetOf<() -> Unit>()
     private var cacheLoaded = false
@@ -53,98 +59,146 @@ class LearningController internal constructor(
         }
     }
 
-    suspend fun verifyFromWeb(courseProgress: Boolean): String? {
-        if (courseProgress) {
-            refreshCourses()
+    suspend fun verifyFromWeb(courseProgress: Boolean): String? = withContext(mainDispatcher) {
+        reload()
+        val stopped = readControl.pause != null
+        val progress = if (stopped) readControl.progressBlocked else courseProgress
+        if (progress) {
+            refreshCourses(afterWebVerification = true)
             val result = courses.value
-            return result.error ?: result.progressError ?: if (result.connected) null
+            result.error ?: result.progressError ?: if (result.connected && !result.loading && readControl.pause == null) null
                 else "尚未确认课程进度，请在网页完成登录或验证后重试。"
+        } else {
+            refreshWorks(null, afterWebVerification = true)
+            val result = state.value
+            if (stopped && readControl.pause == null) result.error
+            else result.error ?: if (result.connected && !result.loading && result.failedCourses == 0) null
+                else "作业尚未读取完整，请在对应课程网页完成验证后重试。"
         }
-        refresh()
-        val result = state.value
-        return result.error ?: if (result.connected && result.failedCourses == 0) null
-            else "作业尚未读取完整，请在对应课程网页完成验证后重试。"
     }
 
     suspend fun refresh(): Unit = refreshWorks(null)
     suspend fun retryCourse(courseKey: String): Unit = refreshWorks(courseKey)
+    suspend fun resumeReading() {
+        if (readControl.pause != null && readControl.progressBlocked) refreshCourses()
+        else refreshWorks(null)
+    }
 
-    private suspend fun refreshWorks(retryKey: String?): Unit = coroutineScope {
+    private suspend fun refreshWorks(retryKey: String?, afterWebVerification: Boolean = false): Unit = coroutineScope {
         withContext(mainDispatcher) {
             val operation = currentCoroutineContext()
             val generation = guard.current()
             var token: LearningRequest? = null
             var account: String? = null
             var verified = false
+            var recovering = false
             try {
-                var retry: ChxWorkCourse? = null
                 guard.mutex.withLock {
                     operation.ensureActive()
                     guard.check(generation)
                     synchronizeAccountLocked()
                     loadCacheLocked()
-                    if (retryKey != null) {
-                        retry = mutableState.value.failures.firstOrNull { it.course.cacheKey() == retryKey }?.course
-                        if (retry == null) return@withContext
-                    }
+                    if (mutableState.value.loading) return@withContext
+                    if (!allowReadLocked(LearningLane.WORK, afterWebVerification, retryKey)) return@withContext
                     account = accountProvider()
                     token = beginLocked(LearningLane.WORK, operation[Job])
-                    mutableState.value = mutableState.value.copy(loading = true, retryingCourse = retryKey, error = null)
+                    recovering = readControl.pause != null
+                    if (recovering) guard.requests.beginRecovery(checkNotNull(token), afterWebVerification)
+                    mutableState.update { it.copy(loading = true, retryingCourse = retryKey, error = null) }
                 }
                 val request = checkNotNull(token)
                 val backend = backendFactory(guard, request, account)
-                // 单课重试也先验证当前首页及课程身份，绝不根据 Cookie 存在判登录成功。
+                // 恢复检查只重查受阻课程；先重新发现当前课程，绝不重用旧签名或跨账号地址。
                 val discovered = backend.workCourses()
                 operation.ensureActive()
                 guard.check(request)
+                checkAccount(account)
                 verified = true
-                val targets = if (retry == null || account == null) discovered else {
-                    listOf(discovered.firstOrNull { it.cacheKey() == retry?.cacheKey() }
-                        ?: throw com.menglimi.chaoxing.ChxCourseReadException("该课程已不在当前课程页，请刷新完整作业列表。"))
+                val selectedKey = if (recovering) readControl.blockedCourseKey else retryKey
+                val targets = when {
+                    selectedKey != null -> listOf(discovered.firstOrNull { it.cacheKey() == selectedKey }
+                        ?: throw ChxCourseReadException("受阻课程已不在当前课程页，请确认账号与课程。"))
+                    recovering -> discovered.take(1)
+                    readControl.pendingCourseKeys.isNotEmpty() -> discovered.filter { it.cacheKey() in readControl.pendingCourseKeys }
+                    else -> discovered
                 }
-                val results = backend.works(targets)
                 guard.mutex.withLock {
-                    operation.ensureActive()
-                    guard.check(request)
-                    checkAccount(account)
-                    val old = if (account != null) snapshot?.courses.orEmpty() else emptyList()
-                    val merged = mergeHomework(old, results, now(), partial = retryKey != null && account != null)
+                    operation.ensureActive(); guard.check(request); checkAccount(account)
+                    val old = workRows.associateBy { it.courseKey }
+                    workRows = discovered.map { course -> old[course.cacheKey()]?.copy(course = course)
+                        ?: CourseHomework(course.cacheKey(), emptyList(), 0, course, "本轮尚未读取，是否有作业仍未知。") }
+                    val pending = if (recovering && selectedKey == null) discovered.map { it.cacheKey() }
+                        else (readControl.pendingCourseKeys + targets.map { it.cacheKey() }).distinct()
+                    readControl = readControl.copy(pendingCourseKeys = pending.filter { key -> discovered.any { it.cacheKey() == key } })
+                    publishReadControlLocked()
+                }
+                val results = mutableListOf<ChxCourseWorkResult>()
+                for (course in targets) {
+                    operation.ensureActive(); guard.check(request)
+                    val result = try {
+                        guard.requests.check(request)
+                        backend.works(listOf(course)).single().also { require(it.course.cacheKey() == course.cacheKey()) }
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (failure: Exception) { ChxCourseWorkResult.Failure(course, failure) }
+                    results += result
+                    val failure = (result as? ChxCourseWorkResult.Failure)?.error as? ChxCourseReadException
+                    guard.mutex.withLock {
+                        operation.ensureActive(); guard.check(request); checkAccount(account)
+                        if (failure?.pausesRequests == true) {
+                            recordPauseLocked(failure, request, course)
+                        } else {
+                            readControl = readControl.copy(pendingCourseKeys = readControl.pendingCourseKeys - course.cacheKey())
+                        }
+                        workRows = mergeHomework(workRows, listOf(result), now(), partial = true).courses
+                        snapshot = account?.let { (snapshot ?: LearningSnapshot(it)).copy(courses = workRows, workLoaded = true) }
+                        saveLocked()
+                        operation.ensureActive(); guard.check(request); checkAccount(account)
+                    }
+                    if (failure?.pausesRequests == true) break
+                }
+                guard.mutex.withLock {
+                    operation.ensureActive(); guard.check(request); checkAccount(account)
+                    val merged = HomeworkMerge(workRows, workRows.count { it.failure != null })
+                    val recovered = recovering && (targets.isEmpty() || results.all { it is ChxCourseWorkResult.Success })
+                    guard.requests.finishRecovery(request, recovered)
+                    if (recovered && guard.requests.pause.value == null) {
+                        readControl = readControl.copy(pause = null, blockedCourseKey = null, progressBlocked = false, verificationUrl = null)
+                    }
                     val authFailed = merged.courses.any { it.authRequired }
-                    snapshot = account?.let { (snapshot ?: LearningSnapshot(it)).copy(courses = merged.courses, workLoaded = true) }
+                    snapshot = account?.let { (snapshot ?: LearningSnapshot(it)).copy(courses = workRows, workLoaded = true) }
                     val cacheError = saveLocked()
-                    operation.ensureActive()
-                    guard.check(request)
-                    checkAccount(account)
+                    operation.ensureActive(); guard.check(request); checkAccount(account)
                     mutableState.value = LearningUiState(
                         connected = !authFailed, works = merged.works, failedCourses = merged.failedCourses,
                         failures = merged.failures, courseCount = merged.courses.size,
-                        error = listOfNotNull(when {
+                        error = if (recovered) cacheError else listOfNotNull(readControl.message() ?: when {
                             authFailed -> "学习通登录已失效，请重新登录。未更新的课程保留上次记录。"
                             merged.failedCourses > 0 -> "${merged.failedCourses} 门课程读取失败，未读课程不能确认是否有作业。"
                             else -> null
                         }, cacheError).takeIf { it.isNotEmpty() }?.joinToString("\n"),
                         updatedAt = merged.updatedAt, hasSnapshot = true,
-                        fromCache = merged.courses.any { it.failure != null && it.updatedAt > 0 },
+                        fromCache = merged.courses.any { (it.failure != null || it.courseKey in readControl.pendingCourseKeys) && it.updatedAt > 0 },
+                        readControl = readControl,
                     )
                     if (authFailed) mutableCourses.update { it.copy(connected = false) }
+                    publishReadControlLocked()
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) {
                 token?.let { request -> guard.mutex.withLock {
-                    operation.ensureActive()
-                    guard.check(request)
-                    if (failure is LearningAccountChanged || accountProvider() != account) {
-                        accountChangedLocked()
-                    } else {
-                        mutableState.update { it.copy(
-                            connected = failure !is ChxAuthFailed && (verified || it.connected),
-                            error = learningFailureMessage(failure), fromCache = it.hasSnapshot,
-                        ) }
+                    operation.ensureActive(); guard.check(request)
+                    if (failure is LearningAccountChanged || accountProvider() != account) accountChangedLocked()
+                    else {
+                        if (failure is ChxCourseReadException && failure.pausesRequests) recordPauseLocked(failure, request)
+                        saveLocked()
+                        mutableState.update { it.copy(connected = failure !is ChxAuthFailed && (verified || it.connected),
+                            error = learningFailureMessage(failure), fromCache = it.hasSnapshot, readControl = readControl) }
                         if (failure is ChxAuthFailed) mutableCourses.update { it.copy(connected = false) }
                     }
                 } }
             } finally {
                 withContext(NonCancellable + mainDispatcher) { guard.mutex.withLock {
+                    token?.let { guard.requests.finishRecovery(it, false) }
                     token?.takeIf(guard::isCurrent)?.let {
                         active.remove(LearningLane.WORK)
                         mutableState.update { value -> value.copy(loading = false, retryingCourse = null) }
@@ -154,7 +208,9 @@ class LearningController internal constructor(
         }
     }
 
-    suspend fun refreshCourses(): Unit = coroutineScope {
+    suspend fun refreshCourses(): Unit = refreshCourses(afterWebVerification = false)
+
+    private suspend fun refreshCourses(afterWebVerification: Boolean): Unit = coroutineScope {
         withContext(mainDispatcher) {
             val operation = currentCoroutineContext()
             val generation = guard.current()
@@ -166,8 +222,10 @@ class LearningController internal constructor(
                     guard.check(generation)
                     synchronizeAccountLocked()
                     loadCacheLocked()
+                    if (!allowReadLocked(LearningLane.COURSES, afterWebVerification)) return@withContext
                     account = accountProvider()
                     token = beginLocked(LearningLane.COURSES, operation[Job])
+                    if (readControl.pause != null) guard.requests.beginRecovery(checkNotNull(token), afterWebVerification)
                     mutableCourses.update { it.copy(loading = true, error = null) }
                 }
                 val request = checkNotNull(token)
@@ -176,12 +234,20 @@ class LearningController internal constructor(
                     operation.ensureActive()
                     guard.check(request)
                     checkAccount(account)
+                    overview.requestPause?.let { recordPauseLocked(it.exception(), request) }
+                    if (overview.progressError == null && !overview.progressAuthRequired) {
+                        guard.requests.finishRecovery(request, true)
+                        if (guard.requests.pause.value == null && readControl.progressBlocked) {
+                            readControl = readControl.copy(pause = null, progressBlocked = false, verificationUrl = null)
+                        }
+                    }
                     snapshot = account?.let { (snapshot ?: LearningSnapshot(it)).copy(overview = overview) }
                     val cacheError = saveLocked()
                     operation.ensureActive()
                     guard.check(request)
                     checkAccount(account)
-                    mutableCourses.value = coursesState(overview, cached = false).copy(error = cacheError)
+                    mutableCourses.value = coursesState(overview, cached = false).copy(error = cacheError, readControl = readControl)
+                    publishReadControlLocked()
                     if (overview.progressAuthRequired) mutableState.update { it.copy(connected = false) }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -192,13 +258,16 @@ class LearningController internal constructor(
                     if (failure is LearningAccountChanged || accountProvider() != account) {
                         accountChangedLocked()
                     } else {
+                        if (failure is ChxCourseReadException && failure.pausesRequests) recordPauseLocked(failure, request)
+                        saveLocked()
                         mutableCourses.update { it.copy(connected = false, fromCache = it.hasSnapshot,
-                            error = learningFailureMessage(failure)) }
+                            error = learningFailureMessage(failure), readControl = readControl) }
                         if (failure is ChxAuthFailed) mutableState.update { it.copy(connected = false) }
                     }
                 } }
             } finally {
                 withContext(NonCancellable + mainDispatcher) { guard.mutex.withLock {
+                    token?.let { guard.requests.finishRecovery(it, false) }
                     token?.takeIf(guard::isCurrent)?.let {
                         active.remove(LearningLane.COURSES)
                         mutableCourses.update { value -> value.copy(loading = false) }
@@ -208,7 +277,42 @@ class LearningController internal constructor(
         }
     }
 
-    suspend fun prepareLogin() = clearData(removeCookies = false, resetAccount = true)
+    private fun allowReadLocked(lane: LearningLane, afterWebVerification: Boolean, courseKey: String? = null): Boolean {
+        val stopped = guard.requests.pause.value ?: readControl.pause ?: return true
+        val message = when {
+            stopped.retryAt > now() -> "尚在服务端要求的冷却期，当前不会发送请求。"
+            readControl.progressBlocked != (lane == LearningLane.COURSES) -> "请先重查受阻项，再继续其他读取。"
+            courseKey != null && courseKey != readControl.blockedCourseKey -> "请先重查受阻课程，再继续其他课程。"
+            stopped.verificationRequired && !afterWebVerification -> "请先在网页完成验证，再点“完成检查”。当前不会发送请求。"
+            active.isNotEmpty() -> "仍有读取正在收尾，请稍后再检查。"
+            else -> null
+        }
+        if (message == null) return true
+        if (lane == LearningLane.WORK) mutableState.update { it.copy(error = message, readControl = readControl) }
+        else mutableCourses.update { it.copy(error = message, readControl = readControl) }
+        return false
+    }
+
+    private fun recordPauseLocked(failure: ChxCourseReadException, request: LearningRequest, course: ChxWorkCourse? = null) {
+        val caused = guard.requests.causedPause(request)
+        guard.requests.record(failure, request)
+        readControl = if (caused) readControl.copy(pause = guard.requests.pause.value,
+            blockedCourseKey = course?.cacheKey() ?: readControl.blockedCourseKey,
+            progressBlocked = request.lane == LearningLane.COURSES,
+            verificationUrl = course?.url ?: readControl.verificationUrl ?: ChxSso.HOME)
+        else readControl.copy(pause = guard.requests.pause.value)
+        publishReadControlLocked()
+    }
+
+    private fun publishReadControlLocked() {
+        mutableState.update { it.copy(readControl = readControl) }
+        mutableCourses.update { it.copy(readControl = readControl) }
+    }
+
+    suspend fun prepareLogin() {
+        reload()
+        if (!readControl.active) clearData(removeCookies = false, resetAccount = true)
+    }
     suspend fun clearCache() = clearData(removeCookies = false)
     suspend fun disconnect() = clearData(removeCookies = true)
 
@@ -220,9 +324,11 @@ class LearningController internal constructor(
             guard.mutex.withLock {
                 invalidateLocked()
                 snapshot = null
+                workRows = emptyList()
                 cacheLoaded = true
-                mutableState.value = LearningUiState()
-                mutableCourses.value = CoursesUiState()
+                if (removeCookies) { readControl = LearningReadControl(); guard.requests.restore(null) }
+                mutableState.value = LearningUiState(readControl = readControl)
+                mutableCourses.value = CoursesUiState(readControl = readControl)
                 val errors = mutableListOf<String>()
                 clearStoreLocked()?.let(errors::add)
                 if (removeCookies) {
@@ -233,8 +339,9 @@ class LearningController internal constructor(
                 boundAccount = accountProvider()
                 accountKnown = !resetAccount
                 val error = errors.takeIf { it.isNotEmpty() }?.joinToString("\n")
-                mutableState.value = LearningUiState(error = error)
-                mutableCourses.value = CoursesUiState(error = error)
+                mutableState.value = LearningUiState(error = error, readControl = readControl)
+                mutableCourses.value = CoursesUiState(error = error, readControl = readControl)
+                if (!removeCookies && readControl.active) saveLocked()
             }
         }
         caller.ensureActive()
@@ -275,6 +382,9 @@ class LearningController internal constructor(
         // 当前请求可能也在 active 中；取消它后仍须原子清除两份状态与磁盘缓存。
         invalidateLocked()
         snapshot = null
+        workRows = emptyList()
+        readControl = LearningReadControl()
+        guard.requests.restore(null)
         cacheLoaded = true
         mutableState.value = LearningUiState()
         mutableCourses.value = CoursesUiState()
@@ -299,6 +409,9 @@ class LearningController internal constructor(
             }
             snapshot = loaded
             loaded?.let {
+                workRows = it.courses
+                readControl = it.readControl
+                guard.requests.restore(readControl.pause)
                 if (it.workLoaded) {
                     val merged = HomeworkMerge(it.courses, it.courses.count { row -> row.failure != null })
                     mutableState.value = LearningUiState(works = merged.works, failedCourses = merged.failedCourses,
@@ -306,6 +419,7 @@ class LearningController internal constructor(
                         hasSnapshot = true, fromCache = true)
                 }
                 it.overview?.let { overview -> mutableCourses.value = coursesState(overview, cached = true) }
+                publishReadControlLocked()
             }
         } catch (cancelled: CancellationException) { cacheLoaded = false; throw cancelled }
         catch (_: Exception) {
@@ -315,7 +429,8 @@ class LearningController internal constructor(
         }
     }
     private suspend fun saveLocked(): String? {
-        val current = snapshot ?: return null
+        val current = (snapshot ?: accountProvider()?.let { LearningSnapshot(it) } ?: return null).copy(readControl = readControl)
+        snapshot = current
         return try { withContext(ioDispatcher) { store.write(current) }; null }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { "本次结果未能保存到加密缓存。" }

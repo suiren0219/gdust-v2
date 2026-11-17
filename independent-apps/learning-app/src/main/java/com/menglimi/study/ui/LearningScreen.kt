@@ -52,7 +52,7 @@ import com.menglimi.study.learning.selectHomework
 fun LearningScreen(
     state: LearningUiState, onRefresh: () -> Unit, onRetryCourse: (String) -> Unit,
     onLogin: () -> Unit, onOpenWork: (String) -> Unit, onClearError: () -> Unit,
-    modifier: Modifier = Modifier, preview: Boolean = false,
+    modifier: Modifier = Modifier, preview: Boolean = false, onResumeRead: () -> Unit = onRefresh,
 ) {
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var showFailures by rememberSaveable { mutableStateOf(false) }
@@ -63,13 +63,15 @@ fun LearningScreen(
     val approaching = selectHomework(state.works, WorkFilter.DUE_SOON, now)
     val submitted = selectHomework(state.works, WorkFilter.SUBMITTED, now)
     val selected = selectHomework(state.works, WorkFilter.entries[filter], now)
-    val unknown = state.failedCourses > 0 || state.error != null || state.fromCache || !state.connected
+    val unknown = state.failedCourses > 0 || state.error != null || state.fromCache || !state.connected || state.readControl.active
     LazyColumn(modifier, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 116.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { PageHeader("作业", if (preview) "合成预览 · 不访问网络或正式数据" else "让每一项作业都有着落", onRefresh, state.loading) }
         item {
             HeroCard(tags = listOf("学习助手", when {
                 state.loading -> "正在读取"
+                state.readControl.pause != null -> "读取已暂停"
+                state.readControl.pendingCourseKeys.isNotEmpty() -> "待继续"
                 state.fromCache -> "已缓存"
                 state.connected -> "已连接"
                 else -> "未登录"
@@ -79,6 +81,7 @@ fun LearningScreen(
                 state.error != null -> "暂未读到结果"
                 else -> "连接学习通"
             }, subtitle = when {
+                state.readControl.active -> state.readControl.message().orEmpty()
                 state.fromCache -> "当前含上次读取的记录，刷新后确认。最近完整记录 ${displayTime(state.updatedAt)}"
                 state.failedCourses > 0 -> "${state.failedCourses} 门课程尚未读完，当前计数不代表全部作业。"
                 state.hasSnapshot -> "已读取 ${state.courseCount} 门课程 · ${displayTime(state.updatedAt)}"
@@ -90,6 +93,7 @@ fun LearningScreen(
                 }
             }
         }
+        if (state.readControl.active) item { ReadControlCard(state.readControl, state.loading, onResumeRead, onOpenWork) }
         state.error?.let { error -> item { MessageCard(error, onClearError) } }
         if (state.failures.isNotEmpty()) item {
             KCard(Modifier.fillMaxWidth()) {

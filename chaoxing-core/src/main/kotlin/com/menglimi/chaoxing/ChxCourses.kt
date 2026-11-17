@@ -6,6 +6,7 @@ data class ChxCourseOverview(
     val progressError: String? = null,
     val loadedAt: Long = System.currentTimeMillis(),
     val progressAuthRequired: Boolean = false,
+    val requestPause: ChxRequestPause? = null,
 )
 
 /** description 原样保留页面的两行说明，不推断其中的人名或机构角色。 */

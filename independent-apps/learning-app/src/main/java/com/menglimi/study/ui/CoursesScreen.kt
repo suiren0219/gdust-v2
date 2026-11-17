@@ -35,7 +35,7 @@ import java.util.Locale
 fun CoursesScreen(
     state: CoursesUiState, onRefresh: () -> Unit, onLogin: () -> Unit,
     onOpenCourse: (String) -> Unit, onClearError: () -> Unit,
-    modifier: Modifier = Modifier, preview: Boolean = false,
+    modifier: Modifier = Modifier, preview: Boolean = false, onResumeRead: () -> Unit = onRefresh,
 ) {
     LazyColumn(modifier, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 116.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -49,6 +49,7 @@ fun CoursesScreen(
                 if (!state.connected && !state.loading) Button(onClick = onLogin) { Text("登录学习通") }
             }
         }
+        if (state.readControl.active) item { ReadControlCard(state.readControl, state.loading, onResumeRead, onOpenCourse) }
         state.error?.let { item { MessageCard(it, onClearError) } }
         state.progressError?.let { item { MessageCard(it) } }
         if (state.fromCache) item {

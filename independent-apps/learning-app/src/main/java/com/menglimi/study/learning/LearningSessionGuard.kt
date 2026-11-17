@@ -10,7 +10,7 @@ internal enum class LearningLane { WORK, COURSES }
 internal data class LearningRequest(val generation: Long, val lane: LearningLane, val revision: Long)
 
 /** Cookie、快照、清除共用一把锁；两条数据流各自只允许最新请求提交。 */
-internal class LearningSessionGuard {
+internal class LearningSessionGuard(val requests: com.menglimi.chaoxing.ChxRequestGate = com.menglimi.chaoxing.ChxRequestGate()) {
     val mutex = Mutex()
     @Volatile private var generation = 0L
     private val revisions = AtomicLongArray(LearningLane.entries.size)

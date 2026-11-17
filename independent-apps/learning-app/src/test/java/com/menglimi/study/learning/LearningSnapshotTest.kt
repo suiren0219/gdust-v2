@@ -34,6 +34,16 @@ class LearningSnapshotTest {
         val coursesOnly = snapshot.copy(courses = emptyList(), workLoaded = false)
         assertEquals(coursesOnly, LearningSnapshotCodec.decode(LearningSnapshotCodec.encode(coursesOnly)))
     }
+    @Test fun pauseAndRemainingCoursesSurviveSerializationAndOlderSnapshotsStillLoad() {
+        val controlled = snapshot.copy(readControl = LearningReadControl(
+            com.menglimi.chaoxing.ChxRequestPause(true, 123_456), course.cacheKey(), false,
+            listOf(course.cacheKey()), course.url))
+        assertEquals(controlled, LearningSnapshotCodec.decode(LearningSnapshotCodec.encode(controlled)))
+        val old = com.google.gson.JsonParser.parseString(LearningSnapshotCodec.encode(snapshot)).asJsonObject
+        old.remove("readControl")
+        assertEquals(snapshot, LearningSnapshotCodec.decode(old.toString()))
+    }
+
     @Test fun mismatchedCourseIdentityCannotBeRestoredForRetry() {
         val broken = snapshot.copy(courses = listOf(snapshot.courses.single().copy(course = course.copy(cpi = 9))))
         assertThrows(IllegalArgumentException::class.java) { LearningSnapshotCodec.decode(LearningSnapshotCodec.encode(broken)) }

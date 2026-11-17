@@ -79,7 +79,10 @@ class ChxCourseApi(
                 ChxCourseOverview(courses, "学习通会话已失效，任务点进度未知，请重新登录。", progressAuthRequired = true)
             } catch (error: Exception) {
                 currentCoroutineContext().ensureActive()
-                ChxCourseOverview(courses, if (error is ChxCourseReadException) error.message else UNKNOWN_PROGRESS)
+                ChxCourseOverview(courses, if (error is ChxCourseReadException) error.message else UNKNOWN_PROGRESS,
+                    requestPause = (error as? ChxCourseReadException)?.takeIf { it.pausesRequests }?.let {
+                        ChxRequestPause(it.verificationRequired, it.retryAt)
+                    })
             }
         }
 
@@ -120,6 +123,8 @@ class ChxCourseApi(
                 throw cancelled
             } catch (auth: ChxAuthFailed) {
                 throw auth
+            } catch (failure: ChxCourseReadException) {
+                throw failure
             } catch (failure: Exception) {
                 currentCoroutineContext().ensureActive()
                 val reason = when (failure) {
@@ -142,24 +147,7 @@ class ChxCourseApi(
             error: String,
             isAdditionalLoginUrl: (String) -> Boolean = { false },
         ): String {
-            val verification = runCatching { JsonParser.parseString(response.body).asJsonObject }.getOrNull()
-            val verificationCode = verification?.let { json ->
-                listOf("code", "errorCode").any { name ->
-                    json.get(name)?.takeIf { it.isJsonPrimitive }?.asString == "9010"
-                }
-            } == true
-            val verificationPage = Jsoup.parse(response.body).apply { select("script, style, template").remove() }
-            val verificationForm = verificationPage.select("form").any { form ->
-                form.select("input").any { input ->
-                    listOf(input.id(), input.attr("name")).any {
-                        it.lowercase() in setOf("captcha", "verifycode", "validatecode")
-                    }
-                } && listOf("验证码", "安全验证").any { it in form.text() }
-            }
-            if (verificationCode || verificationForm) {
-                throw ChxCourseReadException("学习通要求验证码或安全验证，请打开对应课程网页完成验证，再点“完成检查”重新读取。",
-                    verificationRequired = true)
-            }
+            response.requestPause()?.let { throw it.exception() }
             if (response.status == 401) throw ChxAuthFailed(401, "学习通会话已失效，请重新登录。")
             if (response.status in 300..399) {
                 if (isTrustedLoginRedirect(url, response.location, isAdditionalLoginUrl)) {
@@ -329,4 +317,7 @@ class ChxCourseReadException(
     message: String,
     val missingField: String? = null,
     val verificationRequired: Boolean = false,
-) : Exception(message)
+    val retryAt: Long = 0,
+) : Exception(message) {
+    val pausesRequests: Boolean get() = verificationRequired || retryAt > 0
+}

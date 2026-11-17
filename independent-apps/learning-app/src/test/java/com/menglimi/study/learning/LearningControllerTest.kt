@@ -164,6 +164,115 @@ class LearningControllerTest {
         assertEquals(0, workCalls)
     }
 
+    @Test fun verificationStopsTheBatchThenRechecksOnlyTheBlockedCourseBeforeManualContinue() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val second = workCourse.copy(courseId = 4, name = "受阻课程")
+        val third = workCourse.copy(courseId = 7, name = "剩余课程")
+        val all = listOf(workCourse, second, third)
+        var blocked = true
+        var discovered = 0
+        var progressCalls = 0
+        val calls = mutableListOf<Long>()
+        val store = MemoryStore(cached())
+        val controller = LearningController(store, { accountA }, {}, { _, _, _ -> object : LearningBackend {
+            override suspend fun workCourses(): List<ChxWorkCourse> { discovered++; return all }
+            override suspend fun works(courses: List<ChxWorkCourse>): List<ChxCourseWorkResult> {
+                val selected = courses.single(); calls += selected.courseId
+                return listOf(if (selected == second && blocked) ChxCourseWorkResult.Failure(selected,
+                    com.menglimi.chaoxing.ChxCourseReadException("需要验证", verificationRequired = true))
+                    else ChxCourseWorkResult.Success(selected, emptyList()))
+            }
+            override suspend fun courses(): ChxCourseOverview { progressCalls++; return ChxCourseOverview(listOf(course)) }
+        } }, dispatcher, dispatcher)
+        controller.refresh()
+        assertEquals(listOf(1L, 4L), calls)
+        assertEquals(listOf(second.cacheKey(), third.cacheKey()), controller.state.value.readControl.pendingCourseKeys)
+        controller.refresh(); controller.retryCourse(third.cacheKey()); controller.refreshCourses()
+        assertEquals(1, discovered)
+        assertEquals(0, progressCalls)
+        assertTrue(store.value!!.readControl.pause!!.verificationRequired)
+        blocked = false
+        assertNull(controller.verifyFromWeb(false))
+        assertEquals(listOf(1L, 4L, 4L), calls)
+        assertNull(controller.state.value.readControl.pause)
+        assertEquals(listOf(third.cacheKey()), controller.state.value.readControl.pendingCourseKeys)
+        controller.resumeReading()
+        assertEquals(listOf(1L, 4L, 4L, 7L), calls)
+        assertTrue(controller.state.value.readControl.pendingCourseKeys.isEmpty())
+    }
+
+    @Test fun cooldownSurvivesCacheReloadAndCannotBeBypassedByWebCheckOrCacheClear() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        var time = 1_000L
+        var calls = 0
+        var blocked = true
+        val store = MemoryStore(cached())
+        fun create() = LearningController(store, { accountA }, {}, { _, _, _ -> backend(works = {
+            calls++
+            if (blocked) listOf(ChxCourseWorkResult.Failure(workCourse,
+                com.menglimi.chaoxing.ChxCourseReadException("冷却", retryAt = 61_000))) else success("恢复后作业")
+        }) }, dispatcher, dispatcher, now = { time })
+        var controller = create()
+        controller.refresh()
+        assertEquals(1, calls)
+        controller = create()
+        controller.reload()
+        controller.refresh(); controller.verifyFromWeb(false)
+        assertEquals(1, calls)
+        assertEquals(61_000L, controller.state.value.readControl.pause!!.retryAt)
+        controller.clearCache()
+        controller = create(); controller.reload(); controller.refresh()
+        assertEquals(1, calls)
+        time = 61_000; blocked = false
+        controller.resumeReading()
+        assertEquals(2, calls)
+        assertNull(controller.state.value.readControl.pause)
+    }
+
+    @Test fun progressPauseBlocksWorkAndWebCheckRecoversTheOriginalLane() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        var blocked = true
+        var works = 0
+        val controller = LearningController(MemoryStore(cached()), { accountA }, {}, { _, _, _ -> backend(
+            works = { works++; success("不应触发") },
+            courses = { if (blocked) ChxCourseOverview(listOf(course), "请验证",
+                requestPause = com.menglimi.chaoxing.ChxRequestPause(true)) else ChxCourseOverview(listOf(course)) }
+        ) }, dispatcher, dispatcher)
+        controller.refreshCourses(); controller.refresh()
+        assertEquals(0, works)
+        assertTrue(controller.courses.value.readControl.progressBlocked)
+        blocked = false
+        assertNull(controller.verifyFromWeb(false))
+        assertEquals(0, works)
+        assertNull(controller.courses.value.readControl.pause)
+    }
+
+    @Test fun cancellingLaterCourseKeepsEarlierResultsAndRemainingQueueOnReload() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val second = workCourse.copy(courseId = 4)
+        val started = CompletableDeferred<Unit>()
+        val waiting = CompletableDeferred<List<ChxCourseWorkResult>>()
+        val store = MemoryStore(null)
+        val controller = LearningController(store, { accountA }, {}, { _, _, _ -> object : LearningBackend {
+            override suspend fun workCourses() = listOf(workCourse, second)
+            override suspend fun works(courses: List<ChxWorkCourse>): List<ChxCourseWorkResult> {
+                if (courses.single() == workCourse) return success("取消前读取的作业")
+                started.complete(Unit)
+                return waiting.await()
+            }
+            override suspend fun courses() = ChxCourseOverview(listOf(course))
+        } }, dispatcher, dispatcher)
+        val reading = launch { controller.refresh() }
+        runCurrent(); started.await()
+        reading.cancel(); reading.join()
+        assertEquals("取消前读取的作业", store.value!!.courses.first().works.single().title)
+        assertEquals(listOf(second.cacheKey()), store.value!!.readControl.pendingCourseKeys)
+        val restored = LearningController(store, { accountA }, {}, { _, _, _ -> backend() }, dispatcher, dispatcher)
+        restored.reload()
+        assertEquals("取消前读取的作业", restored.state.value.works.single().title)
+        assertEquals(listOf(second.cacheKey()), restored.state.value.readControl.pendingCourseKeys)
+    }
+
     private fun backend(works: suspend () -> List<ChxCourseWorkResult> = { success("合成新作业") },
                         courses: suspend () -> ChxCourseOverview = { ChxCourseOverview(listOf(course), loadedAt = 200) }): LearningBackend {
         val readWorks = works

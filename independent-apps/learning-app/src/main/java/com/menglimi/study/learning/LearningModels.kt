@@ -31,6 +31,7 @@ data class LearningUiState(
     val hasSnapshot: Boolean = false,
     val fromCache: Boolean = false,
     val retryingCourse: String? = null,
+    val readControl: LearningReadControl = LearningReadControl(),
 )
 
 data class CoursesUiState(
@@ -42,6 +43,7 @@ data class CoursesUiState(
     val updatedAt: Long = 0,
     val hasSnapshot: Boolean = false,
     val fromCache: Boolean = false,
+    val readControl: LearningReadControl = LearningReadControl(),
 )
 
 /** courseId/classId/cpi 一起隔离重名课程、班级和选课身份。 */

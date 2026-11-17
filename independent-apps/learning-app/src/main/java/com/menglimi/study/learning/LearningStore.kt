@@ -17,6 +17,7 @@ internal data class LearningSnapshot(
     val courses: List<CourseHomework> = emptyList(),
     val workLoaded: Boolean = false,
     val overview: ChxCourseOverview? = null,
+    val readControl: LearningReadControl = LearningReadControl(),
 )
 
 internal interface LearningPersistence {
@@ -59,6 +60,18 @@ internal object LearningSnapshotCodec {
         addProperty("version", 1)
         addProperty("account", snapshot.account)
         addProperty("workLoaded", snapshot.workLoaded)
+        add("readControl", JsonObject().apply {
+            snapshot.readControl.let { control ->
+                control.pause?.let { pause ->
+                    addProperty("verificationRequired", pause.verificationRequired)
+                    addProperty("retryAt", pause.retryAt)
+                }
+                addProperty("blockedCourseKey", control.blockedCourseKey)
+                addProperty("progressBlocked", control.progressBlocked)
+                addProperty("verificationUrl", control.verificationUrl)
+                add("pending", JsonArray().apply { control.pendingCourseKeys.forEach(::add) })
+            }
+        })
         add("works", JsonArray().apply {
             snapshot.courses.forEach { row -> add(JsonObject().apply {
                 addProperty("key", row.courseKey)
@@ -138,7 +151,19 @@ internal object LearningSnapshotCodec {
             }.also { require(it.distinctBy(ChxCourse::info).size == it.size) }, value.textOrNull("progressError"),
                 value.get("loadedAt").asLong.coerceAtLeast(0), value.get("progressAuthRequired").asBoolean)
         }
-        return LearningSnapshot(account, courses, root.get("workLoaded").asBoolean, overview)
+        val control = root.getAsJsonObject("readControl")?.let { value ->
+            fun courseKey(key: String) = key.also { require(it.matches(Regex("[0-9]+:[0-9]+:[0-9]+"))) }
+            LearningReadControl(
+                pause = value.get("verificationRequired")?.let {
+                    com.menglimi.chaoxing.ChxRequestPause(it.asBoolean, value.get("retryAt").asLong.also { time -> require(time >= 0) })
+                },
+                blockedCourseKey = value.textOrNull("blockedCourseKey")?.let(::courseKey),
+                progressBlocked = value.get("progressBlocked")?.asBoolean ?: false,
+                pendingCourseKeys = value.getAsJsonArray("pending")?.map { courseKey(it.asString) }?.distinct().orEmpty(),
+                verificationUrl = value.textOrNull("verificationUrl")?.let(::safeUrl),
+            )
+        } ?: LearningReadControl()
+        return LearningSnapshot(account, courses, root.get("workLoaded").asBoolean, overview, control)
     }
 
     private fun JsonObject.textOrNull(name: String): String? = get(name)?.takeUnless { it.isJsonNull }?.asString

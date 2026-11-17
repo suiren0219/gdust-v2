@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
                     onLogin = { startActivity(Intent(this, LearningWebActivity::class.java)
                         .putExtra("courseProgress", selectedTab.intValue == 1)) },
                     onWorkRefresh = { action { app.learning.refresh() } },
+                    onResumeRead = { action { app.learning.resumeReading() } },
                     onRetryCourse = { key -> action { app.learning.retryCourse(key) } },
                     onCoursesRefresh = { action { app.learning.refreshCourses() } },
                     onOpenPage = { url -> startActivity(Intent(this, LearningWebActivity::class.java).putExtra("url", url)

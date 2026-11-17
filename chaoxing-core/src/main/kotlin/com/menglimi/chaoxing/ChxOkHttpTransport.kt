@@ -36,6 +36,7 @@ class ChxOkHttpTransport(
     private val client = client.newBuilder()
         .followRedirects(false)
         .followSslRedirects(false)
+        .retryOnConnectionFailure(false)
         .cookieJar(CookieJar.NO_COOKIES)
         .build()
 
@@ -79,7 +80,8 @@ class ChxOkHttpTransport(
                             throw ChxCourseReadException("服务返回的数据过大，请在网页查看。")
                         }
                         val charset = it.body?.contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8
-                        Received(ChxResponse(it.code, body.toString(charset), it.header("Location")),
+                        Received(ChxResponse(it.code, body.toString(charset), it.header("Location"),
+                            it.header("Retry-After"), it.header("Date")),
                             Cookie.parseAll(it.request.url, it.headers))
                     }
                     if (continuation.isActive) continuation.resume(result)

@@ -56,7 +56,11 @@ internal class LearningSessionHttpClient(
     private val token: LearningRequest,
     private val account: String?,
 ) {
-    suspend fun execute(request: Request): ChxResponse {
+    suspend fun execute(request: Request): ChxResponse = guard.requests.execute(token, { guard.check(token) }) {
+        executeOnce(request)
+    }
+
+    private suspend fun executeOnce(request: Request): ChxResponse {
         require(LearningUrls.allowedRequest(request.url)) { "不支持的学习通服务地址" }
         val caller = currentCoroutineContext()
         fun checkSession() { caller.ensureActive(); guard.check(token) }
@@ -116,7 +120,8 @@ internal class LearningSessionHttpClient(
                         val body = it.peekBody(MAX_BODY_BYTES + 1).bytes()
                         if (body.size > MAX_BODY_BYTES) throw IOException("学习通响应过大")
                         val charset = it.body?.contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8
-                        Received(ChxResponse(it.code, body.toString(charset), it.header("Location")), it.headers("Set-Cookie"))
+                        Received(ChxResponse(it.code, body.toString(charset), it.header("Location"),
+                            it.header("Retry-After"), it.header("Date")), it.headers("Set-Cookie"))
                     }
                     if (continuation.isActive) continuation.resume(received)
                 } catch (failure: Exception) {
@@ -128,7 +133,7 @@ internal class LearningSessionHttpClient(
     private companion object {
         const val MAX_BODY_BYTES = 4L * 1024 * 1024
         val client: OkHttpClient = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
-            .cookieJar(CookieJar.NO_COOKIES).connectTimeout(15, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false).cookieJar(CookieJar.NO_COOKIES).connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS).callTimeout(45, TimeUnit.SECONDS).build()
     }
 }
