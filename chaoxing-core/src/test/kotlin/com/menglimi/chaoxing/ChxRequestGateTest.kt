@@ -27,6 +27,22 @@ class ChxRequestGateTest {
         assertFalse(ChxResponse(429, "private").requestPause(now)!!.exception().message!!.contains("private"))
     }
 
+    @Test fun verifyPromptPageVariantsPauseReads() {
+        // processVerifyPng 提示页：输入框名为 ucode，正文只有"操作异常，请输入图片中的验证码"。
+        val prompt = ChxResponse(200, """<html><body><h3>提示页面</h3>
+            <p>【9010】操作异常，请输入图片中的验证码</p>
+            <img src="processVerifyPng"><form action="verify"><input type="text" id="ucode" name="ucode">
+            <input type="submit" value="提交"></form></body></html>""")
+        assertTrue(prompt.requestPause()!!.verificationRequired)
+        // 无标准输入字段的正文变体：9010 与验证码文案同时出现。
+        val flagged = ChxResponse(200, "<html><body><h3>提示页面</h3><p>【9010】操作异常，请输入图片中的验证码</p>"
+            + """<img src="processVerifyPng"><input type="submit" value="提交"></body></html>""")
+        assertTrue(flagged.requestPause()!!.verificationRequired)
+        // 普通页面提到验证码但没有对应输入框或 9010 组合，不能当成风控。
+        val normal = ChxResponse(200, "<html><body><p>课程讨论：如何找回验证码？</p></body></html>")
+        assertNull(normal.requestPause())
+    }
+
     @Test fun responsesPauseQueuedRequestsBeforeAnyMoreNetworkCalls() = runBlocking {
         val gate = ChxRequestGate(intervalMillis = 0)
         val started = CompletableDeferred<Unit>()

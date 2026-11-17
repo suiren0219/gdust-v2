@@ -21,7 +21,7 @@ data class ChxRequestPause(val verificationRequired: Boolean, val retryAt: Long 
     )
 }
 
-/** 只识别明确响应；不将普通 403、页面文字中的验证码或课程编号当成风控。 */
+/** 只识别明确响应；不将普通 403、课程编号里的数字当成风控，验证码判定必须有输入框或 9010+验证码的组合。 */
 fun ChxResponse.requestPause(now: Long = System.currentTimeMillis()): ChxRequestPause? {
     if (status == 429) {
         val raw = retryAfter?.trim().orEmpty()
@@ -40,14 +40,15 @@ fun ChxResponse.requestPause(now: Long = System.currentTimeMillis()): ChxRequest
         value.get(name)?.takeIf { it.isJsonPrimitive }?.asString == "9010"
     } } == true
     val document = Jsoup.parse(body).apply { select("script, style, template").remove() }
-    val form = document.select("form").any { element ->
-        element.select("input").any { input ->
-            listOf(input.id(), input.attr("name")).any {
-                it.lowercase(java.util.Locale.ROOT) in setOf("captcha", "verifycode", "validatecode")
-            }
-        } && listOf("验证码", "安全验证").any { it in element.text() }
-    }
-    return if (code || form) ChxRequestPause(true) else null
+    val text = document.text()
+    // 提示页变体：输入框可能叫 ucode（processVerifyPng 页），或正文同时出现 9010 与验证码文案。
+    val form = document.select("input").any { input ->
+        listOf(input.id(), input.attr("name")).any {
+            it.lowercase(java.util.Locale.ROOT) in setOf("captcha", "verifycode", "validatecode", "ucode")
+        }
+    } && listOf("验证码", "安全验证").any { it in text }
+    val flagged = text.contains("9010") && text.contains("操作异常") && text.contains("验证码")
+    return if (code || form || flagged) ChxRequestPause(true) else null
 }
 
 /** 所有业务请求共用串行入口；暂停后仅允许明确获准的那次恢复检查发送请求。 */
