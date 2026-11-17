@@ -69,7 +69,7 @@ object ChxWorkParser {
         fun field(vararg ids: String, required: Boolean = true, repeated: Boolean = false): String {
             val matches = fields(ids)
             if (matches.isEmpty()) {
-                if (required) throw ChxCourseReadException("课程页缺少字段 ${ids.first()}，请在网页打开该课程后重试。")
+                if (required) throw ChxCourseReadException("课程页缺少字段 ${ids.first()}，请在网页打开该课程后重试。", missingField = ids.first())
                 return ""
             }
             val values = matches.map { it.attr("value").trim() }.distinct()
@@ -91,7 +91,7 @@ object ChxWorkParser {
                         if (parameters.size != 1) throw ChxCourseReadException("课程页标识 ${names.first()} 参数重复，已停止读取。")
                         values += parameters.single().orEmpty()
                     }
-                if (values.isEmpty()) throw ChxCourseReadException("课程页缺少字段 ${names.first()}，请在网页打开该课程后重试。")
+                if (values.isEmpty()) throw ChxCourseReadException("课程页缺少字段 ${names.first()}，请在网页打开该课程后重试。", missingField = names.first())
                 if (values.any { value ->
                         value.isBlank() || value.any { it !in '0'..'9' } || value.toLongOrNull() != expected || expected <= 0
                     }) {

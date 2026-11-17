@@ -25,6 +25,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import com.menglimi.study.BuildConfig
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -53,6 +56,8 @@ fun LearningScreen(
 ) {
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var showFailures by rememberSaveable { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
+    var copiedFailure by rememberSaveable { mutableStateOf<String?>(null) }
     val now = System.currentTimeMillis()
     val pending = selectHomework(state.works, WorkFilter.PENDING, now)
     val approaching = selectHomework(state.works, WorkFilter.DUE_SOON, now)
@@ -151,6 +156,10 @@ fun LearningScreen(
                 androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = { onRetryCourse(failure.course.cacheKey()) }, enabled = !state.loading) { Text("重试此课") }
                     TextButton(onClick = { onOpenWork(failure.course.url) }) { Text("打开课程网页") }
+                    TextButton(onClick = {
+                        clipboard.setText(AnnotatedString("学习助手 ${BuildConfig.VERSION_NAME}\n${failure.message}"))
+                        copiedFailure = failure.course.cacheKey()
+                    }) { Text(if (copiedFailure == failure.course.cacheKey()) "诊断已复制" else "复制诊断") }
                 }
             }
         }

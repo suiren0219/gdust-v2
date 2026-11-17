@@ -56,7 +56,7 @@ class ChxWorkApiTest {
         assertEquals(tabs, api.courseTabs(course))
         assertEquals(listOf(course.url, landing), requests.map { it.url.toString() })
         assertTrue(requests.all { it.header("Cookie") == null && ChxApi.isAllowedUrl(it.url) })
-        assertTrue(requests.all { it.header("User-Agent") == ChxCourseApi.USER_AGENT })
+        assertTrue(requests.all { it.header("User-Agent") == ChxApi.USER_AGENT })
         assertTrue(requests.all { it.header("Referer") == ChxSso.HOME })
     }
 

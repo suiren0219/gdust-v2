@@ -27,8 +27,26 @@ class ChxApi(
         val trusted = ChxCourseApi.trustedCourseUrl(course.url, course.classId.toString(),
             course.courseId.toString(), course.cpi.toString())
             ?: throw ChxCourseReadException("课程入口无法识别，请在学习通网页查看。")
-        val page = readPage(trusted, ChxSso.HOME, "课程页", ::isCoursePage)
-        ChxWorkParser.readCourseTabs(page.body, course, page.url.toString())
+        var page = readPage(trusted, ChxSso.HOME, "课程页", ::isCoursePage)
+        val visited = mutableSetOf<String>()
+        repeat(4) {
+            currentCoroutineContext().ensureActive()
+            if (!visited.add(page.url.toString())) throw ChxCourseReadException("课程正文出现循环跳转，请在网页查看。")
+            try {
+                return@withContext ChxWorkParser.readCourseTabs(page.body, course, page.url.toString())
+            } catch (failure: ChxCourseReadException) {
+                if (failure.missingField == null) throw failure
+                val next = ChxCourseNavigation.next(page.body, page.url, course)
+                    ?: throw ChxCourseReadException(failure.message.orEmpty() +
+                        "（落地 ${ChxReadDiagnostics.route(page.url, page.url.toString())}；${ChxCourseNavigation.describe(page.body)}）")
+                if (next.toString() in visited) {
+                    throw ChxCourseReadException("课程正文出现循环跳转，请在网页查看。")
+                }
+                // 页面明确声明的正文入口仍按精确主机、路径与课程身份检查；不执行网页脚本。
+                page = readPage(next.toString(), ChxSso.HOME, "课程正文", { it == next })
+            }
+        }
+        throw ChxCourseReadException("课程正文跳转次数过多，请在网页查看。")
     }
 
     suspend fun workList(course: ChxWorkCourse, tabs: ChxWorkTabs): List<ChxWorkItem> = withContext(Dispatchers.IO) {
@@ -58,7 +76,7 @@ class ChxApi(
         repeat(5) {
             currentCoroutineContext().ensureActive()
             if (!visited.add(url.toString())) throw ChxCourseReadException("$stage 出现循环跳转，请在网页查看。")
-            val request = Request.Builder().url(url).header("User-Agent", ChxCourseApi.USER_AGENT)
+            val request = Request.Builder().url(url).header("User-Agent", USER_AGENT)
                 .apply { if (referer != null) header("Referer", referer) }.get().build()
             val response = ChxCourseApi.executeChecked(execute, request, "$stage 读取失败")
             if (response.status in setOf(301, 302, 303, 307, 308)) {
@@ -80,6 +98,9 @@ class ChxApi(
     }
 
     companion object {
+        // 作业协议来自桌面网页；手机 UA 可能被路由到不含签名隐藏域的移动壳页。
+        internal const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         private const val COURSE_PAGE = "https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu"
 
         /** 仅课程服务的两个精确主机；不放行任意超星子域，Cookie 仍由会话层逐 URL 读取。 */

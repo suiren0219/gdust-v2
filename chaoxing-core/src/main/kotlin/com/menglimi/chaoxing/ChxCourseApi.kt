@@ -307,4 +307,4 @@ class ChxCourseApi(
 }
 
 /** 只包含固定、可展示的错误文案，不携带响应正文、请求头或账户数据。 */
-class ChxCourseReadException(message: String) : Exception(message)
+class ChxCourseReadException(message: String, val missingField: String? = null) : Exception(message)
