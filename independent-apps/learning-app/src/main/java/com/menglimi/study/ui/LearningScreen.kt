@@ -21,6 +21,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -51,6 +52,7 @@ fun LearningScreen(
     modifier: Modifier = Modifier, preview: Boolean = false,
 ) {
     var filter by rememberSaveable { mutableIntStateOf(0) }
+    var showFailures by rememberSaveable { mutableStateOf(false) }
     val now = System.currentTimeMillis()
     val pending = selectHomework(state.works, WorkFilter.PENDING, now)
     val approaching = selectHomework(state.works, WorkFilter.DUE_SOON, now)
@@ -84,15 +86,13 @@ fun LearningScreen(
             }
         }
         state.error?.let { error -> item { MessageCard(error, onClearError) } }
-        items(state.failures, key = { "failure:${it.course.cacheKey()}" }) { failure ->
-            KCard(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.errorContainer) {
-                Text(failure.course.name, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onErrorContainer)
-                Text(failure.message, fontSize = 13.sp, lineHeight = 20.sp,
-                    color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(top = 6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (failure.hasCachedResult) "保留上次记录" else "是否有作业仍未知", fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { onRetryCourse(failure.course.cacheKey()) }, enabled = !state.loading) { Text("重试此课") }
+        if (state.failures.isNotEmpty()) item {
+            KCard(Modifier.fillMaxWidth()) {
+                Text("${state.failures.size} 门课程待重试", style = MaterialTheme.typography.titleMedium)
+                Text("已读作业继续展示；未读课程的作业仍未知。", fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
+                TextButton(onClick = { showFailures = !showFailures }) {
+                    Text(if (showFailures) "收起失败详情" else "查看失败详情与重试")
                 }
             }
         }
@@ -140,6 +140,19 @@ fun LearningScreen(
         } else item {
             EmptyCard(if (state.loading) "正在读取课程与作业" else "作业与截止时间，一处查看",
                 if (state.loading) "逐门课程读取中，完成后展示结果。" else "使用学习通官方网页登录。账号密码不保存到应用，课程和作业快照仅在本机加密保存。", Glyph.BOOK)
+        }
+        if (showFailures) items(state.failures, key = { "failure:${it.course.cacheKey()}" }) { failure ->
+            KCard(Modifier.fillMaxWidth()) {
+                Text(failure.course.name, fontWeight = FontWeight.SemiBold)
+                Text(failure.message, fontSize = 13.sp, lineHeight = 20.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
+                Text(if (failure.hasCachedResult) "保留上次记录" else "是否有作业仍未知", fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { onRetryCourse(failure.course.cacheKey()) }, enabled = !state.loading) { Text("重试此课") }
+                    TextButton(onClick = { onOpenWork(failure.course.url) }) { Text("打开课程网页") }
+                }
+            }
         }
         item { Text("仅查看已读取的作业，点击卡片打开学习通原网页。本应用没有自动做题或自动提交能力。",
             fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -28,7 +28,7 @@ class ChxApi(
             course.courseId.toString(), course.cpi.toString())
             ?: throw ChxCourseReadException("课程入口无法识别，请在学习通网页查看。")
         val page = readPage(trusted, ChxSso.HOME, "课程页", ::isCoursePage)
-        ChxWorkParser.readCourseTabs(page.body, course)
+        ChxWorkParser.readCourseTabs(page.body, course, page.url.toString())
     }
 
     suspend fun workList(course: ChxWorkCourse, tabs: ChxWorkTabs): List<ChxWorkItem> = withContext(Dispatchers.IO) {
@@ -96,6 +96,18 @@ class ChxApi(
 
         internal fun isWorkDetail(url: HttpUrl): Boolean = url.host == "mooc1.chaoxing.com" &&
             url.encodedPath in setOf("/mooc2/work/task", "/mooc-ans/mooc2/work/task")
+
+        /** goTask 使用作业模块相对路径 work/task，不能再拼到当前 work/ 目录下。 */
+        internal fun workDetailTarget(base: HttpUrl, value: String): HttpUrl? {
+            val reference = runCatching { URI(value) }.getOrNull() ?: return null
+            val target = if (reference.scheme == null && reference.rawAuthority == null &&
+                reference.rawPath == "work/task" && base.host == "mooc1.chaoxing.com" &&
+                base.encodedPath in setOf("/mooc2/work/list", "/mooc-ans/mooc2/work/list",
+                    "/mooc2/work/list.html", "/mooc-ans/mooc2/work/list.html")) {
+                base.resolve("../") ?: return null
+            } else base
+            return redirectTarget(target, value)?.takeIf(::isWorkDetail)
+        }
 
         /** URI 检查避免 HttpUrl 规范化掩盖用户信息、反斜线、路径穿越等非协议地址。 */
         internal fun trustedUrl(value: String): HttpUrl? {

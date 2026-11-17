@@ -114,6 +114,40 @@ class ChxWorkApiTest {
         }
     }
 
+    @Test fun courseIdentityCanBeVerifiedFromFinalUrlWhenHiddenIdsAreAbsent() = runBlocking {
+        val html = tabsHtml.lineSequence().filterNot {
+            "id='courseId'" in it || "id='classId'" in it || "id='cpi'" in it
+        }.joinToString("\n")
+        var calls = 0
+        val api = ChxApi {
+            calls++
+            if (calls == 1) ChxResponse(302, "", landing) else ChxResponse(200, html, null)
+        }
+        assertEquals(tabs, api.courseTabs(course))
+        assertEquals(2, calls)
+    }
+
+    @Test fun wrongFinalUrlCannotBeMaskedByMatchingHiddenInputs() {
+        var calls = 0
+        assertThrows(ChxCourseReadException::class.java) { runBlocking {
+            ChxApi {
+                calls++
+                if (calls == 1) ChxResponse(302, "", landing.replace("courseid=201", "courseid=999"))
+                else ChxResponse(200, tabsHtml, null)
+            }.courseTabs(course)
+        } }
+    }
+
+    @Test fun workModuleRelativeDetailsResolveWithoutDuplicatingWorkDirectory() = runBlocking {
+        val html = workHtml.replace("https://mooc1.chaoxing.com/mooc-ans/mooc2/work/task?", "work/task?")
+        val api = ChxApi { ChxResponse(200, html, null) }
+        val item = api.workList(course, tabs).single()
+        assertEquals("/mooc2/work/task", item.detailUrl.toHttpUrl().encodedPath)
+        assertEquals("401", item.detailUrl.toHttpUrl().queryParameter("workId"))
+        assertEquals("/mooc-ans/mooc2/work/task", ChxWorkParser.parseWorkList(html, course,
+            "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/list").single().detailUrl.toHttpUrl().encodedPath)
+    }
+
     @Test fun discoveryUsesTheSameCourseParserAndNeverUsesTaskPointCountsToSkipWork() = runBlocking {
         val requests = mutableListOf<Request>()
         val api = ChxApi { request ->

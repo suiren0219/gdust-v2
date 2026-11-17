@@ -52,18 +52,28 @@ object ChxWorkParser {
         null
     }
 
-    /** 实际课程页使用小写 courseid/clazzid，并在页头与正文重复同值身份字段。 */
-    fun readCourseTabs(html: String, expectedCourse: ChxWorkCourse? = null): ChxWorkTabs {
+    /** 课程身份可位于隐藏域 id/name 或实际落地 URL；存在的证据必须全部匹配，不能用入口参数冒充正文身份。 */
+    fun readCourseTabs(
+        html: String,
+        expectedCourse: ChxWorkCourse? = null,
+        pageUrl: String? = null,
+    ): ChxWorkTabs {
         val document = Jsoup.parse(html)
-        val inputs = document.select("input[type=hidden]")
+        document.select("script, style, template").remove()
+        val inputs = document.select("input").filter {
+            !it.hasAttr("type") || it.attr("type").equals("hidden", ignoreCase = true)
+        }
+        fun fields(ids: Array<out String>) = inputs.filter { input ->
+            ids.any { it.equals(input.id(), ignoreCase = true) || it.equals(input.attr("name"), ignoreCase = true) }
+        }
         fun field(vararg ids: String, required: Boolean = true, repeated: Boolean = false): String {
-            val fields = inputs.filter { it.id() in ids }
-            if (fields.isEmpty()) {
+            val matches = fields(ids)
+            if (matches.isEmpty()) {
                 if (required) throw ChxCourseReadException("课程页缺少字段 ${ids.first()}，请在网页打开该课程后重试。")
                 return ""
             }
-            val values = fields.map { it.attr("value").trim() }.distinct()
-            if ((!repeated && fields.size != 1) || values.size != 1) {
+            val values = matches.map { it.attr("value").trim() }.distinct()
+            if ((!repeated && matches.size != 1) || values.size != 1) {
                 throw ChxCourseReadException("课程页字段 ${ids.first()} 存在冲突，未读取其他课程的作业。")
             }
             return values.single().also {
@@ -71,16 +81,26 @@ object ChxWorkParser {
             }
         }
         if (expectedCourse != null) {
-            val identities = listOf(
-                "courseid" to (field("courseid", "courseId", repeated = true) to expectedCourse.courseId),
-                "clazzid" to (field("clazzid", "classId", repeated = true) to expectedCourse.classId),
-                "cpi" to (field("cpi", repeated = true) to expectedCourse.cpi),
-            )
-            identities.forEach { (name, pair) ->
-                if (pair.first != pair.second.toString()) {
-                    throw ChxCourseReadException("课程页标识 $name 与所选课程不符，已停止读取。")
+            val landing = pageUrl?.let(ChxApi::trustedUrl)
+            fun identity(expected: Long, vararg names: String) {
+                val values = mutableListOf<String>()
+                if (fields(names).isNotEmpty()) values += field(*names, repeated = true)
+                landing?.queryParameterNames?.filter { key -> names.any { it.equals(key, ignoreCase = true) } }
+                    ?.forEach { key ->
+                        val parameters = landing.queryParameterValues(key)
+                        if (parameters.size != 1) throw ChxCourseReadException("课程页标识 ${names.first()} 参数重复，已停止读取。")
+                        values += parameters.single().orEmpty()
+                    }
+                if (values.isEmpty()) throw ChxCourseReadException("课程页缺少字段 ${names.first()}，请在网页打开该课程后重试。")
+                if (values.any { value ->
+                        value.isBlank() || value.any { it !in '0'..'9' } || value.toLongOrNull() != expected || expected <= 0
+                    }) {
+                    throw ChxCourseReadException("课程页标识 ${names.first()} 与所选课程不符，已停止读取。")
                 }
             }
+            identity(expectedCourse.courseId, "courseid")
+            identity(expectedCourse.classId, "clazzid", "classid")
+            identity(expectedCourse.cpi, "cpi")
         }
         return ChxWorkTabs(
             field("enc"), field("workEnc"), field("examEnc", required = false),
@@ -129,8 +149,8 @@ object ChxWorkParser {
             }.distinct()
             if (links.isEmpty() || links.any { it.isBlank() }) unknown("缺少详情地址 data/data-url/href")
             val details = links.map { link ->
-                ChxApi.redirectTarget(base, link)?.takeIf(ChxApi::isWorkDetail)
-                    ?: unknown("详情地址不可信或路径不支持")
+                ChxApi.workDetailTarget(base, link)
+                    ?: unknown("详情地址不可信或路径不支持；${ChxReadDiagnostics.route(base, link)}")
             }.distinct()
             if (details.size != 1) unknown("详情地址冲突")
             val detail = details.single()

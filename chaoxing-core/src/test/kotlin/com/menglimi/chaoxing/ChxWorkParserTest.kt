@@ -114,11 +114,35 @@ class ChxWorkParserTest {
         assertNull(ChxWorkParser.parseCourseTabs(html, course.copy(cpi = 999)))
     }
 
+    @Test fun courseHiddenInputsSupportNamesAndOmittedTypeWithoutTrustingScriptsOrTemplates() {
+        val course = ChxWorkCourse(111111111, 222222222, 333333333, "示例", "")
+        val named = tabsHtml.replace("type=\"hidden\" ", "").replace("id=", "name=")
+        assertEquals(ChxWorkParser.readCourseTabs(tabsHtml, course), ChxWorkParser.readCourseTabs(named, course))
+        val malformed = named + "<input name='courseId' value='999'>"
+        assertThrows(ChxCourseReadException::class.java) { ChxWorkParser.readCourseTabs(malformed, course) }
+        assertThrows(ChxCourseReadException::class.java) { ChxWorkParser.readCourseTabs("<template>$named</template>", course) }
+    }
+
+    @Test fun landingIdentityRejectsDuplicatesAndCannotInventMissingSignatureFields() {
+        val course = ChxWorkCourse(111111111, 222222222, 333333333, "示例", "")
+        val page = "https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu?courseid=111111111&clazzid=222222222&cpi=333333333"
+        val noIds = tabsHtml.replace(Regex("<input[^>]+id=\"(?:courseId|classId|cpi)\"[^>]*>"), "")
+        assertEquals(ChxWorkParser.readCourseTabs(tabsHtml, course), ChxWorkParser.readCourseTabs(noIds, course, page))
+        for (url in listOf(page + "&courseid=111111111", page.replace("courseid=111111111", "courseid=999"),
+            page.replace("mooc2-ans.chaoxing.com", "unknown.example"))) {
+            assertThrows(ChxCourseReadException::class.java) { ChxWorkParser.readCourseTabs(noIds, course, url) }
+        }
+        assertThrows(ChxCourseReadException::class.java) {
+            ChxWorkParser.readCourseTabs(noIds.replace("id=\"workEnc\"", "id=\"other\""), course, page)
+        }
+    }
+
     @Test fun missingAndConflictingFieldsAreNamedWithoutPrintingTheirValues() {
         val html = javaClass.getResource("/chaoxing/course-tabs-lowercase.html")!!.readText()
         val course = ChxWorkCourse(201, 101, 301, "示例课程", "")
         val missing = assertThrows(ChxCourseReadException::class.java) {
-            ChxWorkParser.readCourseTabs(html.replace("id=\"workEnc\"", "id=\"other\""), course)
+            ChxWorkParser.readCourseTabs(html.replace("id=\"workEnc\"", "id=\"other\"")
+                .replace("name=\"workEnc\"", "name=\"other\""), course)
         }
         assertTrue(missing.message.orEmpty().contains("workEnc"))
         assertTrue(!missing.message.orEmpty().contains("synthetic"))
