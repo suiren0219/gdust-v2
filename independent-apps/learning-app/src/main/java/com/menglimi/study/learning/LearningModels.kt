@@ -26,6 +26,7 @@ data class LearningUiState(
     val failedCourses: Int = 0,
     val failures: List<HomeworkFailure> = emptyList(),
     val courseCount: Int = 0,
+    val endedCourses: Int = 0,
     val error: String? = null,
     val updatedAt: Long = 0,
     val hasSnapshot: Boolean = false,
@@ -49,6 +50,10 @@ data class CoursesUiState(
 /** courseId/classId/cpi 一起隔离重名课程、班级和选课身份。 */
 internal fun ChxWorkCourse.cacheKey(): String = "$courseId:$classId:$cpi"
 
+/** 本地日期键，用于比较页面开课时间（页面日期无时区语义）。 */
+internal fun todayKey(now: Long): String =
+    java.time.Instant.ofEpochMilli(now).atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
+
 internal data class CourseHomework(
     val courseKey: String,
     val works: List<Homework>,
@@ -56,6 +61,8 @@ internal data class CourseHomework(
     val course: ChxWorkCourse? = null,
     val failure: String? = null,
     val authRequired: Boolean = false,
+    /** 页面标注已结束或开课时间已过；不计入失败，只是本轮不读取。 */
+    val ended: Boolean = false,
 )
 
 internal data class HomeworkMerge(val courses: List<CourseHomework>, val failedCourses: Int) {

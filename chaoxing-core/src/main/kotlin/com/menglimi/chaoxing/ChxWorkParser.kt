@@ -15,7 +15,20 @@ import org.jsoup.Jsoup
  *   标题 `p.overHidden2`、状态 `p.status`(未交/已完成)、时间 `div.time`(「剩余X小时X分钟」，相对时间)
  * 标签、链接载体和同语义 class 的兼容变体由合成 fixture 覆盖，不代表已验证 issue #6 的真实 HAR。
  */
-data class ChxWorkCourse(val courseId: Long, val classId: Long, val cpi: Long, val name: String, val url: String)
+data class ChxWorkCourse(
+    val courseId: Long, val classId: Long, val cpi: Long, val name: String, val url: String,
+    /** 课程列表页的可选学期信息；解析不出时为 null，不代表课程已结束或未开课。 */
+    val openingStart: String? = null, val openingEnd: String? = null, val ended: Boolean = false,
+) {
+    /** 仅用页面给出的时间判断；开课区间覆盖今天返回 false，完全未知时返回 null。 */
+    fun closedAsOf(today: String): Boolean? = when {
+        ended -> true
+        openingEnd != null && openingEnd < today -> true
+        openingStart != null && openingStart > today -> true
+        openingStart != null && openingEnd != null -> false
+        else -> null
+    }
+}
 
 /** 课程页隐藏域：各 tab 的签名与公共参数。 */
 data class ChxWorkTabs(

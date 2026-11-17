@@ -70,14 +70,18 @@ fun LearningScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { PageHeader("作业", if (preview) "合成预览 · 不访问网络或正式数据" else "让每一项作业都有着落", onRefresh, state.loading) }
         item {
-            HeroCard(tags = listOf("学习助手", when {
-                state.loading -> "正在读取"
-                state.readControl.pause != null -> "读取已暂停"
-                state.readControl.pendingCourseKeys.isNotEmpty() -> "待继续"
-                state.fromCache -> "已缓存"
-                state.connected -> "已连接"
-                else -> "未登录"
-            }), title = when {
+            HeroCard(tags = buildList {
+                add("学习助手")
+                add(when {
+                    state.loading -> "正在读取"
+                    state.readControl.pause != null -> "读取已暂停"
+                    state.readControl.pendingCourseKeys.isNotEmpty() -> "待继续"
+                    state.fromCache -> "已缓存"
+                    state.connected -> "已连接"
+                    else -> "未登录"
+                })
+                if (state.endedCourses > 0) add("已结束 ${state.endedCourses} 门未读取")
+            }, title = when {
                 state.loading && !state.hasSnapshot -> "正在读取作业"
                 state.hasSnapshot -> "${pending.size} 项待交"
                 state.error != null -> "暂未读到结果"

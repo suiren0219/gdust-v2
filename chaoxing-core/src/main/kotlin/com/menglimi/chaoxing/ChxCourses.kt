@@ -18,8 +18,22 @@ data class ChxCourse(
     val description: String,
     val url: String,
     val progress: ChxCourseProgress? = null,
+    /** 页面「开课时间：开始～结束」的原始日期；缺项或一侧缺失时为 null，不代表课程状态。 */
+    val openingStart: String? = null,
+    val openingEnd: String? = null,
+    /** 页面明确标注「课程已结束」（not-open-tip），与开课时间无关。 */
+    val ended: Boolean = false,
 ) {
     val info: String get() = "${clazzId}_${curPersonId}"
+
+    /** 仅用页面给出的时间判断；开课区间覆盖今天返回 false，完全未知时返回 null。 */
+    fun closedAsOf(today: String): Boolean? = when {
+        ended -> true
+        openingEnd != null && openingEnd < today -> true
+        openingStart != null && openingStart > today -> true
+        openingStart != null && openingEnd != null -> false
+        else -> null
+    }
 }
 
 /** 任务点统计不是作业待办；jobRate 是接口返回的 0–100 百分数。 */

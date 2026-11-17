@@ -218,12 +218,19 @@ class ChxCourseApi(
                 val description = listOf("p.margint10.line2.color2[title]", "p.line2.color3[title]")
                     .mapNotNull { selector -> row.selectFirst(selector)?.attr("title")?.trim()?.takeIf { it.isNotEmpty() } }
                     .joinToString("\n")
+                // 开课时间与“课程已结束”是可选说明字段；解析失败不推翻列表本身。
+                val opening = row.selectFirst("p:matchesOwn(^\\s*开课时间：)")?.ownText()?.trim().orEmpty()
+                val dates = Regex("""开课时间：(\d{4}-\d{2}-\d{2})(?:～(\d{4}-\d{2}-\d{2})?)?""").find(opening)
+                val ended = row.selectFirst("a.not-open-tip") != null
                 // 不运行 onclick，不接受备用域名、额外 query 或与 hidden 不符的标识。
                 val links = row.select("a[href]").mapNotNull {
                     trustedCourseUrl(it.attr("href"), clazzId, courseId, curPersonId)
                 }.distinct()
                 if (links.size != 1) throw ChxCourseReadException(UNKNOWN_LIST)
-                val course = ChxCourse(clazzId, courseId, curPersonId, name, description, links.single())
+                val course = ChxCourse(clazzId, courseId, curPersonId, name, description, links.single(),
+                    openingStart = dates?.groupValues?.get(1)?.takeIf { it.isNotEmpty() },
+                    openingEnd = dates?.groupValues?.get(2)?.takeIf { it.isNotEmpty() },
+                    ended = ended)
                 val existing = courses[course.info]
                 if (existing != null && (existing.courseId != course.courseId || existing.url != course.url)) {
                     throw ChxCourseReadException(UNKNOWN_LIST)

@@ -119,19 +119,27 @@ class LearningController internal constructor(
                 guard.check(request)
                 checkAccount(account)
                 verified = true
+                val today = todayKey(now())
+                // 页面明确标注“课程已结束”或开课时间已过的课程不算作业任务；手动重查仍允许。
+                val skipped = discovered.associate { it.cacheKey() to (it.closedAsOf(today) == true) }
                 val selectedKey = if (recovering) readControl.blockedCourseKey else retryKey
                 val targets = when {
                     selectedKey != null -> listOf(discovered.firstOrNull { it.cacheKey() == selectedKey }
                         ?: throw ChxCourseReadException("受阻课程已不在当前课程页，请确认账号与课程。"))
                     recovering -> discovered.take(1)
                     readControl.pendingCourseKeys.isNotEmpty() -> discovered.filter { it.cacheKey() in readControl.pendingCourseKeys }
-                    else -> discovered
+                    else -> discovered.filterNot { skipped[it.cacheKey()] == true }
                 }
                 guard.mutex.withLock {
                     operation.ensureActive(); guard.check(request); checkAccount(account)
                     val old = workRows.associateBy { it.courseKey }
-                    workRows = discovered.map { course -> old[course.cacheKey()]?.copy(course = course)
-                        ?: CourseHomework(course.cacheKey(), emptyList(), 0, course, "本轮尚未读取，是否有作业仍未知。") }
+                    workRows = discovered.map { course ->
+                        val isEnded = skipped[course.cacheKey()] == true
+                        old[course.cacheKey()]?.copy(course = course, ended = isEnded,
+                            failure = if (isEnded) null else old[course.cacheKey()]?.failure)
+                            ?: CourseHomework(course.cacheKey(), emptyList(), 0, course,
+                                if (isEnded) null else "本轮尚未读取，是否有作业仍未知。", ended = isEnded)
+                    }
                     val pending = if (recovering && selectedKey == null) discovered.map { it.cacheKey() }
                         else (readControl.pendingCourseKeys + targets.map { it.cacheKey() }).distinct()
                     readControl = readControl.copy(pendingCourseKeys = pending.filter { key -> discovered.any { it.cacheKey() == key } })
@@ -176,6 +184,7 @@ class LearningController internal constructor(
                     mutableState.value = LearningUiState(
                         connected = !authFailed, works = merged.works, failedCourses = merged.failedCourses,
                         failures = merged.failures, courseCount = merged.courses.size,
+                        endedCourses = workRows.count { it.ended },
                         error = if (recovered) cacheError else listOfNotNull(readControl.message() ?: when {
                             authFailed -> "学习通登录已失效，请重新登录。未更新的课程保留上次记录。"
                             merged.failedCourses > 0 -> "${merged.failedCourses} 门课程读取失败，未读课程不能确认是否有作业。"

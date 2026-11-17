@@ -150,6 +150,33 @@ class ChxCourseApiTest {
         }
     }
 
+    @Test fun openingDatesAndEndedMarkAreParsedAsOptionalMetadata() {
+        val opening = courseRow().replace(
+            "<p class=\"line2 color3\" title=\"示例课程说明\">省略说明</p>",
+            "<p class=\"line2 color3\" title=\"示例课程说明\">省略说明</p><p>开课时间：2026-09-15～2028-09-15</p>")
+        val openEnded = courseRow("102", "202", "302").replace(
+            "<p class=\"line2 color3\" title=\"示例课程说明\">省略说明</p>",
+            "<p>开课时间：2026-02-09～</p>")
+        val endedRow = courseRow("103", "203", "303").replace(
+            "<a href=", "<a class=\"not-open-tip\" href=")
+        val byKey = ChxCourseApi.parseCourses(coursePage(opening + openEnded + endedRow))
+            .associateBy { it.info }
+        assertEquals("2026-09-15", byKey.getValue("101_301").openingStart)
+        assertEquals("2028-09-15", byKey.getValue("101_301").openingEnd)
+        assertEquals(false, byKey.getValue("101_301").ended)
+        assertEquals("2026-02-09", byKey.getValue("102_302").openingStart)
+        assertEquals(null, byKey.getValue("102_302").openingEnd)
+        assertEquals(true, byKey.getValue("103_303").ended)
+        assertTrue(byKey.getValue("101_301").closedAsOf("2026-11-17") == false)
+        assertTrue(byKey.getValue("103_303").closedAsOf("2026-11-17") == true)
+        assertEquals(null, byKey.getValue("102_302").closedAsOf("2026-11-17"))
+        val plain = ChxCourseApi.parseCourses(coursePage(courseRow())).single()
+        assertNull(plain.openingStart)
+        assertNull(plain.openingEnd)
+        assertFalse(plain.ended)
+        assertNull(plain.closedAsOf("2026-11-17"))
+    }
+
     @Test fun verificationResponsesAreNotMisreportedAsMissingCourseFieldsOrExpiredLogin() {
         val base = ChxCourseApi.LIST_URL.toHttpUrl()
         for (body in listOf("""{"code":9010,"msg":"private"}""",

@@ -19,7 +19,8 @@ class ChxApi(
     /** 与课程展示使用相同的发现与 HTML 校验；任务点统计不能证明没有作业。 */
     suspend fun courses(): List<ChxWorkCourse> = withContext(Dispatchers.IO) {
         ChxCourseApi.discoverWith(isAdditionalLoginUrl, execute).map {
-            ChxWorkCourse(it.courseId.toLong(), it.clazzId.toLong(), it.curPersonId.toLong(), it.name, it.url)
+            ChxWorkCourse(it.courseId.toLong(), it.clazzId.toLong(), it.curPersonId.toLong(), it.name, it.url,
+                openingStart = it.openingStart, openingEnd = it.openingEnd, ended = it.ended)
         }
     }
 
