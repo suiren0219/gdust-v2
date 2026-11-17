@@ -278,6 +278,19 @@ class ChxWorkParserTest {
         }
     }
 
+    @Test fun statisticsAnchorsDoNotBecomeWorkDetailLinks() {
+        val statistics = "<a href='https://stat2-ans.chaoxing.com/study-knowledge/ans?courseid=111111111&amp;clazzid=222222222&amp;cpi=333333333&amp;relationId=1&amp;type=work&amp;ut=s'>查看统计</a>"
+        val html = workListHtml.replace("<div class=\"clear\"></div>", statistics + "<div class=\"clear\"></div>")
+        assertEquals(ChxWorkParser.parseWorkList(workListHtml), ChxWorkParser.parseWorkList(html))
+        for (invalid in listOf(statistics.replace("stat2-ans.chaoxing.com", "unknown.example"),
+            statistics.replace("/study-knowledge/ans", "/work/task"),
+            statistics.replace("relationId=1", "workId=999"))) {
+            assertThrows(ChxCourseReadException::class.java) {
+                ChxWorkParser.parseWorkList(workListHtml.replace("<div class=\"clear\"></div>", invalid))
+            }
+        }
+    }
+
     @Test fun remainingTimeCanBeConvertedToMillis() {
         assertEquals((1125 * 3600 + 55 * 60) * 1000L, ChxWorkParser.remainingMillis("剩余1125小时55分钟"))
         assertEquals((2 * 24 * 3600 + 3 * 3600) * 1000L, ChxWorkParser.remainingMillis("剩余2天3小时"))

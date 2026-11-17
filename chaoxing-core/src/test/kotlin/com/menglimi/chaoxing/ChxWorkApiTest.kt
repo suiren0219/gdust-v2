@@ -53,7 +53,7 @@ class ChxWorkApiTest {
             requests += request
             if (requests.size == 1) ChxResponse(302, "", landing) else ChxResponse(200, tabsHtml, null)
         }
-        assertEquals(tabs, api.courseTabs(course))
+        assertEquals(tabs.copy(coursePageUrl = landing), api.courseTabs(course))
         assertEquals(listOf(course.url, landing), requests.map { it.url.toString() })
         assertTrue(requests.all { it.header("Cookie") == null && ChxApi.isAllowedUrl(it.url) })
         assertTrue(requests.all { it.header("User-Agent") == ChxApi.USER_AGENT })
@@ -86,7 +86,7 @@ class ChxWorkApiTest {
                     requests += request
                     if (requests.size == 1) ChxResponse(302, "", target) else ChxResponse(200, tabsHtml, null)
                 }
-                assertEquals(tabs, api.courseTabs(course))
+                assertEquals(tabs.copy(coursePageUrl = target.replace("http:", "https:")), api.courseTabs(course))
                 assertEquals(listOf(course.url, target.replace("http:", "https:")), requests.map { it.url.toString() })
                 assertTrue(requests.all { it.url.scheme == "https" && ChxApi.isAllowedUrl(it.url) })
                 assertTrue(requests.all { it.header("Cookie") == null && it.header("Referer") == ChxSso.HOME })
@@ -123,7 +123,7 @@ class ChxWorkApiTest {
             calls++
             if (calls == 1) ChxResponse(302, "", landing) else ChxResponse(200, html, null)
         }
-        assertEquals(tabs, api.courseTabs(course))
+        assertEquals(tabs.copy(coursePageUrl = landing), api.courseTabs(course))
         assertEquals(2, calls)
     }
 
@@ -146,6 +146,65 @@ class ChxWorkApiTest {
         assertEquals("401", item.detailUrl.toHttpUrl().queryParameter("workId"))
         assertEquals("/mooc-ans/mooc2/work/task", ChxWorkParser.parseWorkList(html, course,
             "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/list").single().detailUrl.toHttpUrl().encodedPath)
+    }
+
+    @Test fun homeworkRequestUsesTheDeclaredMenuEndpointAndActualCourseReferer() = runBlocking {
+        val actualLanding = "$landing&enc=synthetic-course&t=1700000000000&hideHead=0"
+        val menu = "<a data-url='https://mooc1.chaoxing.com/mooc-ans/mooc2/work/list.html'>作业</a>"
+        val requests = mutableListOf<Request>()
+        val api = ChxApi { request ->
+            requests += request
+            when (requests.size) {
+                1 -> ChxResponse(302, "", actualLanding)
+                2 -> ChxResponse(200, tabsHtml + menu)
+                else -> ChxResponse(200, workHtml)
+            }
+        }
+        val loaded = api.courseTabs(course)
+        assertEquals("https://mooc1.chaoxing.com/mooc-ans/mooc2/work/list.html", loaded.workListEndpoint)
+        assertEquals(actualLanding, loaded.coursePageUrl)
+        assertEquals(1, api.workList(course, loaded).size)
+        val request = requests.last()
+        assertEquals("/mooc-ans/mooc2/work/list.html", request.url.encodedPath)
+        assertEquals(actualLanding, request.header("Referer"))
+        assertEquals("synthetic-stu", request.url.queryParameter("stuenc"))
+        assertEquals("synthetic-work", request.url.queryParameter("enc"))
+        assertEquals(setOf("courseId", "classId", "cpi", "ut", "t", "stuenc", "enc"), request.url.queryParameterNames)
+        assertTrue(request.url.queryParameterNames.all { request.url.queryParameterValues(it).size == 1 })
+        assertNull(request.header("Cookie"))
+    }
+
+    @Test fun declaredWorkParametersMustAgreeAndCannotBeDuplicatedOrReplaced() {
+        val base = "https://mooc1.chaoxing.com/mooc2/work/list"
+        val valid = tabs.copy(workListEndpoint = "$base?courseId=201&enc=synthetic-work")
+        val url = ChxApi.workListUrl(course, valid)
+        assertEquals(listOf("201"), url.queryParameterValues("courseId"))
+        assertEquals(listOf("synthetic-work"), url.queryParameterValues("enc"))
+        for (endpoint in listOf("$base?courseId=999", "$base?courseId=201&courseId=201", "$base?other=private",
+            "https://unknown.example/mooc2/work/list")) {
+            assertThrows(ChxCourseReadException::class.java) {
+                ChxApi.workListUrl(course, tabs.copy(workListEndpoint = endpoint))
+            }
+        }
+    }
+
+    @Test fun untrustedOrConflictingWorkMenusDoNotFallBackToAGuessedUrl() {
+        val menu = "<a data-url='https://mooc1.chaoxing.com/mooc2/work/list'>作业</a>"
+        for (html in listOf(tabsHtml + menu.replace("mooc1.chaoxing.com", "unknown.example"),
+            tabsHtml + menu + menu.replace("/mooc2/work/list", "/mooc-ans/mooc2/work/list"))) {
+            assertThrows(ChxCourseReadException::class.java) {
+                ChxWorkParser.readCourseTabs(html, course, landing)
+            }
+        }
+    }
+
+    @Test fun workRefererCannotPointToADifferentCourse() {
+        var calls = 0
+        assertThrows(ChxCourseReadException::class.java) { runBlocking {
+            ChxApi { calls++; ChxResponse(200, workHtml) }.workList(course,
+                tabs.copy(coursePageUrl = landing.replace("courseid=201", "courseid=999")))
+        } }
+        assertEquals(0, calls)
     }
 
     @Test fun discoveryUsesTheSameCourseParserAndNeverUsesTaskPointCountsToSkipWork() = runBlocking {

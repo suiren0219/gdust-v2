@@ -34,6 +34,7 @@ class ChxApi(
             if (!visited.add(page.url.toString())) throw ChxCourseReadException("课程正文出现循环跳转，请在网页查看。")
             try {
                 return@withContext ChxWorkParser.readCourseTabs(page.body, course, page.url.toString())
+                    .copy(coursePageUrl = page.url.toString())
             } catch (failure: ChxCourseReadException) {
                 if (failure.missingField == null) throw failure
                 val next = ChxCourseNavigation.next(page.body, page.url, course)
@@ -51,7 +52,19 @@ class ChxApi(
 
     suspend fun workList(course: ChxWorkCourse, tabs: ChxWorkTabs): List<ChxWorkItem> = withContext(Dispatchers.IO) {
         val requestUrl = workListUrl(course, tabs)
-        val page = readPage(requestUrl.toString(), COURSE_PAGE, "作业列表", ::isWorkList)
+        val referer = tabs.coursePageUrl.takeIf { it.isNotBlank() }?.let { value ->
+            trustedUrl(value)?.takeIf { page ->
+                val identities = mapOf("courseid" to course.courseId, "clazzid" to course.classId,
+                    "classid" to course.classId, "cpi" to course.cpi)
+                page.queryParameterNames.all { key ->
+                    val expected = identities[key.lowercase()]
+                    expected == null || page.queryParameterValues(key).let { values ->
+                        values.size == 1 && values.single()?.toLongOrNull() == expected
+                    }
+                }
+            }?.toString() ?: throw ChxCourseReadException("作业来源课程页无法确认，请重新读取课程。")
+        } ?: COURSE_PAGE
+        val page = readPage(requestUrl.toString(), referer, "作业列表", ::isWorkList)
         ChxWorkParser.parseWorkList(page.body, course, page.url.toString())
     }
 
@@ -112,8 +125,9 @@ class ChxApi(
             (url.host == "mooc1.chaoxing.com" && url.encodedPath == "/visit/stucoursemiddle") ||
                 (url.host == "mooc2-ans.chaoxing.com" && url.encodedPath == "/mooc2-ans/mycourse/stu")
 
-        private fun isWorkList(url: HttpUrl): Boolean = url.host == "mooc1.chaoxing.com" &&
-            url.encodedPath in setOf("/mooc2/work/list", "/mooc-ans/mooc2/work/list")
+        internal fun isWorkList(url: HttpUrl): Boolean = url.host == "mooc1.chaoxing.com" &&
+            url.encodedPath in setOf("/mooc2/work/list", "/mooc-ans/mooc2/work/list",
+                "/mooc2/work/list.html", "/mooc-ans/mooc2/work/list.html")
 
         internal fun isWorkDetail(url: HttpUrl): Boolean = url.host == "mooc1.chaoxing.com" &&
             url.encodedPath in setOf("/mooc2/work/task", "/mooc-ans/mooc2/work/task")
@@ -167,16 +181,22 @@ class ChxApi(
                 base.encodedPath !in setOf("/", "/mooc-ans", "/mooc-ans/")) {
                 throw ChxCourseReadException("课程页的作业服务地址无法识别，请在学习通网页查看。")
             }
-            val raw = tabs.moocDomain.trimEnd('/') + "/mooc2/work/list"
+            val raw = tabs.workListEndpoint.ifBlank { tabs.moocDomain.trimEnd('/') + "/mooc2/work/list" }
             val url = trustedUrl(raw)?.takeIf(::isWorkList)
                 ?: throw ChxCourseReadException("课程页的作业服务地址无法识别，请在学习通网页查看。")
-            return url.newBuilder()
-                .addQueryParameter("courseId", course.courseId.toString())
-                .addQueryParameter("classId", course.classId.toString())
-                .addQueryParameter("cpi", course.cpi.toString())
-                .addQueryParameter("ut", "s").addQueryParameter("t", tabs.t)
-                .addQueryParameter("stuenc", tabs.enc).addQueryParameter("enc", tabs.workEnc)
-                .build()
+            val parameters = linkedMapOf("courseId" to course.courseId.toString(),
+                "classId" to course.classId.toString(), "cpi" to course.cpi.toString(),
+                "ut" to "s", "t" to tabs.t, "stuenc" to tabs.enc, "enc" to tabs.workEnc)
+            if (url.queryParameterNames.any { name ->
+                    name !in parameters || url.queryParameterValues(name) != listOf(parameters.getValue(name))
+                }) {
+                throw ChxCourseReadException("课程页作业入口参数存在冲突，请重新读取课程。")
+            }
+            val builder = url.newBuilder()
+            parameters.forEach { (name, value) ->
+                if (name !in url.queryParameterNames) builder.addQueryParameter(name, value)
+            }
+            return builder.build()
         }
 
         /** 纯判定便于回归：200/非登录 HTML 本身不是有效会话证据。 */

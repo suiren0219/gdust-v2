@@ -25,6 +25,8 @@ data class ChxWorkTabs(
     val t: String,
     val userId: String,
     val moocDomain: String,
+    val workListEndpoint: String = "",
+    val coursePageUrl: String = "",
 )
 
 /** 作业列表的一条作业。 */
@@ -102,9 +104,23 @@ object ChxWorkParser {
             identity(expectedCourse.classId, "clazzid", "classid")
             identity(expectedCourse.cpi, "cpi")
         }
+        val domain = field("moocDomainName")
+        val base = pageUrl?.let(ChxApi::trustedUrl) ?: ChxApi.trustedUrl(domain)
+        val menuLinks = document.select("a[data-url], a[href], [data-url]").flatMap { element ->
+            listOf("data-url", "href").filter(element::hasAttr).map { element.attr(it).trim() }
+        }.filter { link ->
+            runCatching { java.net.URI(link).path.orEmpty().trimEnd('/').endsWith("/work/list") ||
+                java.net.URI(link).path.orEmpty().trimEnd('/').endsWith("/work/list.html") }.getOrDefault(false)
+        }.distinct()
+        val endpoints = menuLinks.map { link ->
+            base?.let { ChxApi.redirectTarget(it, link) }?.takeIf(ChxApi::isWorkList)?.toString()
+                ?: throw ChxCourseReadException("课程页作业入口无法识别，未请求其他地址。")
+        }.distinct()
+        if (endpoints.size > 1) throw ChxCourseReadException("课程页作业入口存在冲突，已停止读取。")
         return ChxWorkTabs(
             field("enc"), field("workEnc"), field("examEnc", required = false),
-            field("t"), field("userId", required = false), field("moocDomainName"),
+            field("t"), field("userId", required = false), domain,
+            workListEndpoint = endpoints.singleOrNull().orEmpty(),
         )
     }
 
@@ -143,9 +159,25 @@ object ChxWorkParser {
                 if (values.size > 1) unknown("$name 字段冲突")
                 return values.singleOrNull() ?: if (required) unknown("缺少 $name 字段") else ""
             }
-            // 不执行 onclick；入口必须由可校验的 URL 提供，并且所有声明的入口一致。
+            // 条目内“查看统计”不是作业入口，只忽略已确认的精确统计路径；从不请求统计站点。
+            val hasPrimaryLink = row.select("[data], [data-url]").any { element ->
+                listOf("data", "data-url").any { key -> element.hasAttr(key) && element.attr(key).isNotBlank() }
+            }
+            fun isStatisticsLink(value: String): Boolean = runCatching {
+                val uri = java.net.URI(value)
+                uri.scheme == "https" && uri.host == "stat2-ans.chaoxing.com" && uri.port in setOf(-1, 443) &&
+                    uri.rawUserInfo == null && uri.rawFragment == null && uri.rawPath == "/study-knowledge/ans" &&
+                    value.none { it.code <= 32 || it.code == 127 || it == '\\' } &&
+                    uri.rawQuery.orEmpty().split('&').none {
+                        it.substringBefore('=').lowercase() in setOf("workid", "answerid", "enc")
+                    }
+            }.getOrDefault(false)
+            // 不执行 onclick；其余详情入口必须可信，且同一作业的所有入口一致。
             val links = row.select("[data], [data-url], a[href]").flatMap { element ->
-                listOf("data", "data-url", "href").filter { element.hasAttr(it) }.map { element.attr(it).trim() }
+                listOf("data", "data-url", "href").filter { element.hasAttr(it) }.mapNotNull { key ->
+                    val value = element.attr(key).trim()
+                    value.takeUnless { key == "href" && hasPrimaryLink && isStatisticsLink(value) }
+                }
             }.distinct()
             if (links.isEmpty() || links.any { it.isBlank() }) unknown("缺少详情地址 data/data-url/href")
             val details = links.map { link ->
