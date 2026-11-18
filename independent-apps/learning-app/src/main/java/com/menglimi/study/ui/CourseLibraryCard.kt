@@ -73,6 +73,11 @@ fun CourseLibraryCard(
                     onSelectScope(LearningScope.TERM, term.id)
                 }
             }
+            if (library.terms.isNotEmpty()) {
+                ScopeChip("开学日前", library.scope == LearningScope.BEFORE_START) {
+                    onSelectScope(LearningScope.BEFORE_START, null)
+                }
+            }
             if (library.folders.isNotEmpty() || library.terms.isNotEmpty()) {
                 ScopeChip("待确认", library.scope == LearningScope.UNASSIGNED) {
                     onSelectScope(LearningScope.UNASSIGNED, null)
@@ -91,7 +96,7 @@ fun CourseLibraryCard(
         AlertDialog(onDismissRequest = { creating = false },
             title = { Text("新建文件夹") },
             text = { Column {
-                Text("名称 1–30 个字符；手动归类的课程优先于按校历自动判断。", fontSize = 13.sp, lineHeight = 20.sp)
+                Text("名称 1–30 个字符；手动归类优先于按个人开学日自动判断。", fontSize = 13.sp, lineHeight = 20.sp)
                 OutlinedTextField(folderName, { folderName = it }, singleLine = true, label = { Text("文件夹名称") },
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp))
             } },
@@ -121,7 +126,7 @@ fun CourseLibraryCard(
         val folder = library.folders.find { it.id == id }
         AlertDialog(onDismissRequest = { deleting = null },
             title = { Text("删除「${folder?.name ?: "文件夹"}」？") },
-            text = { Text("该文件夹里的 ${library.assignments.count { it.value == id }} 门课程会回到按校历自动判断。") },
+            text = { Text("该文件夹里的 ${library.assignments.count { it.value == id }} 门课程会回到按个人开学日自动判断。") },
             confirmButton = { TextButton(onClick = { onRemoveFolder(id); deleting = null }) { Text("删除") } },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("取消") } })
     }
@@ -154,7 +159,7 @@ fun CourseClassifyDialog(
                 }
             }
             TextButton(onClick = { creating = true }) { Text("新建文件夹…") }
-            Text("选“不放入文件夹”不会清除按校历自动判断的结果。", fontSize = 12.sp, lineHeight = 19.sp,
+            Text("选“不放入文件夹”不会清除个人开学日自动判断的结果。", fontSize = 12.sp, lineHeight = 19.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         } },
         confirmButton = { TextButton(onClick = onDismiss) { Text("完成") } })
@@ -192,7 +197,8 @@ private fun FolderRow(label: String, selected: Boolean, onClick: () -> Unit) {
 private fun scopeHint(library: LearningLibrary): String = when (library.scope) {
     LearningScope.ALL -> "筛选只影响课程列表与本轮作业读取；切换范围不会清掉已有结果。"
     LearningScope.FOLDER -> "手动归类优先于自动学期，刷新课程不会覆盖你的选择。"
-    LearningScope.TERM -> if (library.terms.isEmpty()) "尚未导入校历，无法按学期筛选。"
-        else "学期按校历日期与课程加入时间判断；学习通未提供加入时间的课程保持待确认。"
-    LearningScope.UNASSIGNED -> "这里是没有手动文件夹、也没匹配到校历学期的课程。"
+    LearningScope.TERM -> if (library.terms.isEmpty()) "尚未导入个人开学日期，无法按学期筛选。"
+        else "课程按加入日期落在本学期开学日与下一开学日之间来归类；最早开学日前单独列出。"
+    LearningScope.BEFORE_START -> "这里是加入日期早于最早个人开学日的课程。"
+    LearningScope.UNASSIGNED -> "这里是没有手动文件夹、也无法按已导入开学日归入学期的课程。"
 }

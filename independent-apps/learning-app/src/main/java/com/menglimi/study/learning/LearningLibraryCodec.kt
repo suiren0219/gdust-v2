@@ -20,7 +20,6 @@ internal object LearningLibraryCodec {
                 addProperty("id", term.id)
                 addProperty("name", term.name)
                 addProperty("start", term.start)
-                addProperty("end", term.end)
             }) }
         })
     }
@@ -39,8 +38,8 @@ internal object LearningLibraryCodec {
         var library = LearningLibrary()
         value.arrayOrEmpty("terms").forEach { entry ->
             val row = entry.asJsonObject
-            val term = LearningTerm(row.get("id").asString, row.get("name").asString,
-                row.get("start").asString, row.get("end").asString)
+            // 旧版缓存带有 end 字段；新模型只保留个人设置的开学日，忽略旧的推算结束日期。
+            val term = LearningTerm(row.get("id").asString, row.get("name").asString, row.get("start").asString)
             require(library.terms.none { it.id == term.id })
             library = library.withTerm(term)
         }

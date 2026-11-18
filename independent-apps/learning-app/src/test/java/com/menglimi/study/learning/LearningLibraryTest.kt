@@ -11,8 +11,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LearningLibraryTest {
-    private val autumn = LearningTerm("2026_1", "2026-2027 · 学期 1", "2026-09-01", "2026-09-30")
-    private val winter = LearningTerm("2026_2", "2026-2027 · 学期 2", "2026-10-01", "2027-01-10")
+    private val autumn = LearningTerm("2026_1", "2026-2027 · 学期 1", "2026-09-01")
+    private val winter = LearningTerm("2026_2", "2026-2027 · 学期 2", "2026-10-01")
     private val key = "1:2:3"
 
     private fun course(courseId: String = "1", joinedOn: String? = null) =
@@ -49,38 +49,46 @@ class LearningLibraryTest {
         assertEquals("手动 · 重修 · ${winter.name}", library.explanation(course(joinedOn = "2026-09-15")))
     }
 
-    @Test fun automaticTermNeedsSingleCalendarMatchAndRealJoinDate() {
-        val base = LearningLibrary().withTerm(autumn)
-        assertEquals(autumn, base.term(key, "2026-09-15"))
+    @Test fun automaticTermUsesPersonalStartBoundariesAndRealJoinDate() {
+        val base = LearningLibrary().withTerm(autumn).withTerm(winter)
+        assertEquals(autumn, base.term(key, "2026-09-01"))
+        assertEquals(autumn, base.term(key, "2026-09-30"))
+        assertEquals(winter, base.term(key, "2026-10-01"))
+        assertEquals(winter, base.term(key, "2027-03-15"))
         assertNull(base.term(key, null))
         assertNull(base.term(key, "2026-08-31"))
         assertEquals("自动 · ${autumn.name} · 加入日期 2026-09-15", base.explanation(course(joinedOn = "2026-09-15")))
-        assertEquals("待确认 · 加入日期未匹配校历", base.explanation(course(joinedOn = "2026-08-31")))
-        assertEquals("待确认 · 尚未导入校历", LearningLibrary().explanation(course(joinedOn = "2026-09-15")))
+        assertEquals("开学日前 · 2026-09-01 前", base.explanation(course(joinedOn = "2026-08-31")))
+        assertEquals("待确认 · 尚未导入个人开学日期", LearningLibrary().explanation(course(joinedOn = "2026-09-15")))
         assertEquals("待确认 · 学习通未提供加入时间", base.explanation(course()))
     }
 
     @Test fun scopesOnlyNarrowTheVisibleCoursesAndNeverInventAssignments() {
-        val library = LearningLibrary().withTerm(autumn).createFolder("高数", null).let { base ->
+        val library = LearningLibrary().withTerm(autumn).withTerm(winter).createFolder("高数", null).let { base ->
             base.move(key, base.folders.single().id).select(LearningScope.FOLDER, base.folders.single().id)
         }
         val manual = course("1")
-        val automatic = course("2", joinedOn = "2026-09-15")
-        val unknown = course("3")
+        val beforeStart = course("2", joinedOn = "2026-08-31")
+        val automatic = course("3", joinedOn = "2026-09-15")
+        val nextTerm = course("4", joinedOn = "2026-10-01")
+        val unknown = course("5")
+        val courses = listOf(manual, beforeStart, automatic, nextTerm, unknown)
         assertEquals(listOf(manual), library.copy(scope = LearningScope.FOLDER)
-            .visible(listOf(manual, automatic, unknown)))
+            .visible(courses))
         assertEquals(listOf(automatic), library.copy(scope = LearningScope.TERM, selectedId = autumn.id)
-            .visible(listOf(manual, automatic, unknown)))
+            .visible(courses))
+        assertEquals(listOf(beforeStart), library.copy(scope = LearningScope.BEFORE_START)
+            .visible(courses))
         assertEquals(listOf(unknown), library.copy(scope = LearningScope.UNASSIGNED, selectedId = null)
-            .visible(listOf(manual, automatic, unknown)))
-        assertEquals(3, library.copy(scope = LearningScope.ALL, selectedId = null)
-            .visible(listOf(manual, automatic, unknown)).size)
+            .visible(courses))
+        assertEquals(courses.size, library.copy(scope = LearningScope.ALL, selectedId = null)
+            .visible(courses).size)
     }
 
-    @Test fun overlappingTermsAreRejectedButSameTermCanBeUpdated() {
+    @Test fun duplicateStartDatesAreRejectedButSameTermCanBeUpdated() {
         val library = LearningLibrary().withTerm(autumn)
         assertThrows(IllegalArgumentException::class.java) {
-            library.withTerm(LearningTerm("2026_2", "学年 2", "2026-09-15", "2027-01-10"))
+            library.withTerm(LearningTerm("other", "重复日期", autumn.start))
         }
         val updated = library.withTerm(autumn.copy(name = "改过的名称"))
         assertEquals(1, updated.terms.size)
@@ -88,7 +96,7 @@ class LearningLibraryTest {
     }
 
     @Test fun codecRoundTripKeepsFoldersTermsAndScope() {
-        val term = LearningTerm("2026_1", "2026-2027 · 学期 1", "2026-09-01", "2027-01-10")
+        val term = LearningTerm("2026_1", "2026-2027 · 学期 1", "2026-09-01")
         val library = LearningLibrary().withTerm(term).createFolder("A", null).let { base ->
             val second = base.createFolder("B", term.id)
             second.move(key, second.folders.first().id)
@@ -96,6 +104,17 @@ class LearningLibraryTest {
         }
         assertEquals(library, LearningLibraryCodec.decode(LearningLibraryCodec.encode(library)))
         assertEquals(LearningLibrary(), LearningLibraryCodec.decode(null))
+        // 旧版缓存按周数算出的 end 不再参与边界判断；且保留的 term ID 绑定仍然有效。
+        val legacy = JsonObject().apply {
+            addProperty("scope", "ALL")
+            add("folders", JsonParser.parseString("""[{"id":"legacy","name":"旧文件夹","termId":"2026_1"}]""").asJsonArray)
+            add("assignments", JsonObject())
+            add("terms", JsonParser.parseString("""[{"id":"2026_1","name":"旧学期","start":"2026-09-01","end":"2026-09-30"}]""").asJsonArray)
+        }
+        val migrated = LearningLibraryCodec.decode(legacy)
+        assertEquals("2026-09-01", migrated.terms.single().start)
+        assertEquals("2026_1", migrated.folders.single().termId)
+        assertEquals("2026_1", migrated.term(key, "2026-12-15")?.id)
         assertFalse(LearningLibraryCodec.encode(library).toString().contains("Cookie"))
     }
 
@@ -117,27 +136,43 @@ class LearningLibraryTest {
         }
     }
 
-    @Test fun calendarImportReadsOnlyTermFieldsAndRejectsOtherFiles() {
+    @Test fun calendarImportUsesPersonalStartDateAndIgnoresWeekCountForBoundaries() {
         val backup = """
             {"app":"gdust-v2","schema":1,"term_start":"2026-09-07","term_weeks":20,
-             "calendar":"{\"year\":\"2026\",\"semester\":\"1\",\"startDate\":\"2026-09-07\",\"allWeek\":18}"}
+             "calendar":"{\"year\":\"2026\",\"semester\":\"1\",\"startDate\":\"2026-09-01\",\"allWeek\":18}"}
         """.trimIndent()
-        // term_start/term_weeks 优先，calendar 内字段作后备。
-        assertEquals(LearningTerm("2026_1", "2026-2027 · 学期 1", "2026-09-07", "2027-01-24"),
+        // 用户个人设置的 term_start 优先；term_weeks/allWeek 只描述周数，不生成学期结束边界。
+        assertEquals(LearningTerm("2026_1", "2026-2027 · 学期 1", "2026-09-07"),
             LearningCalendarImport.parse(backup))
         val fallback = """{"app":"gdust-v2","schema":1,"calendar":{"year":"2025","semester":"2","startDate":"2026-02-23","allWeek":18}}"""
-        assertEquals(LearningTerm("2025_2", "2025-2026 · 学期 2", "2026-02-23", "2026-06-28"),
+        assertEquals(LearningTerm("2025_2", "2025-2026 · 学期 2", "2026-02-23"),
             LearningCalendarImport.parse(fallback))
+        val personalStartOnly = """{"app":"gdust-v2","schema":1,"term_start":"2026-08-31","term_weeks":16}"""
+        assertEquals(LearningTerm("start_20260831", "2026-08-31 开学", "2026-08-31"),
+            LearningCalendarImport.parse(personalStartOnly))
         assertThrows(IllegalArgumentException::class.java) { LearningCalendarImport.parse("not json") }
         assertThrows(IllegalArgumentException::class.java) { LearningCalendarImport.parse("{\"app\":\"other\"}") }
         assertThrows(IllegalArgumentException::class.java) { LearningCalendarImport.parse("{\"app\":\"gdust-v2\",\"schema\":1}") }
         assertThrows(IllegalArgumentException::class.java) {
-            LearningCalendarImport.parse("""{"app":"gdust-v2","schema":1,"calendar":{"year":"2026","semester":"1","startDate":"2026-09-07","allWeek":0}}""")
+            LearningCalendarImport.parse("""{"app":"gdust-v2","schema":1,"calendar":{"year":"2026","semester":"1","startDate":"bad-date"}}""")
         }
     }
 
+    @Test fun personalStartPlaceholderUpgradesWhenCalendarMetadataArrives() {
+        val personalOnly = LearningCalendarImport.parse(
+            """{"app":"gdust-v2","schema":1,"term_start":"2026-09-07"}""")
+        val library = LearningLibrary().withTerm(personalOnly).createFolder("本学期", personalOnly.id)
+            .select(LearningScope.TERM, personalOnly.id)
+        val calendarTerm = LearningCalendarImport.parse(
+            """{"app":"gdust-v2","schema":1,"term_start":"2026-09-07","calendar":{"year":"2026","semester":"1","startDate":"2026-09-01"}}""")
+        val upgraded = library.withTerm(calendarTerm)
+        assertEquals(listOf(calendarTerm), upgraded.terms)
+        assertEquals(calendarTerm.id, upgraded.folders.single().termId)
+        assertEquals(calendarTerm.id, upgraded.selectedId)
+    }
+
     @Test fun snapshotRoundTripKeepsLibrarySoRefreshCannotDropManualFolders() {
-        val term = LearningTerm("2026_1", "2026-2027 · 学期 1", "2026-09-01", "2027-01-10")
+        val term = LearningTerm("2026_1", "2026-2027 · 学期 1", "2026-09-01")
         val library = LearningLibrary().withTerm(term).createFolder("高数", null).let { base ->
             base.move(key, base.folders.single().id)
         }
