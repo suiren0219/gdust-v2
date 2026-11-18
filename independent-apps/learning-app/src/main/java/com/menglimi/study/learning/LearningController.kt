@@ -45,6 +45,7 @@ class LearningController internal constructor(
     val diagnostic = mutableDiagnostic.asStateFlow()
     private val guard = LearningSessionGuard(ChxRequestGate(now))
     private var readControl = LearningReadControl()
+    private var library = LearningLibrary()
     private var workRows = emptyList<CourseHomework>()
     private val active = mutableMapOf<LearningLane, Job>()
     private val browsers = mutableSetOf<() -> Unit>()
@@ -122,27 +123,36 @@ class LearningController internal constructor(
                 val today = todayKey(now())
                 // 页面明确标注“课程已结束”或开课时间已过的课程不算作业任务；手动重查仍允许。
                 val skipped = discovered.associate { it.cacheKey() to (it.closedAsOf(today) == true) }
+                // 手动文件夹与校历学期只收窄本轮读取范围；受阻恢复、待补读不受范围限制。
+                val scoped = discovered.filter { library.includes(it.cacheKey(), it.joinedOn) }
                 val selectedKey = if (recovering) readControl.blockedCourseKey else retryKey
                 val targets = when {
                     selectedKey != null -> listOf(discovered.firstOrNull { it.cacheKey() == selectedKey }
                         ?: throw ChxCourseReadException("受阻课程已不在当前课程页，请确认账号与课程。"))
                     recovering -> discovered.take(1)
-                    readControl.pendingCourseKeys.isNotEmpty() -> discovered.filter { it.cacheKey() in readControl.pendingCourseKeys }
-                    else -> discovered.filterNot { skipped[it.cacheKey()] == true }
+                    readControl.pendingCourseKeys.isNotEmpty() -> scoped.filter { it.cacheKey() in readControl.pendingCourseKeys }
+                    else -> scoped.filterNot { skipped[it.cacheKey()] == true }
                 }
+                val targetKeys = targets.map { it.cacheKey() }.toSet()
                 guard.mutex.withLock {
                     operation.ensureActive(); guard.check(request); checkAccount(account)
                     val old = workRows.associateBy { it.courseKey }
                     workRows = discovered.map { course ->
-                        val isEnded = skipped[course.cacheKey()] == true
-                        old[course.cacheKey()]?.copy(course = course, ended = isEnded,
-                            failure = if (isEnded) null else old[course.cacheKey()]?.failure)
-                            ?: CourseHomework(course.cacheKey(), emptyList(), 0, course,
-                                if (isEnded) null else "本轮尚未读取，是否有作业仍未知。", ended = isEnded)
+                        val key = course.cacheKey()
+                        val isEnded = skipped[key] == true
+                        // 范围外课程保留上次结果但不计本轮失败；切回范围时不会被误报为读取失败。
+                        val inScope = key in targetKeys || library.includes(key, course.joinedOn)
+                        old[key]?.copy(course = course, ended = isEnded,
+                            failure = if (isEnded || !inScope) null else old[key]?.failure)
+                            ?: CourseHomework(key, emptyList(), 0, course,
+                                if (isEnded || !inScope) null else "本轮尚未读取，是否有作业仍未知。", ended = isEnded)
                     }
                     val pending = if (recovering && selectedKey == null) discovered.map { it.cacheKey() }
                         else (readControl.pendingCourseKeys + targets.map { it.cacheKey() }).distinct()
-                    readControl = readControl.copy(pendingCourseKeys = pending.filter { key -> discovered.any { it.cacheKey() == key } })
+                    readControl = readControl.copy(pendingCourseKeys = pending.filter { key ->
+                        discovered.any { it.cacheKey() == key } &&
+                            (recovering || scoped.any { it.cacheKey() == key })
+                    })
                     publishReadControlLocked()
                 }
                 val results = mutableListOf<ChxCourseWorkResult>()
@@ -262,7 +272,7 @@ class LearningController internal constructor(
                     operation.ensureActive()
                     guard.check(request)
                     checkAccount(account)
-                    mutableCourses.value = coursesState(overview, cached = false).copy(error = cacheError, readControl = readControl)
+                    mutableCourses.value = coursesState(overview, cached = false, library).copy(error = cacheError, readControl = readControl)
                     publishReadControlLocked()
                     if (overview.progressAuthRequired) mutableState.update { it.copy(connected = false) }
                 }
@@ -335,12 +345,53 @@ class LearningController internal constructor(
         mutableCourses.update { it.copy(readControl = readControl) }
     }
 
+    private fun publishLibraryLocked() {
+        mutableCourses.update { it.copy(library = library) }
+    }
+
     suspend fun prepareLogin() {
         reload()
         if (!readControl.active) clearData(removeCookies = false, resetAccount = true)
     }
     suspend fun clearCache() = clearData(removeCookies = false)
     suspend fun disconnect() = clearData(removeCookies = true)
+
+    /**
+     * 课程分类只是本地整理，不发起任何学习通请求；返回非空文本表示这次没有保存成功。
+     * 手动归属优先于自动学期，刷新课程不会覆盖用户选择。
+     */
+    suspend fun createFolder(name: String, termId: String?): String? =
+        updateLibrary { it.createFolder(name, termId) }
+
+    suspend fun removeFolder(folderId: String): String? = updateLibrary { it.removeFolder(folderId) }
+
+    suspend fun moveCourse(courseKey: String, folderId: String?): String? =
+        updateLibrary { it.move(courseKey, folderId) }
+
+    suspend fun selectCourseScope(scope: LearningScope, id: String?): String? =
+        updateLibrary { it.select(scope, id) }
+
+    /** 只接受主应用备份 JSON 里的校历字段；其余内容（含绑定信息）不读取、不转存。 */
+    suspend fun importCalendar(text: String): String? =
+        updateLibrary { it.withTerm(LearningCalendarImport.parse(text)) }
+
+    private suspend fun updateLibrary(transform: (LearningLibrary) -> LearningLibrary): String? =
+        withContext(mainDispatcher) {
+            val generation = guard.current()
+            guard.mutex.withLock {
+                guard.check(generation)
+                synchronizeAccountLocked()
+                loadCacheLocked()
+                val account = accountProvider() ?: return@withLock "请先登录学习通再管理课程分类。"
+                val updated = try { transform(library) }
+                catch (failure: IllegalArgumentException) { return@withLock failure.message ?: "课程分类未能更新。" }
+                library = updated
+                snapshot = (snapshot ?: LearningSnapshot(account)).copy(library = updated)
+                val error = saveLocked()
+                publishLibraryLocked()
+                error
+            }
+        }
 
     /** 清除一旦开始完整执行；退出后 Cookie callback、flush、WebStorage 和快照都已处理。 */
     private suspend fun clearData(removeCookies: Boolean, resetAccount: Boolean = false) {
@@ -351,6 +402,7 @@ class LearningController internal constructor(
                 invalidateLocked()
                 snapshot = null
                 workRows = emptyList()
+                library = LearningLibrary()
                 cacheLoaded = true
                 if (removeCookies) { readControl = LearningReadControl(); guard.requests.restore(null) }
                 mutableDiagnostic.value = null
@@ -410,6 +462,7 @@ class LearningController internal constructor(
         invalidateLocked()
         snapshot = null
         workRows = emptyList()
+        library = LearningLibrary()
         readControl = LearningReadControl()
         guard.requests.restore(null)
         cacheLoaded = true
@@ -439,6 +492,7 @@ class LearningController internal constructor(
             loaded?.let {
                 workRows = it.courses
                 readControl = it.readControl
+                library = it.library
                 guard.requests.restore(readControl.pause)
                 if (it.workLoaded) {
                     val merged = HomeworkMerge(it.courses, it.courses.count { row -> row.failure != null })
@@ -446,7 +500,7 @@ class LearningController internal constructor(
                         failures = merged.failures, courseCount = it.courses.size, updatedAt = merged.updatedAt,
                         hasSnapshot = true, fromCache = true)
                 }
-                it.overview?.let { overview -> mutableCourses.value = coursesState(overview, cached = true) }
+                it.overview?.let { overview -> mutableCourses.value = coursesState(overview, cached = true, library) }
                 publishReadControlLocked()
             }
         } catch (cancelled: CancellationException) { cacheLoaded = false; throw cancelled }
@@ -457,7 +511,8 @@ class LearningController internal constructor(
         }
     }
     private suspend fun saveLocked(): String? {
-        val current = (snapshot ?: accountProvider()?.let { LearningSnapshot(it) } ?: return null).copy(readControl = readControl)
+        val current = (snapshot ?: accountProvider()?.let { LearningSnapshot(it) } ?: return null)
+            .copy(readControl = readControl, library = library)
         snapshot = current
         return try { withContext(ioDispatcher) { store.write(current) }; null }
         catch (cancelled: CancellationException) { throw cancelled }

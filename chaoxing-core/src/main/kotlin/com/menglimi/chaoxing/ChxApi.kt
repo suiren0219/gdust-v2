@@ -20,7 +20,7 @@ class ChxApi(
     suspend fun courses(): List<ChxWorkCourse> = withContext(Dispatchers.IO) {
         ChxCourseApi.discoverWith(isAdditionalLoginUrl, execute).map {
             ChxWorkCourse(it.courseId.toLong(), it.clazzId.toLong(), it.curPersonId.toLong(), it.name, it.url,
-                openingStart = it.openingStart, openingEnd = it.openingEnd, ended = it.ended)
+                openingStart = it.openingStart, openingEnd = it.openingEnd, ended = it.ended, joinedOn = it.joinedOn)
         }
     }
 

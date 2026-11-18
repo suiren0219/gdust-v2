@@ -45,7 +45,10 @@ data class CoursesUiState(
     val hasSnapshot: Boolean = false,
     val fromCache: Boolean = false,
     val readControl: LearningReadControl = LearningReadControl(),
-)
+    val library: LearningLibrary = LearningLibrary(),
+) {
+    val visible: List<ChxCourse> get() = library.visible(courses)
+}
 
 /** courseId/classId/cpi 一起隔离重名课程、班级和选课身份。 */
 internal fun ChxWorkCourse.cacheKey(): String = "$courseId:$classId:$cpi"
@@ -113,7 +116,11 @@ internal fun learningFailureMessage(error: Exception): String = when (error) {
     else -> "读取未完成，请检查网络后重试。"
 }
 
-internal fun coursesState(overview: ChxCourseOverview, cached: Boolean): CoursesUiState = CoursesUiState(
+internal fun coursesState(
+    overview: ChxCourseOverview,
+    cached: Boolean,
+    library: LearningLibrary = LearningLibrary(),
+): CoursesUiState = CoursesUiState(
     connected = !cached && !overview.progressAuthRequired,
     courses = overview.courses,
     // 未知进度直接显示未知，绝不沿用上一份统计来填充或按作业数推算。
@@ -121,6 +128,7 @@ internal fun coursesState(overview: ChxCourseOverview, cached: Boolean): Courses
     updatedAt = overview.loadedAt,
     hasSnapshot = true,
     fromCache = cached,
+    library = library,
 )
 
 internal enum class WorkFilter(val title: String) { PENDING("待交"), DUE_SOON("临近截止"), SUBMITTED("已交") }

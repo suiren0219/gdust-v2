@@ -222,6 +222,12 @@ class ChxCourseApi(
                 val opening = row.selectFirst("p:matchesOwn(^\\s*开课时间：)")?.ownText()?.trim().orEmpty()
                 val dates = Regex("""开课时间：(\d{4}-\d{2}-\d{2})(?:～(\d{4}-\d{2}-\d{2})?)?""").find(opening)
                 val ended = row.selectFirst("a.not-open-tip") != null
+                val joinedDates = row.select(".course-info p").mapNotNull { element ->
+                    Regex("""^(?:加入时间|选课时间)[：:]\s*(\d{4}-\d{2}-\d{2})(?:\s+\d{2}:\d{2}(?::\d{2})?)?$""")
+                        .matchEntire(element.text().trim())?.groupValues?.get(1)?.let { date ->
+                            runCatching { java.time.LocalDate.parse(date).toString() }.getOrNull()
+                        }
+                }.distinct()
                 // 不运行 onclick，不接受备用域名、额外 query 或与 hidden 不符的标识。
                 val links = row.select("a[href]").mapNotNull {
                     trustedCourseUrl(it.attr("href"), clazzId, courseId, curPersonId)
@@ -230,7 +236,7 @@ class ChxCourseApi(
                 val course = ChxCourse(clazzId, courseId, curPersonId, name, description, links.single(),
                     openingStart = dates?.groupValues?.get(1)?.takeIf { it.isNotEmpty() },
                     openingEnd = dates?.groupValues?.get(2)?.takeIf { it.isNotEmpty() },
-                    ended = ended)
+                    ended = ended, joinedOn = joinedDates.singleOrNull())
                 val existing = courses[course.info]
                 if (existing != null && (existing.courseId != course.courseId || existing.url != course.url)) {
                     throw ChxCourseReadException(UNKNOWN_LIST)

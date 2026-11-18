@@ -23,6 +23,8 @@ data class ChxCourse(
     val openingEnd: String? = null,
     /** 页面明确标注「课程已结束」（not-open-tip），与开课时间无关。 */
     val ended: Boolean = false,
+    /** 仅来自页面明确标注的加入/选课日期；开课时间与首次发现时间不能代替。 */
+    val joinedOn: String? = null,
 ) {
     val info: String get() = "${clazzId}_${curPersonId}"
 

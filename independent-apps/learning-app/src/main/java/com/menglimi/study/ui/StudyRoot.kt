@@ -9,6 +9,7 @@ import com.menglimi.ksu.ui.Glyph
 import com.menglimi.ksu.ui.KsuScaffold
 import com.menglimi.ksu.ui.NavItem
 import com.menglimi.study.learning.CoursesUiState
+import com.menglimi.study.learning.LearningScope
 import com.menglimi.study.learning.LearningUiState
 
 @Composable
@@ -21,6 +22,11 @@ fun StudyRoot(
     onWorkClearError: () -> Unit, onCoursesClearError: () -> Unit,
     onDisconnect: () -> Unit, onClearCache: () -> Unit,
     preview: Boolean = false, onResumeRead: () -> Unit = onWorkRefresh, diagnostic: String? = null,
+    onMoveCourse: (String, String?) -> Unit = { _, _ -> },
+    onCreateFolder: (String) -> Unit = {},
+    onRemoveFolder: (String) -> Unit = {},
+    onSelectScope: (LearningScope, String?) -> Unit = { _, _ -> },
+    onImportCalendar: () -> Unit = {},
 ) {
     BackHandler(tab != 0) { onTab(0) }
     KsuScaffold(tab, onTab, listOf(NavItem("作业", Glyph.BOOK), NavItem("课程", Glyph.CHART), NavItem("设置", Glyph.SETTINGS))) { page ->
@@ -28,7 +34,8 @@ fun StudyRoot(
             0 -> LearningScreen(work, onWorkRefresh, onRetryCourse, onLogin, onOpenPage, onWorkClearError,
                 Modifier.fillMaxSize(), preview, onResumeRead, diagnostic)
             1 -> CoursesScreen(courses, onCoursesRefresh, onLogin, onOpenPage, onCoursesClearError,
-                Modifier.fillMaxSize(), preview, onResumeRead, diagnostic)
+                Modifier.fillMaxSize(), preview, onResumeRead, diagnostic,
+                onMoveCourse, onCreateFolder, onRemoveFolder, onSelectScope, onImportCalendar)
             else -> SettingsScreen(appearance, work, courses, onAppearance, onLogin, onDisconnect, onClearCache,
                 Modifier.fillMaxSize(), preview)
         }

@@ -273,6 +273,67 @@ class LearningControllerTest {
         assertEquals(listOf(second.cacheKey()), restored.state.value.readControl.pendingCourseKeys)
     }
 
+    @Test fun manualFolderSurvivesReloadAndOnlyNarrowsTheNextReadBatch() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val second = workCourse.copy(courseId = 4, name = "第二门")
+        val calls = mutableListOf<Long>()
+        val store = MemoryStore(cached())
+        val controller = LearningController(store, { accountA }, {}, { _, _, _ -> object : LearningBackend {
+            override suspend fun workCourses() = listOf(workCourse, second)
+            override suspend fun works(courses: List<ChxWorkCourse>): List<ChxCourseWorkResult> {
+                calls += courses.single().courseId
+                return listOf(ChxCourseWorkResult.Success(courses.single(), emptyList()))
+            }
+            override suspend fun courses() = ChxCourseOverview(listOf(course), loadedAt = 200)
+        } }, dispatcher, dispatcher)
+        controller.reload()
+        controller.refresh()
+        assertEquals(listOf(1L, 4L), calls)
+        val firstUpdated = store.value!!.courses.single { it.course?.courseId == 4L }.updatedAt
+        assertNull(controller.createFolder("只读这门", null))
+        val folderId = controller.courses.value.library.folders.single().id
+        assertNull(controller.moveCourse(workCourse.cacheKey(), folderId))
+        assertNull(controller.selectCourseScope(LearningScope.FOLDER, folderId))
+        calls.clear()
+        controller.refresh()
+        // 文件夹外的课程不进入本轮读取，但保留上次结果且不计失败。
+        assertEquals(listOf(1L), calls)
+        val kept = store.value!!.courses.single { it.course?.courseId == 4L }
+        assertEquals(firstUpdated, kept.updatedAt)
+        assertNull(kept.failure)
+        assertEquals(folderId, store.value!!.library.assignments[workCourse.cacheKey()])
+        val restored = LearningController(store, { accountA }, {}, { _, _, _ -> backend() }, dispatcher, dispatcher)
+        restored.reload()
+        assertEquals(LearningScope.FOLDER, restored.courses.value.library.scope)
+        assertEquals(folderId, restored.courses.value.library.selectedId)
+        assertEquals(listOf("1"), restored.courses.value.visible.map { it.courseId })
+    }
+
+    @Test fun calendarTermScopeOnlyReadsCoursesWithMatchingJoinDate() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val unknown = workCourse.copy(courseId = 4, name = "无加入时间")
+        val dated = workCourse.copy(courseId = 7, name = "秋季加入", joinedOn = "2026-10-08")
+        val calls = mutableListOf<Long>()
+        val controller = LearningController(MemoryStore(null), { accountA }, {}, { _, _, _ -> object : LearningBackend {
+            override suspend fun workCourses() = listOf(unknown, dated)
+            override suspend fun works(courses: List<ChxWorkCourse>): List<ChxCourseWorkResult> {
+                calls += courses.single().courseId
+                return listOf(ChxCourseWorkResult.Success(courses.single(), emptyList()))
+            }
+            override suspend fun courses() = ChxCourseOverview(emptyList())
+        } }, dispatcher, dispatcher)
+        val backup = """{"app":"gdust-v2","schema":1,"calendar":{"year":"2026","semester":"1","startDate":"2026-10-01","allWeek":14}}"""
+        assertNull(controller.importCalendar(backup))
+        assertNull(controller.selectCourseScope(LearningScope.TERM, "2026_1"))
+        controller.refresh()
+        assertEquals(listOf(7L), calls)
+        // 没有加入时间的课程不会被开课时间或首次发现时间代替，只出现在待确认里。
+        calls.clear()
+        assertNull(controller.selectCourseScope(LearningScope.UNASSIGNED, null))
+        controller.refresh()
+        assertEquals(listOf(4L), calls)
+    }
+
     private fun backend(works: suspend () -> List<ChxCourseWorkResult> = { success("合成新作业") },
                         courses: suspend () -> ChxCourseOverview = { ChxCourseOverview(listOf(course), loadedAt = 200) }): LearningBackend {
         val readWorks = works

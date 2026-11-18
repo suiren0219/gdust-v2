@@ -19,6 +19,7 @@ data class ChxWorkCourse(
     val courseId: Long, val classId: Long, val cpi: Long, val name: String, val url: String,
     /** 课程列表页的可选学期信息；解析不出时为 null，不代表课程已结束或未开课。 */
     val openingStart: String? = null, val openingEnd: String? = null, val ended: Boolean = false,
+    val joinedOn: String? = null,
 ) {
     /** 仅用页面给出的时间判断；开课区间覆盖今天返回 false，完全未知时返回 null。 */
     fun closedAsOf(today: String): Boolean? = when {
@@ -57,7 +58,8 @@ object ChxWorkParser {
 
     /** 与课程展示共用身份和入口校验，未知版式或不完整卡片不能当成没有课程。 */
     fun parseCourses(html: String): List<ChxWorkCourse> = ChxCourseApi.parseCourses(html).map {
-        ChxWorkCourse(it.courseId.toLong(), it.clazzId.toLong(), it.curPersonId.toLong(), it.name, it.url)
+        ChxWorkCourse(it.courseId.toLong(), it.clazzId.toLong(), it.curPersonId.toLong(), it.name, it.url,
+            it.openingStart, it.openingEnd, it.ended, it.joinedOn)
     }
 
     /** 兼容旧调用；生产请求使用 readCourseTabs 保留具体缺失/冲突原因。 */

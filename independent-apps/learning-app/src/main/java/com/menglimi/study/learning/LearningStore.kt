@@ -18,6 +18,7 @@ internal data class LearningSnapshot(
     val workLoaded: Boolean = false,
     val overview: ChxCourseOverview? = null,
     val readControl: LearningReadControl = LearningReadControl(),
+    val library: LearningLibrary = LearningLibrary(),
 )
 
 internal interface LearningPersistence {
@@ -60,6 +61,7 @@ internal object LearningSnapshotCodec {
         addProperty("version", 1)
         addProperty("account", snapshot.account)
         addProperty("workLoaded", snapshot.workLoaded)
+        add("library", LearningLibraryCodec.encode(snapshot.library))
         add("readControl", JsonObject().apply {
             snapshot.readControl.let { control ->
                 control.pause?.let { pause ->
@@ -78,12 +80,17 @@ internal object LearningSnapshotCodec {
                 addProperty("updatedAt", row.updatedAt)
                 addProperty("failure", row.failure)
                 addProperty("authRequired", row.authRequired)
+                addProperty("ended", row.ended)
                 row.course?.let { course -> add("course", JsonObject().apply {
                     addProperty("courseId", course.courseId)
                     addProperty("classId", course.classId)
                     addProperty("cpi", course.cpi)
                     addProperty("name", course.name)
                     addProperty("url", course.url)
+                    addProperty("openingStart", course.openingStart)
+                    addProperty("openingEnd", course.openingEnd)
+                    addProperty("ended", course.ended)
+                    addProperty("joinedOn", course.joinedOn)
                 }) }
                 add("items", JsonArray().apply { row.works.forEach { work -> add(JsonObject().apply {
                     addProperty("key", work.key)
@@ -106,6 +113,10 @@ internal object LearningSnapshotCodec {
                 addProperty("name", course.name)
                 addProperty("description", course.description)
                 addProperty("url", course.url)
+                addProperty("openingStart", course.openingStart)
+                addProperty("openingEnd", course.openingEnd)
+                addProperty("ended", course.ended)
+                addProperty("joinedOn", course.joinedOn)
                 course.progress?.let { progress -> add("progress", JsonObject().apply {
                     addProperty("count", progress.jobCount)
                     addProperty("finished", progress.jobFinishCount)
@@ -125,7 +136,9 @@ internal object LearningSnapshotCodec {
             val key = row.get("key").asString.also { require(it.matches(Regex("[0-9]+:[0-9]+:[0-9]+"))) }
             val course = row.getAsJsonObject("course")?.let {
                 ChxWorkCourse(it.get("courseId").asLong, it.get("classId").asLong, it.get("cpi").asLong,
-                    it.get("name").asString, safeUrl(it.get("url").asString)).also { value ->
+                    it.get("name").asString, safeUrl(it.get("url").asString),
+                    it.dateOrNull("openingStart"), it.dateOrNull("openingEnd"),
+                    it.get("ended")?.asBoolean ?: false, it.dateOrNull("joinedOn")).also { value ->
                     require(value.courseId > 0 && value.classId > 0 && value.cpi > 0 && value.cacheKey() == key)
                 }
             }
@@ -138,7 +151,7 @@ internal object LearningSnapshotCodec {
                     item.get("dueAt").asLong.coerceAtLeast(0), safeUrl(item.get("detailUrl").asString),
                 )
             }.also { require(it.distinctBy(Homework::key).size == it.size) },
-                row.get("updatedAt").asLong.coerceAtLeast(0), course, row.textOrNull("failure"), row.get("authRequired").asBoolean)
+                row.get("updatedAt").asLong.coerceAtLeast(0), course, row.textOrNull("failure"), row.get("authRequired").asBoolean, row.get("ended")?.asBoolean ?: false)
         }.also { require(it.distinctBy(CourseHomework::courseKey).size == it.size) }
         val overview = root.getAsJsonObject("overview")?.let { value ->
             ChxCourseOverview(value.getAsJsonArray("courses").map { element ->
@@ -147,7 +160,9 @@ internal object LearningSnapshotCodec {
                     ChxCourseProgress(it.get("count").asInt, it.get("finished").asInt, it.get("rate").asDouble)
                 }
                 ChxCourse(id(row, "clazzId"), id(row, "courseId"), id(row, "curPersonId"), row.get("name").asString,
-                    row.get("description").asString, safeUrl(row.get("url").asString), progress)
+                    row.get("description").asString, safeUrl(row.get("url").asString), progress,
+                    row.dateOrNull("openingStart"), row.dateOrNull("openingEnd"),
+                    row.get("ended")?.asBoolean ?: false, row.dateOrNull("joinedOn"))
             }.also { require(it.distinctBy(ChxCourse::info).size == it.size) }, value.textOrNull("progressError"),
                 value.get("loadedAt").asLong.coerceAtLeast(0), value.get("progressAuthRequired").asBoolean)
         }
@@ -163,10 +178,14 @@ internal object LearningSnapshotCodec {
                 verificationUrl = value.textOrNull("verificationUrl")?.let(::safeUrl),
             )
         } ?: LearningReadControl()
-        return LearningSnapshot(account, courses, root.get("workLoaded").asBoolean, overview, control)
+        return LearningSnapshot(account, courses, root.get("workLoaded").asBoolean, overview, control,
+            LearningLibraryCodec.decode(root.getAsJsonObject("library")))
     }
 
     private fun JsonObject.textOrNull(name: String): String? = get(name)?.takeUnless { it.isJsonNull }?.asString
+    private fun JsonObject.dateOrNull(name: String): String? = textOrNull(name)?.let {
+        runCatching { java.time.LocalDate.parse(it).toString() }.getOrNull()
+    }
     private fun safeUrl(value: String): String = value.also { require(LearningUrls.trusted(it) != null) }
     private fun id(row: JsonObject, name: String): String = row.get(name).asString.also {
         require(it.all { character -> character in '0'..'9' } && (it.toLongOrNull() ?: 0) > 0)
