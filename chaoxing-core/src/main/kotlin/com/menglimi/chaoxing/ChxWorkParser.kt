@@ -204,8 +204,9 @@ object ChxWorkParser {
                 if (values.size != 1) unknown("$name 参数缺失或重复")
                 return values.single()?.takeIf { it.isNotBlank() } ?: unknown("$name 参数为空")
             }
-            fun id(name: String): Long = parameter(name).let { value ->
-                value.takeIf { it.all { char -> char in '0'..'9' } }?.toLongOrNull()?.takeIf { it > 0 }
+            fun id(name: String, allowZero: Boolean = false): Long = parameter(name).let { value ->
+                value.takeIf { it.all { char -> char in '0'..'9' } }?.toLongOrNull()
+                    ?.takeIf { if (allowZero) it >= 0 else it > 0 }
                     ?: unknown("$name 参数无效")
             }
             val courseId = id("courseId")
@@ -217,12 +218,14 @@ object ChxWorkParser {
                 if (cpi != expectedCourse.cpi) unknown("cpi 与所选课程不符")
             }
             val title = field(".overHidden2, .work-title, .task-title", "标题", titleAttribute = true)
+            // answerId=0 表示尚未提交作答，是合法值，不能当成参数无效。
             val status = when (field(".status, .work-status, .task-status", "status")) {
                 "未交", "未提交" -> "未交"
-                "已完成", "已提交" -> "已完成"
+                // 已提交/已批改/待批阅都表示学生侧已交；待批阅仅说明老师尚未批改。
+                "已完成", "已提交", "待批阅", "已批阅" -> "已完成"
                 else -> unknown("status 字段不支持")
             }
-            val item = ChxWorkItem(title, status, detail.toString(), id("workId"), id("answerId"), parameter("enc"),
+            val item = ChxWorkItem(title, status, detail.toString(), id("workId"), id("answerId", allowZero = true), parameter("enc"),
                 field(".time, .work-time, .task-time", "time", required = false))
             val previous = out.putIfAbsent(item.workId, item)
             if (previous != null && previous != item) unknown("workId 重复且条目冲突")

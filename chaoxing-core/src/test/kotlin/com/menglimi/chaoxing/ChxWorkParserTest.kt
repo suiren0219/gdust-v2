@@ -183,6 +183,35 @@ class ChxWorkParserTest {
         assertNull(ChxWorkParser.parseCourseTabs(tabsHtml, wrongCourse))
     }
 
+    @Test fun workListAcceptsZeroAnswerIdAndPendingReviewStatus() {
+        // 真实样本：模拟电子技术A 的未交作业 answerId=0；公共艺术鉴赏的状态为“待批阅”。
+        fun row(workId: String, answerId: String, status: String, title: String) = """
+            <li onclick="goTask(this);" data="https://mooc1.chaoxing.com/mooc-ans/mooc2/work/task?courseId=111111111&classId=222222222&cpi=333333333&workId=$workId&answerId=$answerId&enc=eeeeeeee111122223333444455556666" aria-label="$title ; $status">
+                <div class="tag work-icon icon-zy-g"></div>
+                <div class="right-content"><p class="overHidden2 fl">$title</p><div class="clear"></div><p class="status fl">$status</p></div>
+            </li>
+        """.trimIndent()
+        val html = "<html><head><title>作业列表</title></head><body><div class=\"main task-list\">" +
+            "<div class=\"bottomList\" aria-label=\"作业列表\"><ul>" +
+            row("57696388", "0", "未交", "模电第九次作业") +
+            row("57447605", "55682586", "待批阅", "作业-建筑") +
+            "</ul></div></div></body></html>"
+        val items = ChxWorkParser.parseWorkList(html)
+        assertEquals(2, items.size)
+        assertEquals("未交", items[0].status)
+        assertEquals(0L, items[0].answerId)
+        assertEquals("已完成", items[1].status)
+        assertEquals(55682586L, items[1].answerId)
+        assertEquals("作业-建筑", items[1].title)
+        // workId=0 仍非法；完全未知状态仍不能冒充成功空列表。
+        assertThrows(ChxCourseReadException::class.java) {
+            ChxWorkParser.parseWorkList(html.replace("workId=57696388", "workId=0"))
+        }
+        assertThrows(ChxCourseReadException::class.java) {
+            ChxWorkParser.parseWorkList(html.replace(">待批阅<", ">未知状态<"))
+        }
+    }
+
     @Test fun workListParsesItemsWithStates() {
         val items = ChxWorkParser.parseWorkList(workListHtml)
         assertEquals(2, items.size)
@@ -236,7 +265,7 @@ class ChxWorkParserTest {
             html.replace("work-status", "unknown-status") to "status",
             html.replace("未提交", "private-status") to "status",
             html.replace("workId=401", "workId=0") to "workId",
-            html.replace("answerId=501", "answerId=0") to "answerId",
+            html.replace("answerId=501", "answerId=-1") to "answerId",
             html.replace("enc=synthetic-pending", "missing=private-enc") to "enc",
             html.replace("courseId=201", "courseId=999") to "courseId",
             html.replace("classId=101", "classId=999") to "classId",
