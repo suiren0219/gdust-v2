@@ -164,11 +164,14 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
         key(screen) {
             when (screen) {
                 "today" -> TodayScreen(
+                    repo = repo,
                     calendar = calendar,
                     blocks = blocks,
                     onOpenNotices = offlineAction,
                     onOpenSchedule = { tab = 1; screen = "schedule" },
                     onImport = offlineAction,
+                    onOpenServices = offlineAction,
+                    onService = { offlineAction() },
                     hasImportedSchedule = true,
                 )
                 "schedule" -> ScheduleScreen(
