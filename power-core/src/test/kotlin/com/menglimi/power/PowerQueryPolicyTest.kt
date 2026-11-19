@@ -22,9 +22,9 @@ class PowerQueryPolicyTest {
     private fun next(now: Long, last: Long = 0, attempt: Long = 0, interval: Int? = 120) =
         PowerQueryPolicy.nextSampleAt(now, last, attempt, interval, start, end, zone)
 
-    @Test fun unknownPresetUsesBalancedDefault() {
-        assertEquals(PowerQueryPreset.BALANCED, PowerQueryPreset.fromKey(null))
-        assertEquals(PowerQueryPreset.BALANCED, PowerQueryPreset.fromKey("unsupported"))
+    @Test fun unknownPresetFallsBackToManualInsteadOfEnablingBackground() {
+        assertEquals(PowerQueryPreset.MANUAL, PowerQueryPreset.fromKey(null))
+        assertEquals(PowerQueryPreset.MANUAL, PowerQueryPreset.fromKey("unsupported"))
         assertEquals(PowerQueryPreset.CUSTOM, PowerQueryPreset.fromKey("custom"))
     }
 

@@ -31,7 +31,9 @@ class PowerPresentationTest {
 
     @Test fun expiredOrFailedCachedReadingIsNeverLabelledHealthy() {
         assertEquals(ReadingStatus.READY, readingStatus(state(), now))
-        assertEquals(ReadingStatus.STALE, readingStatus(state(age = 120 * 60_000), now))
+        // 默认已是手动（24 小时有效），按查询节奏过期要用显式均衡配置验证。
+        val balanced = state(age = 120 * 60_000).copy(config = PowerMonitorConfig(binding, PowerQueryPreset.BALANCED))
+        assertEquals(ReadingStatus.STALE, readingStatus(balanced, now))
         assertEquals(ReadingStatus.STALE, readingStatus(state(age = -60_000), now))
         assertEquals(ReadingStatus.ERROR, readingStatus(state().copy(error = "synthetic failure"), now))
         val pendingFailure = state().copy(lastAttemptAt = now - 180_000)
