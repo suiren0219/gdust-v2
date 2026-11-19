@@ -150,26 +150,6 @@ class WidgetPresentationTest {
         assertFalse(stats!!.startLabel.contains(":"))
     }
 
-    @Test
-    fun powerUpdatedLabelPrioritizesRefreshAndErrorState() {
-        val base = data(WidgetData.Scope.NO_DATA, emptyList())
-        assertEquals("尚无采样", WidgetPresentation.updatedLabel(base))
-        assertEquals("正在刷新…", WidgetPresentation.updatedLabel(base.copy(powerRefreshRunning = true)))
-        assertEquals("刷新失败，请稍后重试", WidgetPresentation.updatedLabel(base.copy(
-            powerRefreshRunning = true, powerRefreshStatus = "刷新失败，请稍后重试",
-        )))
-        val sampled = base.copy(lastSampleAt = ms(LocalDate.of(2026, 11, 14), 11))
-        assertEquals("更新于 11:00", WidgetPresentation.updatedLabel(sampled))
-    }
-
-    @Test
-    fun clickedWidgetRefreshReportsManualAndSystemBlockedStates() {
-        val base = data(WidgetData.Scope.NO_DATA, emptyList())
-        assertEquals("正在刷新…", WidgetPresentation.updatedLabel(base.copy(powerRefreshRunning = true)))
-        assertEquals("刷新任务未能启动", WidgetPresentation.updatedLabel(base.copy(powerRefreshStatus = "刷新任务未能启动")))
-        assertEquals("请先在宿舍电量页绑定房间", WidgetPresentation.updatedLabel(base.copy(powerRefreshStatus = "请先在宿舍电量页绑定房间")))
-    }
-
     // ── 待办排序 ────────────────────────────────────────────────────────────
 
     @Test

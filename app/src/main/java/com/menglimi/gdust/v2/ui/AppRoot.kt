@@ -1,28 +1,10 @@
 package com.menglimi.gdust.v2.ui
 
-import androidx.compose.ui.graphics.Color
-import com.haooz.softglass.backdrop.drawBackdrop
-import com.haooz.softglass.backdrop.effects.blur
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import com.haooz.softglass.backdrop.backdrops.layerBackdrop
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,9 +15,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
@@ -49,8 +28,11 @@ import com.menglimi.gdust.v2.ui.screens.SettingsScreen
 import com.menglimi.gdust.v2.ui.screens.TermImportScreen
 import com.menglimi.gdust.v2.ui.screens.TodayScreen
 import com.menglimi.gdust.v2.ui.screens.TodoScreen
+import com.menglimi.gdust.v2.ui.screens.WidgetPreviewScreen
 import com.menglimi.gdust.v2.ui.screens.ProfileScreen
 import com.menglimi.gdust.v2.ui.screens.AboutScreen
+import com.menglimi.gdust.v2.ui.screens.CampusService
+import com.menglimi.gdust.v2.ui.screens.CampusServicesScreen
 import com.menglimi.gdust.v2.ui.screens.NoticeScreen
 import com.menglimi.gdust.v2.ui.screens.ReminderScreen
 import com.menglimi.gdust.v2.ui.screens.ChxNotificationScreen
@@ -58,9 +40,6 @@ import com.menglimi.gdust.v2.ui.screens.ChxEntryScreen
 import com.menglimi.gdust.v2.ui.screens.ChxCoursesScreen
 import com.menglimi.gdust.v2.ui.screens.ChxWebActivity
 import com.menglimi.gdust.v2.ui.screens.GradesScreen
-import com.menglimi.gdust.v2.ui.screens.CampusService
-import com.menglimi.gdust.v2.ui.screens.CampusServicesScreen
-import com.menglimi.gdust.v2.ui.screens.WidgetPreviewScreen
 import com.menglimi.gdust.v2.data.ChxSso
 import com.menglimi.gdust.v2.data.Notice
 import com.menglimi.gdust.v2.data.NoticeFeed
@@ -88,10 +67,9 @@ fun AppRoot(
     showSettings: androidx.compose.runtime.MutableState<Boolean>,
     loggedIn: androidx.compose.runtime.MutableState<Boolean>,
     checked: androidx.compose.runtime.MutableState<Boolean>,
-    monetEnabled: androidx.compose.runtime.MutableState<Boolean>,
 ) {
     val scope = rememberCoroutineScope()
-    // loggedIn/checked 由 MainActivity（主题树外）持有：切风格重建主题树也不丢
+    // 登录与启动状态由 MainActivity 保存，配置重建后保留。
 
     var calendar by remember { mutableStateOf<CalendarInfo?>(repo.store.loadCalendar()) }
     var blocks by remember { mutableStateOf<List<CourseBlock>>(repo.store.loadBlocks()) }
@@ -102,7 +80,6 @@ fun AppRoot(
     var showWebImport by remember { mutableStateOf(false) }
     var webImportReport by remember { mutableStateOf<String?>(null) }
     var directFallbackMessage by remember { mutableStateOf<String?>(null) }
-    var wallpaperTick by remember { mutableStateOf(0) }
     var showProfile by remember { mutableStateOf(false) }
     var showNotices by remember { mutableStateOf(false) }
     var showReminder by remember { mutableStateOf(false) }
@@ -111,8 +88,8 @@ fun AppRoot(
     var showChxEntry by remember { mutableStateOf(false) }
     var showGrades by remember { mutableStateOf(false) }
     var showChxCourses by remember { mutableStateOf(false) }
+    var showWidgets by remember { mutableStateOf(false) }
     var webReturnVersion by remember { mutableIntStateOf(0) }
-    var showGlassEffect by remember { mutableStateOf(false) }
     val sessionVersion by repo.sessionVersion.collectAsState()
     val noticeFeed = remember(repo) { NoticeFeed(repo::portalSession, repo::notices) }
     val noticeState by noticeFeed.state.collectAsState()
@@ -125,9 +102,7 @@ fun AppRoot(
     var loggingOut by remember { mutableStateOf(false) }
     var logoutFailed by remember { mutableStateOf(repo.store.webLogoutPending) }
     var showAbout by remember { mutableStateOf(false) }
-    var showServices by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var showWidgets by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var showLogin by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var showServices by remember { mutableStateOf(false) }
     // 免责声明：普通 prefs 不触发重组，用状态控制弹窗，确认后写盘不再出现。
     var disclaimerShown by remember { mutableStateOf(!repo.store.disclaimerAccepted) }
 
@@ -174,9 +149,7 @@ fun AppRoot(
     val openSection = remember { mutableStateOf<String?>(null) }
     val hasAccount = repo.store.hasSession || repo.store.casTicket.isNotBlank() || repo.hasTeachingSession()
 
-    fun openLogin() {
-        showLogin = true
-    }
+    fun loadNotices() { noticeFeed.refresh(scope) }
 
     fun openCampusService(service: CampusService) {
         when (service) {
@@ -186,20 +159,17 @@ fun AppRoot(
             CampusService.GRADES -> showGrades = true
             CampusService.CHX_COURSES -> showChxCourses = true
             CampusService.IMPORT -> showWebImport = true
-            CampusService.NOTICES -> { showNotices = true; noticeFeed.refresh(scope) }
+            CampusService.NOTICES -> { showNotices = true; loadNotices() }
             CampusService.FIVE_EDUCATION -> openServiceWeb("http://172.16.1.232/index")
             CampusService.LESSON_REMINDER -> showReminder = true
             CampusService.TODO_REMINDER -> showTodoReminder = true
             CampusService.WIDGETS -> showWidgets = true
             CampusService.CHX_LINK -> showChxEntry = true
             CampusService.CHX_NOTIFICATIONS -> showChxNotifications = true
-            CampusService.SUMMARY -> {
-                openSection.value = if (repo.store.hasLlm) "summary" else "llm"
-                showSettings.value = true
-            }
-            CampusService.SETTINGS -> showSettings.value = true
+            CampusService.SUMMARY, CampusService.SETTINGS -> showSettings.value = true
         }
     }
+
 
     fun sync() {
         if (syncing) return
@@ -256,8 +226,6 @@ fun AppRoot(
         }
     }
 
-    fun loadNotices() { noticeFeed.refresh(scope) }
-
     fun logout() {
         if (loggingOut) return
         loggingOut = true
@@ -279,8 +247,6 @@ fun AppRoot(
         showGrades = false
         showChxCourses = false
         showProfile = false
-        showServices = false
-        showWidgets = false
         showSettings.value = false
         loggedIn.value = false
         scope.launch {
@@ -327,13 +293,9 @@ fun AppRoot(
         if (teachingReady && stale && repo.store.autoSyncEnabled) sync()
     }
 
-    val pageStateHolder = androidx.compose.runtime.key(sessionVersion) {
-        androidx.compose.runtime.saveable.rememberSaveableStateHolder()
-    }
     Crossfade(
         targetState = when {
             !checked.value -> "loading"
-            showLogin -> "login"
             showWebImport -> "web_import"
             showGrades -> "grades"
             showChxCourses -> "chx_courses"
@@ -342,7 +304,6 @@ fun AppRoot(
             showTodoReminder -> "todo_reminder"
             showChxNotifications -> "chx_notifications"
             showChxEntry -> "chx_entry"
-            showGlassEffect -> "glass_effect"
             showProfile -> "profile"
             showAbout -> "about"
             showWidgets -> "widgets"
@@ -354,7 +315,6 @@ fun AppRoot(
         animationSpec = tween(220),
         label = "root",
     ) { state ->
-        pageStateHolder.SaveableStateProvider(state) {
         when (state) {
             "web_import" -> {
                 androidx.activity.compose.BackHandler { showWebImport = false }
@@ -365,7 +325,6 @@ fun AppRoot(
                         calendar = cal
                         blocks = list
                         showWebImport = false
-                        showServices = false
                         showSettings.value = false
                         loggedIn.value = true
                         tab.intValue = 1
@@ -398,10 +357,6 @@ fun AppRoot(
                 ChxEntryScreen(repo = repo, onBack = { showChxEntry = false },
                     onCourses = { showChxCourses = true })
             }
-            "glass_effect" -> {
-                androidx.activity.compose.BackHandler { showGlassEffect = false }
-                com.menglimi.gdust.v2.ui.screens.GlassEffectScreen(repo = repo, onBack = { showGlassEffect = false })
-            }
             "notices" -> {
                 androidx.activity.compose.BackHandler { showNotices = false }
                 NoticeScreen(
@@ -433,24 +388,21 @@ fun AppRoot(
             "services" -> CampusServicesScreen(
                 signedIn = hasAccount,
                 accountName = repo.store.realName,
-                onLogin = ::openLogin,
+                onLogin = { showServices = false; showSettings.value = false; loggedIn.value = false },
                 onOpen = ::openCampusService,
                 onBack = { showServices = false },
             )
-            "login" -> {
-                androidx.activity.compose.BackHandler(enabled = showLogin) { showLogin = false }
-                LoginScreen(
-                    repo = repo,
-                    onLoggedIn = {
-                        showLogin = false
-                        loggedIn.value = true
-                        runCatching { com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(context) }
-                        sync()
-                    },
-                    onOpenSettings = { showLogin = false; showSettings.value = true },
-                    onPreview = { showLogin = false; loggedIn.value = true },
-                )
-            }
+            "login" -> LoginScreen(
+                repo = repo,
+                onLoggedIn = {
+                    loggedIn.value = true
+                    // 登录成功即开启定时同步
+                    runCatching { com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(context) }
+                    sync()
+                },
+                onOpenSettings = { showSettings.value = true },
+                onPreview = { loggedIn.value = true },
+            )
             "settings" -> SettingsScreen(
                 repo = repo,
                 syncError = syncError,
@@ -464,7 +416,6 @@ fun AppRoot(
                 onChxCourses = { showChxCourses = true },
                 onSchoolNotices = { showNotices = true; loadNotices() },
                 onFiveEducation = { openServiceWeb("http://172.16.1.232/index") },
-                onWallpaperChanged = { wallpaperTick++ },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },
                 onExportBackup = exportLauncher,
@@ -475,19 +426,14 @@ fun AppRoot(
                         .onSuccess { result ->
                             calendar = repo.store.loadCalendar()
                             blocks = repo.store.loadBlocks()
-                            monetEnabled.value = repo.store.monetEnabled
-                            wallpaperTick++
                             syncError = null
                             importReport = "备份已恢复：$result"
                         }
                         .onFailure { syncError = it.message ?: "导入失败" }
                 },
                 onLogout = { logout() },
-                onLogin = ::openLogin,
-                onWidgets = { showWidgets = true },
-                loggedIn = hasAccount,
+                loggedIn = loggedIn.value,
                 chxSessionSaved = chxSessionSaved,
-                monetEnabled = monetEnabled,
                 openSection = openSection,
                 syncing = syncing,
                 onBack = { showSettings.value = false },
@@ -497,18 +443,12 @@ fun AppRoot(
                 tab = tab.intValue,
                 onTab = { tab.intValue = it },
                 onSettings = { showSettings.value = true },
-                onServices = { showServices = true },
+                onOpenServices = { showServices = true },
                 onService = ::openCampusService,
-                onLogin = ::openLogin,
-                signedIn = hasAccount,
-                onSync = ::sync,
-                syncing = syncing,
+                onOpenNotices = { showNotices = true; loadNotices() },
+                notices = notices,
                 unreadCount = notices.count { it.readId !in readNoticeIds },
-                noticesLoading = noticesLoading,
-                noticesError = noticesError,
-                noticesUpdatedAt = noticeState.updatedAt,
                 onImport = { showWebImport = true },
-                onGlassEffect = { showGlassEffect = true },
                 calendar = calendar,
                 blocks = blocks,
                 syncError = syncError,
@@ -523,10 +463,8 @@ fun AppRoot(
                         sync()
                     }
                 },
-                wallpaperTick = wallpaperTick,
             )
             else -> Box(Modifier.fillMaxSize().background(LocalDs.current.bg))
-        }
         }
     }
 
@@ -603,114 +541,58 @@ private fun MainScaffold(
     tab: Int,
     onTab: (Int) -> Unit,
     onSettings: () -> Unit,
-    onServices: () -> Unit,
+    onOpenServices: () -> Unit,
     onService: (CampusService) -> Unit,
-    onLogin: () -> Unit,
-    signedIn: Boolean,
-    onSync: () -> Unit,
-    syncing: Boolean,
-    unreadCount: Int,
-    noticesLoading: Boolean,
-    noticesError: String?,
-    noticesUpdatedAt: Long,
+    onOpenNotices: () -> Unit = {},
+    notices: List<Notice> = emptyList(),
+    unreadCount: Int = 0,
     calendar: CalendarInfo?,
     blocks: List<CourseBlock>,
     syncError: String?,
     onSwitchTerm: (String) -> Unit = {},
-    wallpaperTick: Int = 0,
     onImport: () -> Unit = {},
-    onGlassEffect: () -> Unit = {},
 ) {
     val ds = LocalDs.current
-    // 壁纸：路径非空即启用；页面底色转透明，让壁纸透出来（tick 变化时重读）
-    val wallpaperPath = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperPath }
-    val wallpaperOn = wallpaperPath.isNotBlank()
-    androidx.compose.runtime.CompositionLocalProvider(LocalWallpaperActive provides wallpaperOn) {
-        // 新底栏是液态玻璃：内容层要先录进 layer backdrop，玻璃才有东西可采样
-        val glassBackdrop = com.haooz.softglass.backdrop.backdrops.rememberLayerBackdrop()
-        // 课程卡/顶栏的玻璃都采样这一层（单层，避免双录制把 RenderThread 干崩）
-        androidx.compose.runtime.CompositionLocalProvider(
-            com.menglimi.gdust.v2.ui.nexio.LocalPageLayerBackdrop provides glassBackdrop,
-        ) {
-        Box(Modifier.fillMaxSize()) {
-            // 采样层只录壁纸（卡片/顶栏在页面里采样它；录页面会形成 GPU 自采样反馈回路 → RenderThread SIGSEGV）
-            if (wallpaperOn) {
-                Box(Modifier.fillMaxSize().layerBackdrop(glassBackdrop)) {
-                    WallpaperBackdrop(
-                        path = wallpaperPath,
-                        blurDp = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperBlur },
-                        dim = androidx.compose.runtime.remember(wallpaperTick) { repo.store.wallpaperDim },
-                    )
-                }
-            } else {
-                Box(Modifier.fillMaxSize().background(ds.bg))
+    Box(Modifier.fillMaxSize().background(ds.bg)) {
+        Crossfade(
+            targetState = tab,
+            animationSpec = tween(220),
+            label = "tabs",
+            modifier = Modifier.fillMaxSize(),
+        ) { page ->
+            when (page) {
+                0 -> TodayScreen(
+                    repo = repo,
+                    calendar = calendar,
+                    blocks = blocks,
+                    onOpenNotices = onOpenNotices,
+                    unreadCount = unreadCount,
+                    onOpenSchedule = { onTab(1) },
+                    onImport = onImport,
+                    onOpenServices = onOpenServices,
+                    onService = onService,
+                    hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
+                )
+                1 -> ScheduleScreen(
+                    repo = repo,
+                    calendar = calendar,
+                    blocks = blocks,
+                    syncError = syncError,
+                    onPrevWeek = {},
+                    onNextWeek = {},
+                    onSwitchTerm = onSwitchTerm,
+                    fullTermImported = repo.store.scheduleSource == "zf_term",
+                    onImport = onImport,
+                )
+                2 -> PowerScreen(repo)
+                else -> TodoScreen(repo)
             }
-            Box(Modifier.fillMaxSize()) {
-            val tabStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
-            Crossfade(
-                targetState = tab,
-                animationSpec = tween(220),
-                label = "tabs",
-                modifier = Modifier.fillMaxSize(),
-            ) { page ->
-                tabStateHolder.SaveableStateProvider(page) {
-                when (page) {
-                    0 -> TodayScreen(
-                        repo = repo,
-                        calendar = calendar,
-                        blocks = blocks,
-                        unreadCount = unreadCount,
-                        noticesLoading = noticesLoading,
-                        noticesError = noticesError,
-                        noticesUpdatedAt = noticesUpdatedAt,
-                        onOpenSchedule = { onTab(1) },
-                        onImport = onImport,
-                        onServices = onServices,
-                        onService = onService,
-                        onSettings = onSettings,
-                        onLogin = onLogin,
-                        signedIn = signedIn,
-                        onSync = onSync,
-                        syncing = syncing,
-                        syncError = syncError,
-                        hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
-                    )
-                    1 -> {
-                        // 固定节次网格沿用原字号，其余页面尊重系统字体设置。
-                        val density = androidx.compose.ui.platform.LocalDensity.current
-                        androidx.compose.runtime.CompositionLocalProvider(
-                            androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 1f),
-                        ) {
-                            ScheduleScreen(
-                                repo = repo,
-                                calendar = calendar,
-                                blocks = blocks,
-                                syncError = syncError,
-                                onPrevWeek = {},
-                                onNextWeek = {},
-                                onSwitchTerm = onSwitchTerm,
-                                fullTermImported = repo.store.scheduleSource == "zf_term",
-                                onImport = onImport,
-                                onGlassEffect = onGlassEffect,
-                            )
-                        }
-                    }
-                    2 -> PowerScreen(repo)
-                    else -> TodoScreen(repo)
-                }
-                }
-            }
-            }
-
-        // 新 UI：Nexio 式浮动液态玻璃底栏（四个 tab + 设置）
-            com.menglimi.gdust.v2.ui.nexio.NexioBottomBar(
-                selectedTab = tab,
-                onTabSelected = onTab,
-                onSettings = onSettings,
-                backdrop = glassBackdrop,
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
         }
-        }
+        com.menglimi.gdust.v2.ui.nexio.NexioBottomBar(
+            selectedTab = tab,
+            onTabSelected = onTab,
+            onSettings = onSettings,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }

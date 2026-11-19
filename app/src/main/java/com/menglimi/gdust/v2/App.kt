@@ -44,9 +44,8 @@ class App : Application() {
         // 加密存储初始化较重（读 keystore 100–500ms）：挪到后台线程预热，主线程不再卡
         Thread { repo.store.warmSecure() }.start()
         repo.store.publishPowerWorkerConfig()
-        if (com.menglimi.gdust.v2.work.PowerCollectionPolicy.shouldSchedule(
-                repo.store.powerAutoCollectEnabled, repo.store.hasPowerBinding,
-            )) {
+        // 省电：水电预警只在绑定了宿舍电号时才需要后台巡检——没绑定不排程（原来无条件 15 分钟唤醒）
+        if (repo.store.hasPowerBinding) {
             com.menglimi.gdust.v2.work.PowerWorker.schedule(this)
         } else {
             com.menglimi.gdust.v2.work.PowerWorker.cancel(this)

@@ -5,40 +5,40 @@
     android:background="@drawable/preview_glass"
     android:orientation="vertical"
     android:padding="12dp">
-    <TextView
+    <TextView android:maxLines="1" android:ellipsize="end"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="待办"
-        android:textSize="10sp"
-        android:textColor="#B7BAC1" />
+        android:textSize="11sp"
+        android:textColor="@color/widget_sub" />
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal">
-    <TextView
+    <TextView android:maxLines="1" android:ellipsize="end"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="4"
         android:textSize="26sp"
-        android:textColor="#F2F2F7" android:textStyle="bold" />
-    <TextView
+        android:textColor="@color/widget_text" android:textStyle="bold" />
+    <TextView android:maxLines="1" android:ellipsize="end"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text=" 项"
-        android:textSize="10sp"
-        android:textColor="#B7BAC1" />
+        android:textSize="11sp"
+        android:textColor="@color/widget_sub" />
     </LinearLayout>
     <View android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
-    <TextView
+    <TextView android:maxLines="1" android:ellipsize="end"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="高数期中考试（A栋101）"
-        android:textSize="10sp"
-        android:textColor="#F2F2F7" />
-    <TextView
+        android:textSize="11sp"
+        android:textColor="@color/widget_text" />
+    <TextView android:maxLines="1" android:ellipsize="end"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="今天 14:20"
-        android:textSize="9sp"
-        android:textColor="#B7BAC1" />
+        android:textSize="11sp"
+        android:textColor="@color/widget_sub" />
 </LinearLayout>

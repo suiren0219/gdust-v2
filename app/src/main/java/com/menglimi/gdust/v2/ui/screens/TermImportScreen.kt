@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -124,7 +125,7 @@ fun TermImportScreen(
                 Text(
                     "这是兼容备用路线：在网页里登录教务后读取原始周次。\n" +
                         "扫码登录不用走这里——回登录页点「生成登录二维码」，直接、免验证码。",
-                    color = ds.sub, fontSize = 13.sp, lineHeight = 18.sp,
+                    color = ds.sub, fontSize = 13.sp, lineHeight = 20.sp,
                 )
                 // 学习通联动时登录过教务网页的话，这里可以直接读取，不必再登录一次
                 if (remember {
@@ -135,18 +136,21 @@ fun TermImportScreen(
                     Spacer(Modifier.height(10.dp))
                     Text(
                         "检测到已保存的学校认证会话，打开后可直接「读取学期课表」。",
-                        color = ds.accent, fontSize = 12.sp, lineHeight = 17.sp,
+                        color = ds.accent, fontSize = 13.sp, lineHeight = 20.sp,
                     )
                 }
-                Spacer(Modifier.height(16.dp))
-                InputField(year, { year = it }, "起始学年，如 2026", KeyboardType.Number)
-                Spacer(Modifier.height(10.dp))
-                SegmentedChoice(listOf("3" to "第一学期", "12" to "第二学期"), semester, { semester = it })
-                Spacer(Modifier.height(10.dp))
-                InputField(start, { start = it }, "第一周周一，如 2026-08-31")
-                Spacer(Modifier.height(10.dp))
-                InputField(weeks, { weeks = it }, "学期总周数", KeyboardType.Number)
-                Spacer(Modifier.height(16.dp))
+                SectionHeader("学期设置")
+                SettingGroup {
+                    SettingEditor {
+                        Text("起始学年", color = ds.sub, fontSize = 13.sp)
+                        InputField(year, { year = it }, "起始学年，如 2026", KeyboardType.Number)
+                        SegmentedChoice(listOf("3" to "第一学期", "12" to "第二学期"), semester, { semester = it })
+                        Text("第一周周一", color = ds.sub, fontSize = 13.sp)
+                        InputField(start, { start = it }, "第一周周一，如 2026-08-31")
+                        Text("学期总周数", color = ds.sub, fontSize = 13.sp)
+                        InputField(weeks, { weeks = it }, "学期总周数", KeyboardType.Number)
+                    }
+                }
                 Button("登录教务并导入") {
                     runCatching {
                         require(year.matches(Regex("[0-9]{4}"))) { "请输入四位起始学年（如 2026）" }
@@ -163,7 +167,7 @@ fun TermImportScreen(
                         message = "正在打开学校门户…请在门户里进入教务系统，再点下方读取学期课表。"
                     }.onFailure { message = it.message ?: "学期设置无效" }
                 }
-                if (message.isNotEmpty()) Text(message, color = ds.danger, fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp))
+                if (message.isNotEmpty()) Text(message, color = ds.danger, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
             }
         }
     }
@@ -178,8 +182,8 @@ fun TermImportScreen(
                     page.contains("gkjx.gdust.edu.cn") || page.contains("172.16.254.1") -> "教务系统直连"
                     else -> "学校门户"
                 }}",
-                color = ds.text, fontSize = 16.sp,
-                modifier = Modifier.padding(vertical = 10.dp),
+                color = ds.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(vertical = 12.dp),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) { Button("返回") { onBack() } }
@@ -189,10 +193,10 @@ fun TermImportScreen(
             Text(
                 "校园网内请用「学校门户」（WebVPN 会拒绝校园网 IP）；校外网络才点 WebVPN。\n" +
                     "要扫码登录请回登录页用 App 自带的二维码——这个网页不提供扫码。",
-                color = ds.sub, fontSize = 11.sp, lineHeight = 15.sp,
+                color = ds.sub, fontSize = 13.sp, lineHeight = 20.sp,
                 modifier = Modifier.padding(top = 4.dp),
             )
-            Text(runCatching { URI(page).host }.getOrNull().orEmpty(), color = ds.sub, fontSize = 11.sp)
+            Text(runCatching { URI(page).host }.getOrNull().orEmpty(), color = ds.sub, fontSize = 13.sp)
             AndroidView(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 factory = { context ->
@@ -319,7 +323,7 @@ fun TermImportScreen(
                     message = "学校页面加载较慢或没有响应。可点「学校门户」重试；若显示「当前 IP 属于校园网」，属正常，请从门户进入教务系统。"
                 }
             }
-            Text(message, color = ds.sub, fontSize = 12.sp, modifier = Modifier.padding(vertical = 6.dp))
+            Text(message, color = ds.sub, fontSize = 13.sp, modifier = Modifier.padding(vertical = 6.dp))
             Button(if (busy) "正在读取…" else "读取学期课表", enabled = !busy) {
                 val uri = runCatching { URI(web?.url.orEmpty()) }.getOrNull()
                 val host = uri?.host.orEmpty().lowercase()

@@ -175,23 +175,6 @@ object WidgetPresentation {
         )
     }
 
-    fun updatedLabel(data: WidgetData): String = when {
-        data.powerRefreshStatus.isNotBlank() && data.powerRefreshStatus != "正在刷新…" -> data.powerRefreshStatus
-        data.powerRefreshRunning -> "正在刷新…"
-        data.powerRefreshStatus.isNotBlank() -> data.powerRefreshStatus
-        data.lastSampleAt <= 0L -> "尚无采样"
-        else -> {
-            val zone = ZoneId.systemDefault()
-            val sampleTime = Instant.ofEpochMilli(data.lastSampleAt).atZone(zone)
-            val ageMin = ChronoUnit.MINUTES.between(sampleTime, data.now.atZone(zone))
-            when {
-                ageMin < 1 -> "刚刚更新"
-                ageMin < 24 * 60 -> "更新于 ${TIME_FMT.format(sampleTime)}"
-                else -> "更新于 ${DATE_FMT.format(sampleTime)}"
-            }
-        }
-    }
-
     /** 速率一行文案，如「↓0.3 度/时」；无速率返回空。 */
     fun rateLabel(stats: TrendStats?): String = stats?.ratePerHour?.let { r ->
         (if (r < 0) "↓" else "↑") + "%.1f".format(kotlin.math.abs(r)) + " 度/时"

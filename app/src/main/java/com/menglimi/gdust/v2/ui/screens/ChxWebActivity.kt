@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,7 +52,6 @@ import com.menglimi.gdust.v2.data.ChxWebSession
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.AppTheme
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.rememberUiStyle
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
@@ -95,14 +95,15 @@ class ChxWebActivity : ComponentActivity() {
         configure(web)
         onBackPressedDispatcher.addCallback(this) { navigateBack() }
         setContent {
-            AppTheme(rememberUiStyle(repo.store), monetEnabled = repo.store.monetEnabled) {
+            AppTheme {
                 val ds = LocalDs.current
                 Column(Modifier.fillMaxSize().background(ds.bg).safeDrawingPadding().imePadding()) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = ::navigateBack, modifier = Modifier.size(48.dp)) {
                             Icon(MiuixIcons.Back, "返回上一页", Modifier.size(24.dp), tint = ds.text)
                         }
-                        Text(hostLabel, color = ds.text, fontSize = 14.sp, maxLines = 2,
+                        Text(hostLabel, color = ds.text, fontSize = 17.sp, fontWeight = FontWeight.Medium, maxLines = 2,
                             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         IconButton(onClick = ::reloadPage, modifier = Modifier.size(48.dp)) {
                             Icon(MiuixIcons.Refresh, "重新加载网页", Modifier.size(24.dp), tint = ds.text)
@@ -117,9 +118,9 @@ class ChxWebActivity : ComponentActivity() {
                     }
                     if (pageMessage.isNotBlank() || pageError != null) {
                         Column(Modifier.fillMaxWidth().heightIn(max = 144.dp).verticalScroll(rememberScrollState())
-                            .padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            .padding(horizontal = 16.dp, vertical = 12.dp)) {
                             Text(pageError ?: pageMessage, color = if (pageError != null) ds.danger else ds.sub,
-                                fontSize = 13.sp, lineHeight = 18.sp)
+                                fontSize = 13.sp, lineHeight = 20.sp)
                         }
                     }
                     AndroidView(factory = { web }, modifier = Modifier.fillMaxWidth().weight(1f),

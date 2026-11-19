@@ -42,10 +42,10 @@ import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.AuthFailed
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.data.isNetworkDown
+import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.LocalUiStyle
-import com.menglimi.gdust.v2.ui.UiStyle
+import com.menglimi.gdust.v2.ui.pageBackground
 import kotlinx.coroutines.launch
 
 @Composable
@@ -84,17 +84,17 @@ fun LoginScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .background(ds.bg)
+            .background(pageBackground())
             .statusBarsPadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = AppUiTokens.PagePadding),
     ) {
         Spacer(Modifier.height(52.dp))
         PageTitle(title = "广科课程表", subtitle = "课表 · 电费 · 待办 · 通知总结")
 
         GlassCard {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("统一身份认证登录", fontSize = 15.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = ds.text)
+                Text("统一身份认证登录", fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = ds.text)
                 InputField(account, { account = it }, "学号", KeyboardType.Number)
                 InputField(password, { password = it }, "密码", visual = PasswordVisualTransformation())
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -103,13 +103,13 @@ fun LoginScreen(
                         Modifier
                             .width(112.dp)
                             .height(46.dp)
-                            .background(ds.bg, androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                            .background(ds.bg, androidx.compose.foundation.shape.RoundedCornerShape(AppUiTokens.ItemCorner))
                             .clickable { seed++ },
                         contentAlignment = Alignment.Center,
                     ) {
                         captcha?.let {
                             Image(it, "验证码", contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize())
-                        } ?: Text("点击加载", fontSize = 11.sp, color = ds.sub)
+                        } ?: Text("点击加载", fontSize = 13.sp, color = ds.sub)
                     }
                 }
                 Button("登录并同步", enabled = !busy && account.isNotBlank() && password.isNotBlank() && code.isNotBlank()) {
@@ -142,7 +142,7 @@ fun LoginScreen(
 
         Text(
             "本机直连学校系统，不经过任何服务器；\n密码不落盘，只保存登录凭证与水电脑号。",
-            fontSize = 11.sp,
+            fontSize = 13.sp,
             color = ds.sub,
             modifier = Modifier.padding(top = 20.dp),
         )
@@ -156,28 +156,14 @@ fun LoginScreen(
                 .clickable { onPreview() },
         )
 
-        // 未登录也能进设置（外观/关于等，先看再登录）
+        // 未登录也能进入设置和关于页。
         Text(
-            text = "设置与外观 ›",
+            text = "设置 ›",
             fontSize = 13.sp,
             color = ds.accent,
             modifier = Modifier
                 .padding(top = 10.dp)
                 .clickable { onOpenSettings() },
-        )
-
-        // 未登录也能切换两套 UI 风格（两套引擎完整适配）
-        val styleState = LocalUiStyle.current
-        Text(
-            text = if (styleState.value == UiStyle.SOFT) "当前：柔光玻璃 · 点此换液态玻璃"
-            else "当前：液态玻璃 · 点此换柔光玻璃",
-            fontSize = 13.sp,
-            color = ds.accent,
-            modifier = Modifier
-                .padding(top = 12.dp)
-                .clickable {
-                    styleState.value = if (styleState.value == UiStyle.SOFT) UiStyle.LIQUID else UiStyle.SOFT
-                },
         )
         Spacer(Modifier.height(40.dp))
     }
@@ -200,7 +186,7 @@ fun InputField(
         onValueChange = onChange,
         modifier = modifier
             .fillMaxWidth()
-            .background(ds.bg.copy(alpha = 0.6f), androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+            .background(ds.bg, androidx.compose.foundation.shape.RoundedCornerShape(AppUiTokens.ItemCorner))
             .padding(horizontal = 14.dp, vertical = 13.dp),
         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, color = ds.text),
         singleLine = true,
@@ -218,7 +204,6 @@ fun InputField(
 
 @Composable
 fun Button(text: String, enabled: Boolean = true, onClick: () -> Unit) {
-    val ds = LocalDs.current
     top.yukonga.miuix.kmp.basic.Button(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -305,10 +290,10 @@ private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (
 
     GlassCard {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("或使用钉钉扫码登录（免密码）", fontSize = 15.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = ds.text)
+            Text("钉钉扫码登录", fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = ds.text)
             val cid = clientId
             if (cid == null) {
-                Text("点下方按钮生成二维码，用钉钉扫一扫即可授权", fontSize = 12.sp, color = ds.sub)
+                Text("点下方按钮生成二维码，用钉钉扫一扫即可授权", fontSize = 13.sp, color = ds.sub)
                 Button(text = if (active) "连接中…" else "生成登录二维码", enabled = !active) {
                     autoRetry = 0
                     active = true
@@ -322,7 +307,7 @@ private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (
                 ) {
                     QrCodeImage(content = url, size = 210.dp)
                 }
-                Text(status.ifEmpty { "用钉钉扫一扫上面的二维码" }, fontSize = 12.sp, color = ds.sub)
+                Text(status.ifEmpty { "用钉钉扫一扫上面的二维码" }, fontSize = 13.sp, color = ds.sub)
                 // 手动刷新：换一张新的 clientId/票据；二维码过期或怀疑被占用时用。
                 // 等待扫码期间 SSE 仍在挂起，刷新会重启会话序号取消旧连接。
                 Button(text = "刷新二维码") {
@@ -331,7 +316,7 @@ private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (
                     status = ""
                     sessionTick++
                 }
-                Text("也可复制授权链接到钉钉内打开", fontSize = 11.sp, color = ds.sub)
+                Text("也可复制授权链接到钉钉内打开", fontSize = 13.sp, color = ds.sub)
             }
         }
     }
@@ -347,7 +332,7 @@ private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (
 private fun QrCodeImage(content: String, size: androidx.compose.ui.unit.Dp) {
     val bitmap = remember(content) { renderQrBitmap(content) }
     if (bitmap == null) {
-        Text("二维码生成失败，请重试", fontSize = 12.sp, color = LocalDs.current.danger)
+        Text("二维码生成失败，请重试", fontSize = 13.sp, color = LocalDs.current.danger)
         return
     }
     androidx.compose.foundation.Image(
@@ -357,7 +342,7 @@ private fun QrCodeImage(content: String, size: androidx.compose.ui.unit.Dp) {
         filterQuality = androidx.compose.ui.graphics.FilterQuality.None,
         modifier = Modifier
             .size(size)
-            .background(androidx.compose.ui.graphics.Color.White, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+            .background(Color.White, androidx.compose.foundation.shape.RoundedCornerShape(AppUiTokens.ItemCorner))
             .padding(8.dp),
     )
 }

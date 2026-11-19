@@ -3,19 +3,12 @@ package com.menglimi.gdust.v2.ui.screens
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.LocalDs
@@ -63,7 +56,6 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 onClick = { com.menglimi.gdust.v2.work.LessonReminderAlarms.openExactAlarmSettings(ctx) },
             )
         }
-        Spacer(Modifier.height(10.dp))
 
         // ── 总开关 ──
         SettingGroup {
@@ -79,7 +71,6 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 },
             )
         }
-        Spacer(Modifier.height(10.dp))
 
         // ── 下节课提醒 ──
         SectionHeader("下节课提醒")
@@ -101,7 +92,6 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                     }
                 },
             )
-            SettingDivider()
             SettingOption(
                 title = "提前提醒时间",
                 detail = "${store.reminderLead} 分钟",
@@ -115,7 +105,6 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 )
             }
         }
-        Spacer(Modifier.height(10.dp))
 
         // ── 次日课程提醒 ──
         SectionHeader("次日课程提醒")
@@ -134,7 +123,6 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                     }
                 },
             )
-            SettingDivider()
             SettingOption(title = "提醒时间", detail = "${store.nextDayHour}:00", onClick = { })
             SettingEditor {
                 SegmentedChoice(
@@ -144,7 +132,6 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 )
             }
         }
-        Spacer(Modifier.height(10.dp))
 
         // ── 课中提醒 ──
         SectionHeader("课中提醒")
@@ -163,7 +150,6 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                     }
                 },
             )
-            SettingDivider()
             SettingOption(title = "提醒时机", detail = "距下课 ${store.inClassLead} 分钟", onClick = { })
             SettingEditor {
                 SegmentedChoice(
@@ -173,7 +159,6 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 )
             }
         }
-        Spacer(Modifier.height(10.dp))
 
         // ── 超级岛 ──
         SectionHeader("小米超级岛")
@@ -194,7 +179,6 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 switch = store.islandEnabled,
                 onSwitch = { on -> save { store.islandEnabled = on } },
             )
-            SettingDivider()
             SettingOption(
                 title = "系统支持",
                 subtitle = buildString {
@@ -204,30 +188,25 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 },
                 detail = "诊断",
             )
-            SettingDivider()
             SettingOption(
                 title = "白名单",
                 subtitle = "HyperOS 只允许白名单 App 上岛；用 HyperCeiler 等模块加白时，注意其若进入安全模式会整组失效",
                 detail = "说明",
             )
-            SettingDivider()
             // 岛显示选项（Nexio 课程提醒同款）：改动写 prefs 后由下一条提醒生效
             val islandModes = listOf(0 to "课程名称", 1 to "上课地点", 2 to "倒计时")
             SettingOption(title = "超级岛左侧", detail = islandModes.first { it.first == store.islandLeftMode }.second, onClick = { })
             SettingEditor {
                 SegmentedChoice(islandModes, store.islandLeftMode, onSelect = { save { store.islandLeftMode = it } })
             }
-            SettingDivider()
             SettingOption(title = "超级岛右侧", detail = islandModes.first { it.first == store.islandRightMode }.second, onClick = { })
             SettingEditor {
                 SegmentedChoice(islandModes, store.islandRightMode, onSelect = { save { store.islandRightMode = it } })
             }
-            SettingDivider()
             SettingOption(title = "课中岛右侧", detail = islandModes.first { it.first == store.islandInClassRightMode }.second, onClick = { })
             SettingEditor {
                 SegmentedChoice(islandModes, store.islandInClassRightMode, onSelect = { save { store.islandInClassRightMode = it } })
             }
-            SettingDivider()
             SettingOption(
                 title = "息屏显示",
                 detail = if (store.islandAodMode == 1) "上课地点" else "课程名称",
@@ -240,7 +219,6 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                     onSelect = { save { store.islandAodMode = it } },
                 )
             }
-            SettingDivider()
             SettingOption(
                 title = "测试提醒",
                 subtitle = "发一条示例通知，看看能不能上岛",
@@ -275,7 +253,6 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 },
             )
         }
-        Spacer(Modifier.height(10.dp))
 
         // ── 权限 ──
         SectionHeader("权限")
@@ -291,14 +268,12 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                     )
                 },
             )
-            SettingDivider()
             SettingOption(
                 title = "电池优化",
                 subtitle = "关闭电池优化可让提醒更准时",
                 detail = "去设置",
                 onClick = { openSystem(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS) },
             )
-            SettingDivider()
             SettingOption(
                 title = "自启动 / 后台运行",
                 subtitle = "HyperOS 需允许自启动，提醒才不会被清理",
@@ -311,11 +286,10 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 },
             )
         }
-        Spacer(Modifier.height(10.dp))
         Text(
             "提醒按本机课表算出精确时刻，用系统闹钟触发（不再 15 分钟轮询）；另有 6 小时兜底补漏，同一节课只提醒一次。\n" +
                 "HyperOS 需允许自启动与精确定时；超级岛由系统按白名单决定是否显示。",
-            fontSize = 11.sp, lineHeight = 16.sp, color = ds.sub,
+            fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
             modifier = Modifier,
         )
         }

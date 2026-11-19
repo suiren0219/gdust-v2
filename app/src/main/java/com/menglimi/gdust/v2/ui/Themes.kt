@@ -1,67 +1,83 @@
 package com.menglimi.gdust.v2.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import com.haooz.softglass.GlassMaterialLevel
-import com.haooz.softglass.GlassPreset
-import com.haooz.softglass.SoftGlassTheme
-import com.haooz.softglass.backdrop.backdrops.rememberLayerBackdrop
-import com.haooz.softglass.backdrop.backdrops.layerBackdrop
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.theme.darkColorScheme
+import top.yukonga.miuix.kmp.theme.lightColorScheme
 
-/** 风格一：HyperOS 柔光（softglass）。 */
 @Composable
-fun SoftGlassAppTheme(dark: Boolean, monetEnabled: Boolean = false, content: @Composable () -> Unit) {
-    val ds = monetDs(dark, dsFor(dark), monetEnabled)
-    SoftGlassTheme(
-        preset = GlassPreset.Default,
-        level = GlassMaterialLevel.SOFT,
-        isDark = dark,
-        hasWallpaper = false,
-    ) {
-        val backdrop = rememberLayerBackdrop()
-        WithTypography(ds) {
-            CompositionLocalProvider(LocalDs provides ds, LocalBackdrop provides backdrop) {
-                // 采样层与内容层平级（softglass 约束：玻璃节点不能在采样层内，否则自采样崩）
-                Box(Modifier.fillMaxSize()) {
-                    Box(Modifier.fillMaxSize().layerBackdrop(backdrop).background(ds.bg))
-                    content()
-                }
-            }
-        }
-    }
-}
-
-/** 风格二：iOS 27 液态玻璃（Glasmio）。 */
-@Composable
-fun LiquidGlassAppTheme(dark: Boolean, monetEnabled: Boolean = false, content: @Composable () -> Unit) {
-    val base = monetDs(dark, dsFor(dark), monetEnabled)
-    io.github.neoruaa.glasmio.core.GlasmioTheme(isDark = dark) {
-        val glass = io.github.neoruaa.glasmio.core.GlasmioTheme.colors
-        // 莫奈开启时保留取色结果，不让 Glasmio 原生色盖掉（关则沿用原生 iOS 配色）
-        val mapped = if (monetEnabled) base.copy(cardStroke = glass.separator) else base.copy(
-            bg = glass.groupedBackground,
-            card = glass.container,
-            text = glass.content,
-            sub = glass.secondaryContent,
-            accent = glass.accent,
-            danger = glass.destructive,
+fun CZeroTheme(content: @Composable () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val ds = dsFor(dark)
+    val colors = remember(ds) {
+        (if (dark) darkColorScheme() else lightColorScheme()).copy(
+            primary = ds.accent,
+            onPrimary = Color.Black,
+            primaryVariant = ds.accentSoft,
+            onPrimaryVariant = ds.text,
+            primaryContainer = ds.accentSoft,
+            onPrimaryContainer = ds.text,
+            error = ds.danger,
+            onError = Color.Black,
+            errorContainer = ds.danger.copy(alpha = 0.12f).compositeOver(ds.card),
+            onErrorContainer = ds.text,
+            secondary = ds.breakBar,
+            onSecondary = ds.text,
+            secondaryVariant = ds.breakBar,
+            onSecondaryVariant = ds.text,
+            secondaryContainer = ds.breakBar,
+            onSecondaryContainer = ds.sub,
+            secondaryContainerVariant = ds.breakBar,
+            onSecondaryContainerVariant = ds.sub,
+            tertiaryContainer = ds.accentSoft,
+            onTertiaryContainer = ds.text,
+            tertiaryContainerVariant = ds.accentSoft,
+            background = ds.bg,
+            onBackground = ds.text,
+            onBackgroundVariant = ds.sub,
+            surface = ds.bg,
+            onSurface = ds.text,
+            surfaceVariant = ds.card,
+            onSurfaceSecondary = ds.sub,
+            onSurfaceVariantSummary = ds.sub,
+            onSurfaceVariantActions = ds.sub,
+            surfaceContainer = ds.card,
+            onSurfaceContainer = ds.text,
+            onSurfaceContainerVariant = ds.sub,
+            surfaceContainerHigh = ds.breakBar,
+            onSurfaceContainerHigh = ds.text,
+            surfaceContainerHighest = ds.breakBar,
+            onSurfaceContainerHighest = ds.text,
+            disabledPrimaryButton = ds.breakBar,
+            disabledOnPrimaryButton = ds.sub,
+            disabledOnSurface = ds.sub,
+            outline = ds.sub,
+            dividerLine = Color.Transparent,
+            sliderKeyPointForeground = ds.accent,
         )
-        WithTypography(mapped) {
-            CompositionLocalProvider(LocalDs provides mapped) {
-                // Glasmio BackdropHost：采样层只画底色，内容在 overlayContent（不进采样层）
-                io.github.neoruaa.glasmio.glass.GlasmioBackdropHost(
-                    modifier = Modifier.fillMaxSize(),
-                    sampledContent = {
-                        Box(Modifier.fillMaxSize().background(mapped.bg))
-                    },
-                    overlayContent = {
-                        content()
-                    },
-                )
+    }
+    SideEffect { com.kyant.backdrop.AppThemeSnapshot.isDark.value = dark }
+    MiuixTheme(colors = colors) {
+        CompositionLocalProvider(
+            LocalDs provides ds,
+            top.yukonga.miuix.kmp.material.LocalMaterialNoneEnabled provides true,
+            top.yukonga.miuix.kmp.material.LocalChromeLensEnabled provides false,
+            top.yukonga.miuix.kmp.material.LocalGlassBlurDp provides 0f,
+            top.yukonga.miuix.kmp.material.LocalGlassPanelBlurDp provides 0f,
+            top.yukonga.miuix.kmp.material.LocalGlassDialogBlurDp provides 0f,
+        ) {
+            WithTypography(ds) {
+                Box(Modifier.fillMaxSize().background(ds.bg)) { content() }
             }
         }
     }

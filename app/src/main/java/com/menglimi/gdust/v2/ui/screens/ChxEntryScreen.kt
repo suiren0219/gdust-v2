@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,7 +19,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,16 +29,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.ChxSso
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.ui.AppCard
+import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -118,10 +122,17 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
     ) {
         Spacer(Modifier.height(20.dp))
         PageTitle(title = "学习通联动", subtitle = "学校认证，分别访问学习通与教务", onBack = onBack)
-        Box(Modifier.background(
-            if (saved) ds.accent.copy(alpha = 0.14f) else ds.sub.copy(alpha = 0.10f),
-            RoundedCornerShape(8.dp),
-        ).padding(horizontal = 8.dp, vertical = 4.dp)) {
+        AppCard(
+            modifier = Modifier.fillMaxWidth(),
+            insideMargin = PaddingValues(AppUiTokens.CardPadding),
+            color = when {
+                checkResult == true && saved -> if (ds.isDark) {
+                    Color(0xFF36D267).copy(alpha = 0.16f).compositeOver(ds.card)
+                } else Color(0xFFDEFAE4)
+                checkResult == false -> ds.danger.copy(alpha = 0.12f).compositeOver(ds.card)
+                else -> ds.card
+            },
+        ) {
             Text(
                 when {
                     checkResult == true && saved -> "会话已验证"
@@ -129,26 +140,27 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
                     saved -> "已保存，待验证"
                     else -> "未保存会话"
                 },
-                fontSize = 12.sp, fontWeight = FontWeight.Medium, color = if (saved) ds.accent else ds.sub,
+                fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = ds.text,
+            )
+            Text(
+                if (saved && repo.store.chxCookieAt > 0) {
+                    "会话保存于 ${SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(repo.store.chxCookieAt))}"
+                } else "学校、学习通和教务各自维护登录状态",
+                fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
+                modifier = Modifier.padding(top = 8.dp),
             )
         }
-        Text(
-            if (saved && repo.store.chxCookieAt > 0) {
-                "会话保存于 ${SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(repo.store.chxCookieAt))}"
-            } else "学校、学习通和教务各自维护登录状态",
-            fontSize = 12.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap), modifier = Modifier.padding(top = 12.dp)) {
             Box(Modifier.weight(1f)) { ChxActionButton("学习通", !busy) { open(ChxSso.fyssoUrl) } }
             Box(Modifier.weight(1f)) { ChxActionButton("课程中心", !busy) { open(ChxSso.mhUrl) } }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap), modifier = Modifier.padding(top = 12.dp)) {
             Box(Modifier.weight(1f)) { ChxActionButton("教务网页", !busy) { open(ChxSso.teachingWebUrl) } }
             Box(Modifier.weight(1f)) { ChxActionButton("学习通首页", !busy) { open(ChxSso.HOME) } }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(AppUiTokens.CardGap))
         ChxActionButton("查看课程与任务进度", !busy, onCourses)
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(AppUiTokens.CardGap))
         ChxActionButton(
             if (syncing) "正在同步学习通作业…" else "同步学习通作业到待办",
             saved && !busy && !syncing,
@@ -169,7 +181,7 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(AppUiTokens.CardGap))
         ChxActionButton(if (checking) "检查中…" else "检查会话", saved && !busy) {
             checking = true
             checkResult = null
@@ -195,7 +207,7 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(AppUiTokens.CardGap))
         // 即便候选 Cookie 已删除，退出和本地重试入口也不消失。
         ChxActionButton(if (logoutPending) "正在请求学校退出…" else "退出学校认证并清理本机", !busy) {
             checkResult = null
@@ -214,7 +226,7 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
             }
         }
         if (clearPending || localCleared == false) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(AppUiTokens.CardGap))
             ChxActionButton(if (clearPending) "正在清理本地会话…" else "重试本地清理", !busy) {
                 clearPending = true
             }
@@ -224,16 +236,21 @@ fun ChxEntryScreen(repo: Repository, onBack: () -> Unit, onCourses: () -> Unit =
         Text(
             "清理范围为本机已知学习通与学校认证站点的 Cookie、网页存储；无法保证覆盖其他域名或路径。" +
                 "教务站点独立会话会保留，学校退出确认也不等于学习通等所有站点已退出。本应用不保存学校密码。",
-            fontSize = 12.sp, lineHeight = 18.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
+            fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
         )
     }
 }
 
-/** 沿用现有 Miuix 按钮，保证正文换行时仍有至少 48dp 的点击区域。 */
+/** 实底操作卡保留原有启用条件，禁用时保持文字可读。 */
 @Composable
 private fun ChxActionButton(text: String, enabled: Boolean, onClick: () -> Unit) {
-    Button(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth(), minHeight = 48.dp,
-        colors = ButtonDefaults.buttonColorsPrimary()) {
-        Text(text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+    val ds = LocalDs.current
+    AppCard(
+        modifier = Modifier.fillMaxWidth().semantics { if (!enabled) disabled() },
+        insideMargin = PaddingValues(AppUiTokens.CardPadding),
+        onClick = if (enabled) onClick else null,
+    ) {
+        Text(text, fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold,
+            color = if (enabled) ds.text else ds.sub)
     }
 }

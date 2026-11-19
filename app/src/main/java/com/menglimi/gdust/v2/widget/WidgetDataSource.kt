@@ -30,8 +30,6 @@ data class WidgetData(
     val warnTh: Float = 20f,
     /** 最近一次电量采样时间（epoch ms），0 = 从未采样。 */
     val lastSampleAt: Long = 0L,
-    val powerRefreshRunning: Boolean = false,
-    val powerRefreshStatus: String = "",
     /** 学期起点（可能为 null：无校历且未设置开学日）；进行中判定用。 */
     val termStart: LocalDate? = null,
     /** 本次加载的时间快照，UI 全部沿用，跨午夜不读第二次时钟。 */
@@ -83,8 +81,6 @@ internal object WidgetDataSource {
         val roomName = power.getString("name", null).orEmpty()
         val warnTh = cache.getFloat("warn_th", 20f)
         val lastSampleAt = power.getLong("last_sample", 0L)
-        val refreshRunning = power.getBoolean("widget_refresh_running", false)
-        val refreshStatus = power.getString("widget_refresh_status", "").orEmpty()
 
         // 开学前 / 无校历不算第 1 周；term_start 非法回退有效校历日期
         val termStart = sequenceOf(
@@ -100,8 +96,7 @@ internal object WidgetDataSource {
         val blocks = dedupeCopies(valid)
 
         if (blocks.isEmpty()) {
-            return WidgetData(week, WidgetData.Scope.NO_DATA, today, emptyList(), odd, roomName, warnTh, lastSampleAt,
-                powerRefreshRunning = refreshRunning, powerRefreshStatus = refreshStatus, termStart = termStart, now = now)
+            return WidgetData(week, WidgetData.Scope.NO_DATA, today, emptyList(), odd, roomName, warnTh, lastSampleAt, termStart, now)
         }
 
         val todayAll = blocks.filter { ScheduleTimes.lessonDate(it, termStart) == today }.sortedBy { it.startSection }
@@ -110,8 +105,7 @@ internal object WidgetDataSource {
         when {
             restToday.isNotEmpty() -> {
                 val scope = if (restToday.size == todayAll.size) WidgetData.Scope.TODAY_ALL else WidgetData.Scope.TODAY_REST
-                return WidgetData(week, scope, today, restToday, odd, roomName, warnTh, lastSampleAt,
-                    powerRefreshRunning = refreshRunning, powerRefreshStatus = refreshStatus, termStart = termStart, now = now)
+                return WidgetData(week, scope, today, restToday, odd, roomName, warnTh, lastSampleAt, termStart, now)
             }
             todayAll.isNotEmpty() || blocks.any { ScheduleTimes.lessonDate(it, termStart) == today.plusDays(1) } -> {
                 val tomorrow = today.plusDays(1)
@@ -119,13 +113,11 @@ internal object WidgetDataSource {
                     .sortedBy { it.startSection }
                 if (tomorrowLessons.isNotEmpty()) {
                     val tomorrowWeek = termStart?.takeIf { !tomorrow.isBefore(it) }?.let { ScheduleTimes.weekAt(it, tomorrow) }
-                    return WidgetData(tomorrowWeek, WidgetData.Scope.TOMORROW, tomorrow, tomorrowLessons, odd, roomName, warnTh, lastSampleAt,
-                        powerRefreshRunning = refreshRunning, powerRefreshStatus = refreshStatus, termStart = termStart, now = now)
+                    return WidgetData(tomorrowWeek, WidgetData.Scope.TOMORROW, tomorrow, tomorrowLessons, odd, roomName, warnTh, lastSampleAt, termStart, now)
                 }
             }
         }
-        return WidgetData(week, WidgetData.Scope.NO_LESSONS, today, emptyList(), odd, roomName, warnTh, lastSampleAt,
-            powerRefreshRunning = refreshRunning, powerRefreshStatus = refreshStatus, termStart = termStart, now = now)
+        return WidgetData(week, WidgetData.Scope.NO_LESSONS, today, emptyList(), odd, roomName, warnTh, lastSampleAt, termStart, now)
     }
 
     private val safeDate: (String) -> LocalDate? = { ScheduleTimes.parseDate(it) }

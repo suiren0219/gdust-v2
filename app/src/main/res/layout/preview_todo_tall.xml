@@ -5,30 +5,30 @@
     android:background="@drawable/preview_glass"
     android:orientation="vertical"
     android:padding="12dp">
-    <TextView
+    <TextView android:maxLines="1" android:ellipsize="end"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="待办"
         android:textSize="11sp"
-        android:textColor="#F2F2F7" android:textStyle="bold" android:gravity="center" />
+        android:textColor="@color/widget_text" android:textStyle="bold" android:gravity="center" />
     <View android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
-    <TextView
+    <TextView android:maxLines="1" android:ellipsize="end"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="4"
         android:textSize="26sp"
-        android:textColor="#F2F2F7" android:textStyle="bold" android:gravity="center" />
-    <TextView
+        android:textColor="@color/widget_text" android:textStyle="bold" android:gravity="center" />
+    <TextView android:maxLines="1" android:ellipsize="end"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="条待办"
-        android:textSize="9sp"
-        android:textColor="#B7BAC1" android:gravity="center" />
+        android:textSize="11sp"
+        android:textColor="@color/widget_sub" android:gravity="center" />
     <View android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
-    <TextView
+    <TextView android:maxLines="1" android:ellipsize="end"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="1 逾期"
-        android:textSize="9sp"
-        android:textColor="#FF8A8D" android:textStyle="bold" android:gravity="center" />
+        android:textSize="11sp"
+        android:textColor="@color/widget_danger" android:textStyle="bold" android:gravity="center" />
 </LinearLayout>

@@ -53,7 +53,6 @@ fun ChxNotificationScreen(repo: Repository, onBack: () -> Unit) {
                 switch = enabled,
                 onSwitch = { enabled = it; repo.store.chxNotificationsEnabled = it },
             )
-            SettingDivider()
             SettingOption(
                 title = "通知使用权",
                 subtitle = "Android 授权会允许本应用接收设备通知；本功能只处理学习通通知",
@@ -65,11 +64,11 @@ fun ChxNotificationScreen(repo: Repository, onBack: () -> Unit) {
                 },
             )
         }
-        if (error) Text("无法打开系统设置，请在设置中手动开启通知使用权。", fontSize = 12.sp, color = ds.danger)
+        if (error) Text("无法打开系统设置，请在设置中手动开启通知使用权。", fontSize = 13.sp, color = ds.danger)
         Spacer(Modifier.height(8.dp))
         Text(
             "仅新收到的通知会加入待办。学习通未推送或通知未包含具体事项时不会生成待办；截止时间以原通知为准。关闭开关后不再采集，已有待办可手动删除。",
-            fontSize = 12.sp, lineHeight = 18.sp, color = ds.sub,
+            fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
         )
     }
 }
