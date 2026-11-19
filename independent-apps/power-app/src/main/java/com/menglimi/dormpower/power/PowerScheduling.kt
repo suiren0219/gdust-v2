@@ -8,6 +8,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.menglimi.dormpower.widget.PowerWidgetUpdater
 import com.menglimi.power.PowerMonitor
 import com.menglimi.power.PowerQueryPreset
 import java.util.concurrent.TimeUnit
@@ -82,6 +83,9 @@ class PowerWorker(context: Context, parameters: WorkerParameters) : CoroutineWor
         } catch (_: Exception) {
             // core 已记录请求时间；等待下一次周期巡检，由 policy 节流失败请求。
             Result.success()
+        } finally {
+            // 周期采样完成后同步桌面小部件；没有小部件实例时是空操作。
+            PowerWidgetUpdater.updateAll(applicationContext)
         }
     }
 }

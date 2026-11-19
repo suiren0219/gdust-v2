@@ -31,7 +31,8 @@ enum class PowerQueryPreset(val key: String, val title: String, val description:
     ;
 
     companion object {
-        fun fromKey(key: String?): PowerQueryPreset = entries.firstOrNull { it.key == key } ?: BALANCED
+        /** 缺省或未知取值一律回到手动，避免损坏的配置悄悄开启后台采集。 */
+        fun fromKey(key: String?): PowerQueryPreset = entries.firstOrNull { it.key == key } ?: MANUAL
     }
 }
 

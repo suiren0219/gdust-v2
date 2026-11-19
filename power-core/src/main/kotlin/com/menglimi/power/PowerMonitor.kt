@@ -26,7 +26,8 @@ interface PowerMonitorStore {
 
 data class PowerMonitorConfig(
     val binding: PowerBinding? = null,
-    val preset: PowerQueryPreset = PowerQueryPreset.BALANCED,
+    /** 新安装默认只手动查询；用户明确选择查询节奏后才允许后台采集。 */
+    val preset: PowerQueryPreset = PowerQueryPreset.MANUAL,
     val customIntervalMinutes: Int = 60,
     val lowThreshold: Double = 20.0,
     val dropRateThreshold: Double = 5.0,

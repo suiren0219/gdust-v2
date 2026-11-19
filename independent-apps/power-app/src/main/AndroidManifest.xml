@@ -19,5 +19,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <receiver android:name=".widget.PowerMediumReceiver" android:exported="false" android:label="宿舍电量 · 大字">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/power_widget_medium_info" />
+        </receiver>
+        <receiver android:name=".widget.PowerWideReceiver" android:exported="false" android:label="宿舍电量 · 趋势">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/power_widget_wide_info" />
+        </receiver>
     </application>
 </manifest>
