@@ -38,15 +38,20 @@ class PowerWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
     private val api = GdustApi()
 
     override suspend fun doWork(): Result {
+        // 未明确允许后台采集、解绑或配置镜像不完整时，取消链路且不联网。
+        val account = prefs.getString("account", null)
+        val code = prefs.getInt("code", 0)
+        val verify = prefs.getString("verify", null)
+        val enabled = prefs.getBoolean("auto_collect", false)
+        if (!PowerCollectionPolicy.hasWorkerConfig(enabled, account, code, verify)) {
+            cancel(applicationContext)
+            return Result.success()
+        }
         // 先排下一次（REPLACE：链继续），保证链条无论本次成败都不断
         scheduleNextSample(applicationContext, prefs)
-
-        // 绑定信息在加密存储里，Worker 直接读普通缓存里的镜像（App 保存绑定时同步写）
-        val account = prefs.getString("account", null).orEmpty()
-        val code = prefs.getInt("code", 0)
-        val verify = prefs.getString("verify", null).orEmpty()
+        val safeAccount = account.orEmpty()
+        val safeVerify = verify.orEmpty()
         val name = prefs.getString("name", null).orEmpty()
-        if (account.isEmpty() || code == 0 || verify.isEmpty()) return Result.success()
 
         val now = System.currentTimeMillis()
         val last = prefs.getLong("last_sample", 0L)
@@ -54,41 +59,57 @@ class PowerWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         val intervalMin = prefs.getInt("interval", 60).coerceAtLeast(15)
         if (now - last < intervalMin * 60L * 1000) return Result.success()
 
-        val odd = runCatching { api.powerOdd(account, code, verify) }.getOrNull() ?: return Result.success()
-        // 记录小时采样点（供 App 内折线图）
+        val detail = runCatching { api.powerDetail(safeAccount, code, safeVerify) }.getOrNull()
+            ?: return Result.success()
+        if (!isCollectionStillEnabled()) return Result.success()
+        val odd = detail.odd ?: return Result.success()
+        // 当前接口的同一份详情已经包含剩余电量与周耗；不再重复请求详情。
         com.menglimi.gdust.v2.data.Store(applicationContext).addSample(odd)
         val threshold = prefs.getFloat("threshold", 20f).toDouble()
         val dropLimit = prefs.getFloat("drop_rate", 5f).toDouble()
         val prev = prefs.getFloat("prev_odd", -1f).toDouble()
 
-        // 预计可用天数：随预警一起带出，比单纯“电量低了”更可行动
-        val weekUse = runCatching {
-            api.powerDetail(account, code, verify).weekUse.map { it.second }
-        }.getOrDefault(emptyList())
-        val daysLeft = weekUse.takeIf { it.isNotEmpty() }
-            ?.let { list -> list.average().takeIf { it > 0.01 }?.let { avg -> odd / avg } }
-
-        if (cooldown("low") && odd <= threshold) {
-            val suffix = daysLeft?.let { "，约还能用 %.0f 天".format(it) }.orEmpty()
-            notify("宿舍电量不足", "$name 剩余 $odd 度（阈值 $threshold）$suffix，记得充值", 1)
-            mark("low")
-        } else if (cooldown("drop") && prev >= 0 && last > 0) {
-            val hours = ((now - last) / 3600000.0).coerceAtLeast(0.25)
-            val rate = (prev - odd) / hours
-            if (rate >= dropLimit) {
+        val decision = PowerWarningPolicy.evaluate(
+            odd = odd,
+            previousOdd = prev,
+            elapsedMs = now - last,
+            lowThreshold = threshold,
+            dropLimitPerHour = dropLimit,
+            lowCooldownReady = cooldown("low"),
+            dropCooldownReady = cooldown("drop"),
+            hasPreviousSample = last > 0L,
+        )
+        val daysLeft = detail.weekUse.map { it.second }.takeIf { it.isNotEmpty() }
+            ?.average()?.takeIf { it > 0.01 }?.let { odd / it }
+        when (decision.kind) {
+            PowerWarningKind.LOW -> {
                 val suffix = daysLeft?.let { "，约还能用 %.0f 天".format(it) }.orEmpty()
-                notify("宿舍掉电异常", "$name 每小时掉电 %.1f 度$suffix，注意大功率电器".format(rate), 2)
+                notify("宿舍电量不足", "$name 剩余 $odd 度（阈值 $threshold）$suffix，记得充值", 1)
+                mark("low")
+            }
+            PowerWarningKind.DROP -> {
+                val suffix = daysLeft?.let { "，约还能用 %.0f 天".format(it) }.orEmpty()
+                notify("宿舍掉电异常", "$name 每小时掉电 %.1f 度$suffix，注意大功率电器".format(decision.dropRatePerHour), 2)
                 mark("drop")
             }
+            PowerWarningKind.NONE -> Unit
         }
 
         prefs.edit().putFloat("prev_odd", odd.toFloat()).putLong("last_sample", now).apply()
+        prefs.edit().putString("widget_refresh_status", "").apply()
         // 电量变化 → 刷新全部桌面小组件
         runCatching {
             com.menglimi.gdust.v2.widget.WidgetRefresher.refreshAll(applicationContext)
         }
         return Result.success()
     }
+
+    private fun isCollectionStillEnabled(): Boolean = PowerCollectionPolicy.hasWorkerConfig(
+        prefs.getBoolean("auto_collect", false),
+        prefs.getString("account", null),
+        prefs.getInt("code", 0),
+        prefs.getString("verify", null),
+    )
 
     private fun cooldown(k: String) =
         System.currentTimeMillis() - prefs.getLong("${k}_warn", 0L) >= 12L * 60 * 60 * 1000
@@ -115,11 +136,18 @@ class PowerWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
     /** 自愈心跳：KEEP 策略补排采样链——链活着则原样保留，被系统清理则按当前作息重排。不联网。 */
     class PowerHeartbeatWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
         override suspend fun doWork(): Result {
-            scheduleNextSample(
-                applicationContext,
-                applicationContext.getSharedPreferences("gdust_power", Context.MODE_PRIVATE),
-                policy = ExistingWorkPolicy.KEEP,
-            )
+            val context = applicationContext
+            val prefs = context.getSharedPreferences("gdust_power", Context.MODE_PRIVATE)
+            if (!PowerCollectionPolicy.hasWorkerConfig(
+                    prefs.getBoolean("auto_collect", false),
+                    prefs.getString("account", null),
+                    prefs.getInt("code", 0),
+                    prefs.getString("verify", null),
+                )) {
+                cancel(context)
+                return Result.success()
+            }
+            scheduleNextSample(context, prefs, policy = ExistingWorkPolicy.KEEP)
             return Result.success()
         }
     }
@@ -172,6 +200,16 @@ class PowerWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         /** App 启动 / 绑定与间隔变更时调用。 */
         fun schedule(ctx: Context) {
             val wm = WorkManager.getInstance(ctx)
+            val prefs = ctx.getSharedPreferences("gdust_power", Context.MODE_PRIVATE)
+            if (!PowerCollectionPolicy.hasWorkerConfig(
+                    prefs.getBoolean("auto_collect", false),
+                    prefs.getString("account", null),
+                    prefs.getInt("code", 0),
+                    prefs.getString("verify", null),
+                )) {
+                cancel(ctx)
+                return
+            }
             // 迁移：清掉旧的 15 分钟周期任务（v6 及以前的调度）
             wm.cancelUniqueWork(LEGACY_PERIODIC)
             wm.enqueueUniquePeriodicWork(
@@ -179,7 +217,7 @@ class PowerWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
                 PeriodicWorkRequestBuilder<PowerHeartbeatWorker>(6, TimeUnit.HOURS).build(),
             )
             // 排链的第一环（延迟按当前作息计算）
-            scheduleNextSample(ctx, ctx.getSharedPreferences("gdust_power", Context.MODE_PRIVATE))
+            scheduleNextSample(ctx, prefs)
         }
 
         internal fun enqueueChain(ctx: Context, delayMin: Long, policy: ExistingWorkPolicy) {

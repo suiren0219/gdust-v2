@@ -340,9 +340,13 @@ private fun PowerWide(data: WidgetData, days: Int) {
     )
     GlassCard(openTab = 2) {
         Column(modifier = GlanceModifier.fillMaxSize()) {
-            Row(modifier = GlanceModifier.fillMaxWidth()) {
+            Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 WText(data.roomName.ifEmpty { "宿舍电量" }, 10.sp, false, subColor(dark))
                 Spacer(GlanceModifier.defaultWeight())
+                WText(if (data.powerRefreshStatus.isNotBlank()) data.powerRefreshStatus
+                    else WidgetPresentation.updatedLabel(data), 9.sp, false,
+                    if (data.powerRefreshStatus.isNotBlank()) dangerColor() else subColor(dark))
+                RefreshButton(data)
                 RangeSwitch(days)
             }
             Row(verticalAlignment = Alignment.Bottom) {
@@ -362,10 +366,7 @@ private fun PowerWide(data: WidgetData, days: Int) {
                 )
             } else {
                 Box(modifier = GlanceModifier.fillMaxWidth().height(44.dp), contentAlignment = Alignment.Center) {
-                    WText(
-                        "等待采样积累走势数据" + (stats?.updatedLabel?.let { " · $it" } ?: ""),
-                        10.sp, false, subColor(dark),
-                    )
+                    WText("等待采样积累走势数据", 10.sp, false, subColor(dark))
                 }
             }
         }
@@ -385,10 +386,11 @@ private fun PowerMedium(data: WidgetData, days: Int) {
     )
     GlassCard(openTab = 2) {
         Column(modifier = GlanceModifier.fillMaxSize()) {
-            Row(modifier = GlanceModifier.fillMaxWidth()) {
+            Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 WText(data.roomName.ifEmpty { "宿舍电量" }, 10.sp, false, subColor(dark))
                 Spacer(GlanceModifier.defaultWeight())
-                WText(updated, 9.sp, false, subColor(dark))
+                WText(WidgetPresentation.updatedLabel(data), 9.sp, false, subColor(dark))
+                RefreshButton(data)
             }
             Row(verticalAlignment = Alignment.Bottom) {
                 powerValueText(data, dark, 26.sp)
@@ -409,16 +411,32 @@ private fun PowerMedium(data: WidgetData, days: Int) {
 }
 
 @Composable
+private fun RefreshButton(data: WidgetData) {
+    val dark = dark()
+    Box(
+        modifier = GlanceModifier.clickable(actionRunCallback<ManualPowerWidgetRefreshAction>())
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        WText(if (data.powerRefreshRunning) "刷新中" else "刷新", 9.sp, true, accentFg(dark))
+    }
+}
+
+@Composable
 private fun PowerTall(data: WidgetData, days: Int) {
     val dark = dark()
     GlassCard(padding = 10.dp, openTab = 2) {
         Column(modifier = GlanceModifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Badge("电量", bg = accentSoftBg(dark), fg = accentFg(dark))
+            Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Badge("电量", bg = accentSoftBg(dark), fg = accentFg(dark))
+                Spacer(GlanceModifier.defaultWeight())
+                RefreshButton(data)
+            }
             Spacer(GlanceModifier.defaultWeight())
             powerValueText(data, dark, 20.sp)
             WText("度 · " + data.roomName.ifEmpty { "宿舍" }, 8.sp, false, subColor(dark), maxLines = 2)
             Spacer(GlanceModifier.defaultWeight())
-            WText(if (days == 7) "近 7 天" else "近半月", 8.sp, false, subColor(dark))
+            WText(WidgetPresentation.updatedLabel(data), 8.sp, false, subColor(dark))
         }
     }
 }
@@ -435,6 +453,7 @@ private fun PowerRow(data: WidgetData, days: Int) {
             WText("度", 10.sp, false, subColor(dark))
             Spacer(GlanceModifier.defaultWeight())
             WText(if (days == 7) "近 7 天" else "近半月", 9.sp, false, subColor(dark))
+            RefreshButton(data)
         }
     }
 }

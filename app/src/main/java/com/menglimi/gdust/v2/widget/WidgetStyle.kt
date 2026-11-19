@@ -16,20 +16,17 @@ import androidx.compose.ui.unit.dp
 import com.menglimi.gdust.v2.data.Store
 
 /**
- * 小部件画风 tokens：对齐 App 内 Nexio 卡片观感（大圆角、近实色卡底、细描边、单一强调色）。
- * 壁纸透过太多会显灰且文字对比不足，卡底改为 88–95% 不透明度的"实感玻璃"，
- * 只靠顶部高光与细描边暗示玻璃材质。注意：短名 [Color] 是 Compose 的，
- * Android graphics 色彩 API 走全限定名。
+ * 小部件视觉 token：实底卡、清晰数字和单一交互强调色。背景 bitmap 保留圆角裁切能力，
+ * 但不再绘制渐变、扫光、描边或阴影。
  */
 object WidgetStyle {
 
-    /** 主卡圆角，与 App 内课表卡一致。 */
-    val radius: Dp = 22.dp
+    /** 主卡圆角，与 CZeroX 实底卡规范一致。 */
+    val radius: Dp = 24.dp
 
-    // ── 色板：跟随系统深浅色；强调色用 HyperOS 蓝，危险色对齐 App 的 ds.danger ──
-    const val ACCENT_LIGHT = 0xFF3482FE.toInt()
+    const val ACCENT_LIGHT = 0xFF3482FF.toInt()
     const val ACCENT_DARK = 0xFF7AB0FF.toInt()
-    const val DANGER = 0xFFE5484D.toInt()
+    const val DANGER = 0xFFEE4444.toInt()
 
     fun isDark(context: Context): Boolean =
         (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
@@ -37,59 +34,23 @@ object WidgetStyle {
 
     fun accent(dark: Boolean): Int = if (dark) ACCENT_DARK else ACCENT_LIGHT
 
-    fun text(dark: Boolean): Color = if (dark) Color(0xFFF2F2F7) else Color(0xFF1C1C1E)
-    fun sub(dark: Boolean): Color =
-        if (dark) Color(0xFFB7BAC1) else Color(0xFF63666E)
+    fun text(dark: Boolean): Color = if (dark) Color(0xFFF2F2F7) else Color(0xFF000000)
+    fun sub(dark: Boolean): Color = if (dark) Color.White.copy(alpha = 0.62f) else Color(0xFF666666)
 
     /** 强调色柔光底（节次胶囊 / 类型徽章 / 切换钮激活态）。 */
     fun accentSoft(dark: Boolean): Color =
         Color(accent(dark)).copy(alpha = if (dark) 0.26f else 0.15f)
 
-    /** 卡底 bitmap：竖向实感渐变 + 顶部高光 + 1px 细描边。 */
+    /** 实底卡 bitmap，Glance 用它保持卡片圆角，不绘制玻璃高光。 */
     fun glassCard(context: Context, widthPx: Int, heightPx: Int, radiusPx: Float): Bitmap {
         val dark = isDark(context)
-        val d = { dp: Float -> dp * context.resources.displayMetrics.density }
         val bmp = Bitmap.createBitmap(widthPx.coerceAtLeast(1), heightPx.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         val rect = RectF(0f, 0f, widthPx.toFloat(), heightPx.toFloat())
-
-        // 深色卡贴近 App 的 #1A1C22，浅色为白瓷底；不再依赖壁纸透出
-        val baseTop = if (dark) android.graphics.Color.argb(242, 26, 28, 34) else android.graphics.Color.argb(247, 252, 253, 255)
-        val baseBottom = if (dark) android.graphics.Color.argb(230, 16, 18, 24) else android.graphics.Color.argb(236, 243, 245, 248)
         val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(0f, 0f, 0f, heightPx.toFloat(), baseTop, baseBottom, Shader.TileMode.CLAMP)
+            color = if (dark) android.graphics.Color.rgb(28, 28, 30) else android.graphics.Color.WHITE
         }
         canvas.drawRoundRect(rect, radiusPx, radiusPx, fill)
-
-        // 顶部高光：贴着上缘的一条渐隐亮线
-        val highlight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(
-                0f, 0f, widthPx.toFloat(), 0f,
-                intArrayOf(
-                    android.graphics.Color.argb(0, 255, 255, 255),
-                    android.graphics.Color.argb(if (dark) 64 else 90, 255, 255, 255),
-                    android.graphics.Color.argb(0, 255, 255, 255),
-                ),
-                floatArrayOf(0f, 0.35f, 1f),
-                Shader.TileMode.CLAMP,
-            )
-            strokeWidth = d(1.4f)
-        }
-        val hlY = d(1.6f)
-        canvas.drawLine(d(10f), hlY, widthPx - d(10f), hlY, highlight)
-
-        // 细描边：内圈微亮做厚度，外圈压暗收边
-        val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = d(1.2f)
-        }
-        stroke.color = if (dark) android.graphics.Color.argb(46, 255, 255, 255) else android.graphics.Color.argb(70, 255, 255, 255)
-        val inset = stroke.strokeWidth / 2f
-        val inner = RectF(rect).apply { inset(inset, inset) }
-        canvas.drawRoundRect(inner, radiusPx - inset, radiusPx - inset, stroke)
-        stroke.color = android.graphics.Color.argb(24, 0, 0, 0)
-        val outer = RectF(rect).apply { inset(0.5f, 0.5f) }
-        canvas.drawRoundRect(outer, radiusPx - 0.5f, radiusPx - 0.5f, stroke)
         return bmp
     }
 

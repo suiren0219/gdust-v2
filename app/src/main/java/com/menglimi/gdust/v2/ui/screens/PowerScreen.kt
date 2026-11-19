@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -91,6 +93,8 @@ fun PowerScreen(repo: Repository) {
     var netDown by remember { mutableStateOf(false) }
     var intervalSaved by remember { mutableStateOf(false) }
     var sampleIntervalLocal by remember { mutableStateOf(store.sampleIntervalMinutes) }
+    var autoCollectEnabled by remember { mutableStateOf(store.powerAutoCollectEnabled) }
+    var showAutoCollectConfirm by remember { mutableStateOf(false) }
     var hasBinding by remember { mutableStateOf(store.hasPowerBinding) }
     var editingBinding by remember { mutableStateOf(false) }
     var roomName by remember { mutableStateOf(store.powerRoomName) }
@@ -367,6 +371,35 @@ fun PowerScreen(repo: Repository) {
 
             SectionHeader("查询与采样")
             SettingGroup {
+                SettingOption(
+                    title = "后台自动查询并记录",
+                    subtitle = if (!hasBinding) "绑定宿舍后可开启；关闭后仅手动刷新时查询。"
+                        else "按所选间隔在后台联网查询，记录电量并更新桌面小部件。系统省电或厂商后台限制可能延迟任务。",
+                    switch = autoCollectEnabled && hasBinding,
+                    onSwitch = { enabled ->
+                        if (enabled) {
+                            if (hasBinding) showAutoCollectConfirm = true
+                        } else {
+                            autoCollectEnabled = false
+                            store.powerAutoCollectEnabled = false
+                            com.menglimi.gdust.v2.work.PowerWorker.cancel(ctx)
+                        }
+                    },
+                )
+                SettingDivider()
+                ArrowPreference(
+                    title = "后台运行设置",
+                    summary = "部分系统需允许自启动；此为可选系统设置。",
+                    summaryColor = preferenceSummary,
+                    onClick = { com.menglimi.gdust.v2.work.PowerBackgroundSettings.openAutostart(ctx) },
+                )
+                ArrowPreference(
+                    title = "电池优化设置",
+                    summary = "取消电池限制可能减少后台延迟；会增加耗电。",
+                    summaryColor = preferenceSummary,
+                    onClick = { com.menglimi.gdust.v2.work.PowerBackgroundSettings.openBatterySettings(ctx) },
+                )
+                SettingDivider()
                 ArrowPreference(
                     title = if (busy) "正在刷新" else "立即刷新",
                     summary = "从完美校园更新电量", summaryColor = preferenceSummary, onClick = { refresh() }, enabled = !busy,
@@ -374,6 +407,23 @@ fun PowerScreen(repo: Repository) {
                 ArrowPreference(
                     title = "重新绑定宿舍", summary = roomName, summaryColor = preferenceSummary, enabled = !busy,
                     onClick = { editingBinding = true; rooms = emptyList(); msg = "" },
+                )
+            }
+            if (showAutoCollectConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showAutoCollectConfirm = false },
+                    title = { Text("允许后台自动采集电量？") },
+                    text = { Text("开启后，应用会在后台按所选间隔联网查询完美校园宿舍电量，将电量与时间戳保存在本机历史记录中，并刷新桌面小部件。关闭后立即停止后续自动查询；系统或厂商省电策略仍可能延迟任务。") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            autoCollectEnabled = true
+                            store.powerAutoCollectEnabled = true
+                            showAutoCollectConfirm = false
+                            com.menglimi.gdust.v2.work.PowerWorker.schedule(ctx)
+                            com.menglimi.gdust.v2.work.PowerBackgroundSettings.openAutostart(ctx)
+                        }) { Text("允许并设置后台运行") }
+                    },
+                    dismissButton = { TextButton(onClick = { showAutoCollectConfirm = false }) { Text("暂不开启") } },
                 )
             }
             GlassCard {
@@ -386,11 +436,10 @@ fun PowerScreen(repo: Repository) {
                         onSelect = {
                             sampleIntervalLocal = it
                             store.sampleIntervalMinutes = it
-                            // 链式调度按新间隔立即重排，不用等下次启动
-                            runCatching {
-                                com.menglimi.gdust.v2.work.PowerWorker.schedule(
-                                    ctx,
-                                )
+                            if (com.menglimi.gdust.v2.work.PowerCollectionPolicy.shouldSchedule(autoCollectEnabled, hasBinding)) {
+                                com.menglimi.gdust.v2.work.PowerWorker.schedule(ctx)
+                            } else {
+                                com.menglimi.gdust.v2.work.PowerWorker.cancel(ctx)
                             }
                             intervalSaved = true
                         },

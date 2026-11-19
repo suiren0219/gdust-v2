@@ -53,6 +53,11 @@ data class WidgetOpenRequest(val tab: Int, val todoId: Long? = null) {
 /** MainActivity 在 AppRoot 外提供，避免为一次待办定位改动整条页面参数链。 */
 val LocalWidgetTodoId = staticCompositionLocalOf<MutableState<Long?>?> { null }
 
+class ManualPowerWidgetRefreshAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        PowerWidgetManualRefreshWorker.request(context)
+    }
+}
 /** 单向置为完成；重复投递或旧 RemoteViews 点击不会把已完成项重新打开。 */
 class CompleteWidgetTodoAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {

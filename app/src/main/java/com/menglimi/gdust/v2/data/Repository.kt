@@ -249,12 +249,11 @@ class Store(context: Context) {
     }
 
     /** 记录一个采样点（同一小时内只留最后一个）。 */
-    fun addSample(odd: Double) {
-        val now = System.currentTimeMillis()
-        val hour = now / 3600000L
+    fun addSample(odd: Double, sampledAt: Long = System.currentTimeMillis()) {
+        val hour = sampledAt / 3600000L
         val list = loadSamples().filterNot { it.time / 3600000L == hour }.toMutableList()
-        list.add(Sample(now, odd))
-        val cutoff = now - 30L * 24 * 3600 * 1000
+        list.add(Sample(sampledAt, odd))
+        val cutoff = sampledAt - 30L * 24 * 3600 * 1000
         val kept = list.filter { it.time >= cutoff }
         plain.edit().putString("samples", gson.toJson(kept)).apply()
     }
@@ -497,6 +496,11 @@ class Store(context: Context) {
         get() = plain.getInt("sample_interval", 60)
         set(v) { plain.edit().putInt("sample_interval", v).apply(); publishPowerWorkerConfig() }
 
+    /** 是否允许后台自动查询并记录电量；默认关闭，需要用户在电量页明确开启。 */
+    var powerAutoCollectEnabled: Boolean
+        get() = plain.getBoolean("power_auto_collect_enabled", false)
+        set(value) { plain.edit().putBoolean("power_auto_collect_enabled", value).apply(); publishPowerWorkerConfig() }
+
     var warnThreshold: Float
         get() = plain.getFloat("warn_th", 20f)
         set(v) { plain.edit().putFloat("warn_th", v).apply(); publishPowerWorkerConfig() }
@@ -511,6 +515,7 @@ class Store(context: Context) {
             .putInt("code", powerCode)
             .putString("verify", powerRoomVerify)
             .putString("name", powerRoomName)
+            .putBoolean("auto_collect", powerAutoCollectEnabled)
             .putFloat("threshold", warnThreshold)
             .putFloat("drop_rate", warnDropRate)
             .putInt("interval", sampleIntervalMinutes)
