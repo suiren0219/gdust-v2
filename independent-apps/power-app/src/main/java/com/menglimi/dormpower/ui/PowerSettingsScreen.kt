@@ -24,6 +24,10 @@ internal fun PowerSettingsScreen(
     notificationMessage: String?,
     schedulingError: String?, onRetryScheduling: () -> Unit, preview: Boolean,
 ) {
+    if (state.localError != null) {
+        LocalPowerDataNotice(state, actions)
+        return
+    }
     var unbindDialog by rememberSaveable { mutableStateOf(false) }
     var thresholdDialog by rememberSaveable { mutableStateOf(false) }
     var intervalDialog by rememberSaveable { mutableStateOf(false) }

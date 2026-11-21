@@ -13,10 +13,12 @@ internal data class PowerSnapshot(
     val roomName: String = "",
     val monitor: PowerMonitorState = PowerMonitorState(),
     val bindingRevision: Long = 0L,
+    val recoveryMessage: String? = null,
 )
 
 internal interface PowerPersistence {
     fun read(): String?
+    fun readBackup(): String? = null
     fun write(value: String)
 }
 
@@ -105,9 +107,26 @@ internal class PowerStorage(private val persistence: PowerPersistence) : PowerRe
         return true
     }
 
-    private fun current(): PowerSnapshot = cached ?: (
-        persistence.read()?.let(PowerPersistenceCodec::decode) ?: PowerSnapshot()
-    ).also { cached = it }
+    private fun current(): PowerSnapshot = cached ?: load().also { cached = it }
+
+    private fun load(): PowerSnapshot {
+        val primary = runCatching { persistence.read() }
+        if (primary.isSuccess && primary.getOrNull() != null) {
+            runCatching { PowerPersistenceCodec.decode(requireNotNull(primary.getOrNull())) }
+                .getOrNull()?.let { return it }
+        }
+        val backup = runCatching { persistence.readBackup() }
+        backup.getOrNull()?.let { text ->
+            runCatching { PowerPersistenceCodec.decode(text) }.getOrNull()?.let {
+                return it.copy(recoveryMessage = "已从本机加密备份恢复数据，读数时间以记录为准。")
+            }
+        }
+        // 只有确实从未保存快照时才视为空。已有条目损坏时禁止以默认状态覆盖。
+        if (primary.isSuccess && primary.getOrNull() == null && backup.isSuccess && backup.getOrNull() == null) {
+            return PowerSnapshot()
+        }
+        throw java.io.IOException("本机电量数据无法读取，原文件已保留")
+    }
 
     private fun save(next: PowerSnapshot): PowerSnapshot {
         if (next != current()) {

@@ -3,7 +3,9 @@ package com.menglimi.dormpower.power
 import android.content.Context
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.Data
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -37,21 +39,26 @@ object PowerScheduling {
         scope.launch {
             try {
                 schedulingMutex.withLock {
-                    val config = PowerStore(application).config()
-                    val manager = WorkManager.getInstance(application)
-                    val operation = if (config.binding?.isValid != true || config.preset == PowerQueryPreset.MANUAL) {
-                        manager.cancelUniqueWork(WORK_NAME)
-                    } else {
-                        val request = PeriodicWorkRequestBuilder<PowerWorker>(15, TimeUnit.MINUTES)
-                            .setInitialDelay(15, TimeUnit.MINUTES)
-                            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                            .build()
-                        // 固定巡检周期；实际查询间隔由 core policy 决定，不因开 App 而重新计时。
-                        manager.enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
-                    }
-                    // 串行等待数据库操作落定，避免快速切换手动/自动时取消盖过后续补排。
-                    operation.result.get()
-                    mutableError.value = null
+            val manager = WorkManager.getInstance(application)
+            val operation = if (config.binding?.isValid != true || config.preset == PowerQueryPreset.MANUAL) {
+                manager.cancelUniqueWork(WORK_NAME)
+            } else {
+                val request = PeriodicWorkRequestBuilder<PowerWorker>(15, TimeUnit.MINUTES)
+                    .setInitialDelay(15, TimeUnit.MINUTES)
+                    .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                    .build()
+                // 固定巡检周期；实际查询间隔由 core policy 决定，不因开 App 而重新计时。
+                manager.enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+            }
+            operation.result.get()
+            val manual = readPrefs.getBoolean("widget_refresh_running", false)
+            if (manual && now - readPrefs.getLong("widget_refresh_started_at", 0L) >= MANUAL_REFRESH_STALE_MS) {
+                workManager.cancelUniqueWork(MANUAL_REFRESH_WORK)
+                readPrefs.edit().putBoolean("widget_refresh_running", false)
+                    .putString("widget_refresh_status", "刷新任务超时，请手动重试")
+                    .remove("widget_refresh_started_at").remove("widget_refresh_request_id").apply()
+            }
+            mutableError.value = null
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled

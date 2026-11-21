@@ -34,6 +34,10 @@ import java.time.format.DateTimeFormatter
 
 @Composable
 internal fun PowerHistoryScreen(state: PowerUiState, now: Long, preview: Boolean) {
+    if (state.localError != null || state.localLoading && state.reading == null) {
+        LocalPowerDataNotice(state)
+        return
+    }
     var range by rememberSaveable { mutableIntStateOf(7) }
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
     val samples = remember(state.samples, range, now) { trendSamples(state.samples, range, now) }
