@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/preview_glass" android:orientation="vertical"
+    android:gravity="center_horizontal" android:padding="6dp">
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="电量" android:textSize="@dimen/widget_text_label" android:textStyle="bold"
+        android:textColor="@color/widget_text" android:gravity="center" android:maxLines="1" />
+    <TextView android:layout_width="1dp" android:layout_height="0dp" android:layout_weight="1" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="未绑定" android:textSize="@dimen/widget_text_body" android:textStyle="bold"
+        android:textColor="@color/widget_text" android:gravity="center" android:maxLines="2" android:ellipsize="end" />
+    <TextView android:layout_width="1dp" android:layout_height="0dp" android:layout_weight="1" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="点按绑定宿舍" android:textSize="@dimen/widget_text_caption"
+        android:textColor="@color/widget_sub" android:gravity="center" android:maxLines="3" android:ellipsize="end" />
+</LinearLayout>

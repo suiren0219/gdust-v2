@@ -51,6 +51,43 @@ class WidgetPresentationTest {
         assertEquals(WidgetPresentation.Shape.ROW, WidgetPresentation.shapeOf(300.dp, 75.dp))
     }
 
+    @Test
+    fun longTallUsesHeightForDetailsAndReducesRowsForLargerFonts() {
+        val compact = WidgetPresentation.layout(96.dp, 192.dp, 1f)
+        val long = WidgetPresentation.layout(96.dp, 340.dp, 1f)
+        val large = WidgetPresentation.layout(96.dp, 340.dp, 1.3f)
+        assertFalse(compact.longTall)
+        assertTrue(long.longTall)
+        assertTrue(long.tallVisibleRows(8) > large.tallVisibleRows(8))
+        assertTrue(long.tallVisibleRows(8) >= 1)
+        listOf(long, large).forEach { layout ->
+            assertTrue(layout.tallVisibleRows(8) * layout.tallLessonHeight.value < layout.contentHeight)
+        }
+    }
+
+    @Test
+    fun bindingAndCacheAgeRemainDistinctFromValidReadings() {
+        val base = data(WidgetData.Scope.NO_DATA, emptyList())
+        assertEquals("未绑定宿舍", WidgetPresentation.powerState(base))
+        assertEquals("等待首次采样", WidgetPresentation.powerState(base.copy(powerBound = true, odd = null)))
+        val stamp = ms(base.now.toLocalDate(), 11)
+        val fresh = base.copy(powerBound = true, lastSampleAt = stamp)
+        assertEquals("更新于 11:00", WidgetPresentation.powerState(fresh))
+        assertTrue(WidgetPresentation.powerState(fresh.copy(powerStale = true)).startsWith("旧读数"))
+        assertEquals("待导入整学期", WidgetPresentation.scheduleStaleLabel(base))
+        assertEquals("同步时间未知", WidgetPresentation.scheduleStaleLabel(base.copy(scheduleImported = true)))
+        assertEquals("较久未同步", WidgetPresentation.scheduleStaleLabel(base.copy(scheduleImported = true, scheduleStale = true)))
+        assertEquals("明天没有课程", WidgetPresentation.scheduleEmpty(base.copy(scope = WidgetData.Scope.TOMORROW_EMPTY)))
+        assertEquals("尚未导入整学期课表", WidgetPresentation.scheduleEmpty(base.copy(scope = WidgetData.Scope.INCOMPLETE)))
+    }
+
+    @Test
+    fun lunchBreakAndLastSecondsDoNotClaimTheWrongCourseStatus() {
+        assertTrue(WidgetPresentation.nextCountdown(WidgetData.Scope.TODAY_ALL, block(3, 6), LocalTime.of(13, 0)).endsWith("分钟后续课"))
+        assertEquals("1 分钟后", WidgetPresentation.nextCountdown(WidgetData.Scope.TODAY_ALL, block(1, 2), LocalTime.of(8, 29, 59)))
+        assertEquals("已下课", WidgetPresentation.nextCountdown(WidgetData.Scope.TODAY_ALL, block(1, 2), LocalTime.of(23, 0)))
+    }
+
     // ── 可读性预算：真实尺寸、字体放大、数值精度与强调文字对比 ────────────────
 
     @Test
@@ -183,7 +220,7 @@ class WidgetPresentationTest {
         val ongoing = WidgetPresentation.nextCountdown(WidgetData.Scope.TODAY_ALL, b, LocalTime.of(8, 30))
         assertTrue(ongoing.startsWith("上课中"))
         val done = WidgetPresentation.nextCountdown(WidgetData.Scope.TODAY_ALL, b, LocalTime.of(10, 5))
-        assertEquals("上课中", done)
+        assertEquals("已下课", done)
     }
 
     @Test
