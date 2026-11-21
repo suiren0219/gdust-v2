@@ -263,11 +263,8 @@ class TeachingWebActivity : ComponentActivity() {
                 handler: android.webkit.SslErrorHandler,
                 error: android.net.http.SslError,
             ) {
-                // 学校站点证书链偶尔不全：仅对校方域名放行
-                val host = runCatching { Uri.parse(error.url).host.orEmpty() }.getOrDefault("")
-                val allowed = host == "gdust.edu.cn" || host.endsWith(".gdust.edu.cn") ||
-                    host == "172.16.254.1" || host == "webvpn.gdust.edu.cn"
-                if (allowed) handler.proceed() else handler.cancel()
+                handler.cancel()
+                hostLabel.text = "页面证书验证失败，已停止加载，请联系学校检查证书"
             }
 
             override fun onReceivedError(
