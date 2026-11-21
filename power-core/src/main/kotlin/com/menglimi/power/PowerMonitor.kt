@@ -26,7 +26,7 @@ interface PowerMonitorStore {
 
 data class PowerMonitorConfig(
     val binding: PowerBinding? = null,
-    val preset: PowerQueryPreset = PowerQueryPreset.BALANCED,
+    val preset: PowerQueryPreset = PowerQueryPreset.MANUAL,
     val customIntervalMinutes: Int = 60,
     val lowThreshold: Double = 20.0,
     val dropRateThreshold: Double = 5.0,
