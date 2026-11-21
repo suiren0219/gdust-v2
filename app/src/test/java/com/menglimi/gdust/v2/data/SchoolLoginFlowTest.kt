@@ -305,6 +305,152 @@ class SchoolLoginFlowTest {
         assertFalse(restored.isVerified(SchoolService.TEACHING))
     }
 
+    @Test
+    fun portalOnlyCompletesWithoutConnectingOtherServices() {
+        val flow = SchoolLoginFlow(only = SchoolService.PORTAL)
+        assertEquals(SchoolService.PORTAL, flow.current)
+        assertEquals(SchoolConnection.SKIPPED, flow.connection(SchoolService.TEACHING))
+        assertEquals(SchoolConnection.SKIPPED, flow.connection(SchoolService.CHX))
+        assertTrue(flow.verified(land(flow, "https://portal.gdust.edu.cn/")))
+        assertTrue(flow.complete)
+        assertTrue(flow.isVerified(SchoolService.PORTAL))
+        assertTrue(flow.schoolReady)
+        assertFalse(flow.isVerified(SchoolService.TEACHING))
+        assertFalse(flow.isVerified(SchoolService.CHX))
+    }
+
+    @Test
+    fun teachingOnlyCompletesAndCountsAsSchoolReady() {
+        val flow = SchoolLoginFlow(only = SchoolService.TEACHING)
+        assertEquals(SchoolService.TEACHING, flow.current)
+        assertEquals(SchoolConnection.SKIPPED, flow.connection(SchoolService.PORTAL))
+        assertEquals(SchoolConnection.SKIPPED, flow.connection(SchoolService.CHX))
+        assertTrue(flow.verified(land(flow, ChxSso.teachingWebUrl)))
+        assertTrue(flow.complete)
+        assertFalse(flow.isVerified(SchoolService.PORTAL))
+        assertTrue(flow.schoolReady)
+        // 对应 finishFlow 的 RESULT_OK 判定：任一服务验证成功即为成功。
+        assertTrue(flow.anyReady)
+    }
+
+    @Test
+    fun chxOnlyIsIndependentlyUsableWithoutSchoolReady() {
+        val flow = SchoolLoginFlow(only = SchoolService.CHX)
+        assertEquals(SchoolService.CHX, flow.current)
+        assertEquals(SchoolConnection.SKIPPED, flow.connection(SchoolService.PORTAL))
+        assertEquals(SchoolConnection.SKIPPED, flow.connection(SchoolService.TEACHING))
+        assertTrue(flow.verified(land(flow, ChxSso.HOME)))
+        assertTrue(flow.complete)
+        assertTrue(flow.isVerified(SchoolService.CHX))
+        assertFalse(flow.schoolReady)
+        // 学习通不算”学校服务就绪”，但独立成功仍应算 RESULT_OK。
+        assertFalse(flow.schoolReady)
+        assertTrue(flow.anyReady)
+    }
+
+    @Test
+    fun singleServiceSkipEndsWithoutEnteringOtherServices() {
+        for (only in SchoolService.entries) {
+            val flow = SchoolLoginFlow(only = only)
+            flow.skip()
+            assertTrue(flow.complete)
+            assertFalse(flow.isVerified(only))
+            assertEquals(SchoolConnection.SKIPPED, flow.connection(only))
+        }
+    }
+
+    @Test
+    fun singleServiceContinueAfterFailureEndsWithoutOtherServices() {
+        val flow = SchoolLoginFlow(only = SchoolService.TEACHING)
+        flow.navigating(ChxSso.teachingWebUrl)
+        assertTrue(flow.unavailable())
+        assertEquals(SchoolService.TEACHING, flow.current)
+        assertTrue(flow.continueAfterFailure())
+        assertTrue(flow.complete)
+        assertNull(flow.current)
+        assertFalse(flow.isVerified(SchoolService.PORTAL))
+        assertFalse(flow.isVerified(SchoolService.CHX))
+    }
+
+    @Test
+    fun fullFlowPartialSuccessKeepsPortalWhenTeachingUnavailable() {
+        val flow = SchoolLoginFlow()
+        assertTrue(flow.verified(land(flow, "https://portal.gdust.edu.cn/")))
+        flow.navigating(ChxSso.teachingWebUrl)
+        assertTrue(flow.unavailable())
+        assertTrue(flow.continueAfterFailure())
+        assertEquals(SchoolService.CHX, flow.current)
+        assertTrue(flow.isVerified(SchoolService.PORTAL))
+        assertEquals(SchoolConnection.UNAVAILABLE, flow.connection(SchoolService.TEACHING))
+        assertTrue(flow.schoolReady)
+    }
+
+    @Test
+    fun singleServiceRotationRestoresOnlyCompletedPrefixAndStartAtBoundary() {
+        val previous = SchoolLoginFlow(only = SchoolService.TEACHING)
+        assertTrue(previous.verified(land(previous, ChxSso.teachingWebUrl)))
+        val restored = SchoolLoginFlow(previous.snapshot(), only = SchoolService.TEACHING)
+        assertTrue(restored.complete)
+        assertTrue(restored.isVerified(SchoolService.TEACHING))
+        assertTrue(restored.schoolReady)
+
+        val fromChx = SchoolLoginFlow(startAt = SchoolService.CHX)
+        assertEquals(SchoolService.CHX, fromChx.current)
+        assertEquals(SchoolConnection.SKIPPED, fromChx.connection(SchoolService.PORTAL))
+        assertEquals(SchoolConnection.SKIPPED, fromChx.connection(SchoolService.TEACHING))
+    }
+
+    @Test
+    fun singleServiceStaleProbeCannotOverrideVerification() {
+        val flow = SchoolLoginFlow(only = SchoolService.PORTAL)
+        val stale = land(flow, "https://portal.gdust.edu.cn/")
+        assertTrue(flow.navigating())
+        assertFalse(flow.verified(stale))
+        assertFalse(flow.endProbe(stale))
+        val fresh = land(flow, "https://portal.gdust.edu.cn/")
+        assertTrue(flow.verified(fresh))
+        assertTrue(flow.complete)
+        assertTrue(flow.isVerified(SchoolService.PORTAL))
+    }
+
+    @Test
+    fun singleServiceSummaryReportsOnlyItsTarget() {
+        val chxOnly = SchoolLoginFlow(only = SchoolService.CHX)
+        assertTrue(chxOnly.verified(land(chxOnly, ChxSso.HOME)))
+        assertEquals("学习通已连接", chxOnly.summary())
+
+        val teachingOnly = SchoolLoginFlow(only = SchoolService.TEACHING)
+        assertEquals("教务待连接", teachingOnly.summary())
+
+        val portalOnly = SchoolLoginFlow(only = SchoolService.PORTAL)
+        assertTrue(portalOnly.navigating("https://portal.gdust.edu.cn/"))
+        assertTrue(portalOnly.unavailable())
+        // 失败是"未验证"；其余服务未尝试，摘要不得把它们描述为"未连接"。
+        assertEquals("门户未验证", portalOnly.summary())
+        assertFalse(portalOnly.summary().contains("未连接"))
+
+        // 完整流程摘要保持三段。
+        assertEquals("门户待连接 · 教务待连接 · 学习通待连接", SchoolLoginFlow().summary())
+    }
+
+    @Test
+    fun startAtBoundaryRejectsVerifiedEntriesOutsideItsActiveServices() {
+        // 脏/跨入口快照：startAt=CHX 只恢复 CHX，起点之前的 VERIFIED 不能发明成功。
+        val dirty = SchoolLoginFlow(listOf("VERIFIED", "VERIFIED", "PENDING"), startAt = SchoolService.CHX)
+        assertEquals(SchoolService.CHX, dirty.current)
+        assertEquals(SchoolConnection.SKIPPED, dirty.connection(SchoolService.PORTAL))
+        assertEquals(SchoolConnection.SKIPPED, dirty.connection(SchoolService.TEACHING))
+        assertFalse(dirty.schoolReady)
+        assertFalse(dirty.complete)
+        assertFalse(dirty.isVerified(SchoolService.CHX))
+
+        // 单服务入口同样拒绝为序列外服务发明结果。
+        val crossEntry = SchoolLoginFlow(listOf("VERIFIED", "SKIPPED", "PENDING"), only = SchoolService.CHX)
+        assertEquals(SchoolService.CHX, crossEntry.current)
+        assertFalse(crossEntry.anyReady)
+        assertFalse(crossEntry.complete)
+    }
+
     private fun land(flow: SchoolLoginFlow, url: String): SchoolLoginFlow.Probe {
         assertTrue(flow.navigating())
         assertTrue(flow.pageStarted(url))

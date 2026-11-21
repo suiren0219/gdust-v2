@@ -97,7 +97,7 @@ internal fun AccountIdentityContent(
                 Icon(MiuixIcons.ContactsCircle, null, Modifier.size(28.dp), tint = if (valid) ds.success else ds.sub)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(when {
-                        !hasIdentity -> "未登录"
+                        !hasIdentity -> "门户身份未确认"
                         revealed -> name.ifBlank { "个人信息" }
                         else -> "*****"
                     }, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
@@ -109,7 +109,7 @@ internal fun AccountIdentityContent(
         }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(state.label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+            Text(portalStateLabel(state), fontSize = 13.sp, fontWeight = FontWeight.Medium,
                 color = if (state == AccountLoginState.EXPIRED) ds.danger else ds.text,
                 modifier = Modifier.weight(1f))
             if (canVerify) TextButton("验证登录", enabled = state != AccountLoginState.CHECKING, onClick = onVerify)
@@ -117,4 +117,14 @@ internal fun AccountIdentityContent(
         }
     }
     Spacer(Modifier.height(AppUiTokens.CardGap))
+}
+
+/** 状态词明确限定门户口径，避免「未登录」被误读为整个应用都不可用。 */
+private fun portalStateLabel(state: AccountLoginState): String = when (state) {
+    AccountLoginState.SIGNED_OUT -> "门户未连接"
+    AccountLoginState.UNVERIFIED -> "门户身份待验证"
+    AccountLoginState.CHECKING -> "门户验证中"
+    AccountLoginState.VALID -> "门户已连接"
+    AccountLoginState.EXPIRED -> "门户登录已失效"
+    AccountLoginState.UNAVAILABLE -> "门户暂时无法验证"
 }

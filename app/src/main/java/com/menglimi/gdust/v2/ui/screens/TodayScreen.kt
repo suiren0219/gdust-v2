@@ -74,6 +74,8 @@ fun TodayScreen(
     onOpenSchedule: () -> Unit = {},
     onImport: () -> Unit = {},
     hasImportedSchedule: Boolean = blocks.isNotEmpty(),
+    serviceSummary: String? = null,
+    onServices: () -> Unit = {},
 ) {
     val now by rememberTodayMinuteClock()
     val today = now.toLocalDate()
@@ -131,6 +133,16 @@ fun TodayScreen(
                     modifier = Modifier.padding(top = 8.dp),
                 )
                 Text(weekText, fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub)
+            }
+        }
+        if (serviceSummary != null) item(key = "service-connections") {
+            AppCard(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding),
+                onClick = onServices) {
+                Text("服务连接", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+                Text(serviceSummary, fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
+                    modifier = Modifier.padding(top = 6.dp))
+                Text("查看状态或单独补连", fontSize = 13.sp, color = ds.accent,
+                    modifier = Modifier.padding(top = 8.dp))
             }
         }
         when {
