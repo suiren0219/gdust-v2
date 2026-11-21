@@ -52,8 +52,14 @@ Kotlin · Jetpack Compose · Material 3 · [Miuix](https://github.com/miuix-kotl
 ## 构建
 
 ```bash
-# JDK 21 + Android SDK 37（compileSdk）/ minSdk 33（Android 13+）
-./gradlew assembleDebug
+# JDK 21 + Gradle 9.7.1 + Android SDK 37（compileSdk）/ minSdk 33（Android 13+）
+gradle assembleDebug
+```
+
+仓库暂未包含 Gradle Wrapper；请安装 Gradle 9.7.1 并加入 `PATH`，或使用已安装的 Gradle 完整路径。Windows 本地测试环境可执行：
+
+```powershell
+& 'D:\android-sdk\gradle-dist\gradle-9.7.1\bin\gradle.bat' -p 'D:\projects\gdust\gdust-v2' :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 ```
 
 - 产物：`app/build/outputs/apk/debug/app-debug.apk`（纯 Kotlin/Compose，无 native 依赖）
