@@ -48,7 +48,7 @@ internal class PowerViewModel(application: Application) : AndroidViewModel(appli
         onUnbound = notifications::clear)
     private val mutableTab = MutableStateFlow(0)
     val tab = mutableTab.asStateFlow()
-    fun selectTab(value: Int) { mutableTab.value = value.coerceIn(0, 2) }
+    fun selectTab(value: Int) { mutableTab.value = value.coerceIn(0, 3) }
     val actions = PowerActions(
         refresh = { controller.refresh() }, cancelRefresh = { controller.cancelRefresh() },
         reload = { controller.reload() }, queryRooms = { account, code -> controller.queryRooms(account, code) },
@@ -56,6 +56,9 @@ internal class PowerViewModel(application: Application) : AndroidViewModel(appli
         clearError = controller::clearError, clearSettingsError = controller::clearSettingsError,
         preset = { controller.setPreset(it) }, interval = { controller.setInterval(it) },
         thresholds = { low, drop -> controller.setThresholds(low, drop) }, unbind = { controller.unbind() },
+        price = { value, revision -> controller.setPrice(value, revision) },
+        saveEntry = { entry, revision -> controller.saveEntry(entry, revision) },
+        removeEntry = { id, revision -> controller.removeEntry(id, revision) },
     )
     override fun onCleared() { controller.close() }
 }

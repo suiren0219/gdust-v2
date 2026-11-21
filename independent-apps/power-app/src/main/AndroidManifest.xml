@@ -27,5 +27,13 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/power_widget_wide_info" />
         </receiver>
+        <receiver android:name=".widget.PowerCalendarReceiver" android:exported="false" android:label="宿舍电量 · 电费日历">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/power_widget_calendar_info" />
+        </receiver>
+        <receiver android:name=".widget.PowerLedgerReceiver" android:exported="false" android:label="宿舍电量 · 账本">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/power_widget_ledger_info" />
+        </receiver>
     </application>
 </manifest>

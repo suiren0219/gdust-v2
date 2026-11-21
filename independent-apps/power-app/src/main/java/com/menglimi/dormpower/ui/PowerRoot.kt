@@ -4,8 +4,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -31,6 +36,9 @@ internal data class PowerActions(
     val interval: (Int) -> Unit,
     val thresholds: (Double, Double) -> Unit,
     val unbind: () -> Unit,
+    val price: (String, Long) -> Unit = { _, _ -> },
+    val saveEntry: (com.menglimi.dormpower.power.PowerLedgerEntry, Long) -> Unit = { _, _ -> },
+    val removeEntry: (String, Long) -> Unit = { _, _ -> },
 )
 
 @Composable
@@ -50,19 +58,37 @@ internal fun PowerRoot(
     preview: Boolean = false,
 ) {
     var clockTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var pullRefreshing by remember { mutableStateOf(false) }
     // 新快照到达时同步读时钟，避免读数晚于上一次 30 秒 tick 被误判为时间回退。
     val now = remember(clockTick, state) { System.currentTimeMillis() }
+    LaunchedEffect(state.busy, state.config.binding, state.bindingRevision) {
+        if (pullRefreshing && !state.busy) pullRefreshing = false
+    }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) { clockTick = System.currentTimeMillis(); delay(30_000) }
         }
     }
-    val tabs = remember { listOf(NavItem("电量", Glyph.BOLT), NavItem("历史", Glyph.CHART), NavItem("设置", Glyph.SETTINGS)) }
+    val tabs = remember { listOf(NavItem("电量", Glyph.BOLT), NavItem("历史", Glyph.CHART),
+        NavItem("设置", Glyph.SETTINGS), NavItem("账本", Glyph.BOOK)) }
     KsuScaffold(tab, onTab, tabs) { page ->
         when (page) {
-            0 -> PowerScreen(state, actions, now, preview)
+            0 -> PullToRefreshBox(
+                isRefreshing = pullRefreshing || state.busy,
+                onRefresh = {
+                    if (state.config.binding != null && !state.busy) {
+                        pullRefreshing = true
+                        actions.refresh()
+                    }
+                },
+                state = rememberPullToRefreshState(),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                PowerScreen(state, actions, now, preview)
+            }
             1 -> PowerHistoryScreen(state, now, preview)
+            3 -> PowerLedgerScreen(state, actions, now, preview)
             else -> PowerSettingsScreen(appearance, onAppearance, state, actions, notificationsEnabled,
                 onNotifications, onTestNotification, notificationMessage, schedulingError, onRetryScheduling, preview)
         }

@@ -24,9 +24,13 @@ import kotlinx.coroutines.launch
 class PreviewActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val initialTab = when (intent.getStringExtra("screen")) { "history" -> 1; "settings" -> 2; else -> 0 }
+        val initialTab = when (intent.getStringExtra("screen")) { "history" -> 1; "settings" -> 2; "ledger" -> 3; else -> 0 }
         val scenario = intent.getStringExtra("state").orEmpty()
         val now = System.currentTimeMillis()
+        if (intent.getStringExtra("screen") in listOf("widget-calendar", "widget-ledger")) {
+            setContent { LedgerWidgetPreview(intent.getStringExtra("screen") == "widget-calendar") }
+            return
+        }
         setContent {
             var tab by remember { mutableIntStateOf(initialTab) }
             var appearance by remember { mutableStateOf(Appearance(
@@ -85,6 +89,10 @@ class PreviewActivity : ComponentActivity() {
                 preset = { power = power.copy(config = power.config.copy(preset = it)) },
                 interval = { power = power.copy(config = power.config.copy(customIntervalMinutes = it)) },
                 thresholds = { low, drop -> power = power.copy(config = power.config.copy(lowThreshold = low, dropRateThreshold = drop)) },
+                price = { value, _ -> power = power.copy(ledger = power.ledger.copy(unitPrice = value), ledgerSavedVersion = power.ledgerSavedVersion + 1) },
+                saveEntry = { entry, _ -> power = power.copy(ledger = power.ledger.copy(entries = power.ledger.entries.filterNot { it.id == entry.id } + entry),
+                    ledgerSavedVersion = power.ledgerSavedVersion + 1) },
+                removeEntry = { id, _ -> power = power.copy(ledger = power.ledger.copy(entries = power.ledger.entries.filterNot { it.id == id })) },
                 unbind = {
                     cancelRooms(); refreshJob?.cancel()
                     power = PowerUiState(config = power.config.copy(binding = null), bindingRevision = power.bindingRevision + 1,
@@ -120,6 +128,10 @@ private fun syntheticState(now: Long, scenario: String): PowerUiState {
             if (scenario == "partial") emptyList() else listOf("周一" to 2.7, "周二" to 2.4, "周三" to 3.1,
                 "周四" to 2.8, "周五" to 2.5, "周六" to 3.0, "周日" to 2.3),
             if (scenario == "partial") null else 78.4, 200.0), updated),
+        ledger = com.menglimi.dormpower.power.PowerLedgerState(entries = listOf(
+            com.menglimi.dormpower.power.PowerLedgerEntry(time = now - 86_400_000, kwh = 100.0, paidYuan = "60.00", payer = "室友甲", note = "合成预览 · 公共电费"),
+            com.menglimi.dormpower.power.PowerLedgerEntry(time = now, kwh = 49.0, detected = true)),
+            days = listOf(com.menglimi.dormpower.power.PowerDayCost(java.time.LocalDate.now().toString(), 3.0, "1.8", 3, now - 3600_000, now))),
         samples = if (scenario == "unknown") emptyList() else samples,
         lastSampleAt = updated, lastAttemptAt = updated,
         busy = scenario == "loading",

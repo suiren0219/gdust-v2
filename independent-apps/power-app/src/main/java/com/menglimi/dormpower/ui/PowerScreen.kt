@@ -14,6 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -37,8 +39,7 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
     val roomName = state.roomName.ifBlank { "已绑定宿舍" }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 124.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { PageHeader("宿舍电量", if (preview) "合成预览 · 所有数据与操作仅在内存中" else "独立查询 · 关心宿舍的每一度电",
-            onRefresh = if (bound) actions.refresh else null, loading = state.busy || state.localLoading) }
+        item { PageHeader("宿舍电量", if (preview) "合成预览 · 下拉刷新仅在内存中" else "下拉刷新 · 独立查询 · 关心宿舍的每一度电") }
         item {
             HeroCard(
                 tags = presentation.tags + if (preview) "合成预览" else if (bound) state.config.preset.title else "无需密码",
@@ -51,11 +52,9 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
             ) {
                 val foreground = if (presentation.warning) MaterialTheme.colorScheme.onErrorContainer
                     else MaterialTheme.colorScheme.onPrimaryContainer
-                if (bound && !state.busy) TextButton(onClick = actions.refresh, modifier = Modifier.heightIn(min = 48.dp),
-                    colors = ButtonDefaults.textButtonColors(contentColor = foreground)) {
-                    KIcon(Glyph.REFRESH, color = foreground)
-                    Spacer(Modifier.width(8.dp)); Text("刷新电量")
-                }
+                if (bound && reading?.detail?.odd != null) Text(
+                    "折合约 ¥${com.menglimi.dormpower.power.PowerLedger.yuan(reading.detail.odd, state.ledger.unitPrice)} · ${state.ledger.unitPrice} 元/度",
+                    style = MaterialTheme.typography.bodySmall, color = foreground)
             }
         }
         if (state.busy) item {
@@ -68,11 +67,7 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
                 Text("历史与设置仍可使用。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        state.error?.let { message -> item {
-            MessageCard(message, actions.clearError)
-            TextButton(onClick = if (bound) actions.refresh else actions.reload,
-                enabled = !state.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("重试") }
-        } }
+        state.error?.let { message -> item { MessageCard(message, actions.clearError) } }
         state.message?.let { message -> item {
             Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } }
@@ -81,10 +76,10 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
         } else {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard(usageValue(reading?.detail?.todayUse), "今日用电 / 度")
-                    StatCard(usageValue(reading?.detail?.monthUse), "上月用电 / 度")
+                    StatCard(usageValue(reading?.detail?.todayUse), "今日用电 / 度 · ≈¥${com.menglimi.dormpower.power.PowerLedger.yuan(reading?.detail?.todayUse, state.ledger.unitPrice)}")
+                    StatCard(usageValue(reading?.detail?.monthUse), "上月用电 / 度 · ≈¥${com.menglimi.dormpower.power.PowerLedger.yuan(reading?.detail?.monthUse, state.ledger.unitPrice)}")
                 }
-                if (stale) Text("以上为上次成功返回的统计，尚未验证最新数据。",
+                if (stale) Text("以上为上次成功返回的统计，尚未验证最新数据。下拉页面刷新。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp))
             }
@@ -112,7 +107,7 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
                     week.forEach { (label, use) ->
                         Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(label.ifBlank { "未标注日期" }, Modifier.weight(1f))
-                            Text("${usageValue(use)} 度")
+                            Text("${usageValue(use)} 度  ≈¥${com.menglimi.dormpower.power.PowerLedger.yuan(use.takeIf { it >= 0 }, state.ledger.unitPrice)}")
                         }
                     }
                     Text("累计购电 ${usageValue(reading?.detail?.sumBuy)} 度", style = MaterialTheme.typography.bodySmall,
@@ -130,7 +125,8 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
 
 @Composable
 private fun PowerBindingDialog(state: PowerUiState, actions: PowerActions, close: () -> Unit) {
-    var account by rememberSaveable { mutableStateOf(state.config.binding?.account.orEmpty()) }
+    var account by remember { mutableStateOf(state.config.binding?.account.orEmpty()) }
+    var revealAccount by remember { mutableStateOf(false) }
     var codeText by rememberSaveable { mutableStateOf(state.config.binding?.code?.toString() ?: "1000145") }
     var attempted by rememberSaveable { mutableStateOf(false) }
     var requested by remember { mutableStateOf<Pair<String, Int>?>(null) }
@@ -162,7 +158,9 @@ private fun PowerBindingDialog(state: PowerUiState, actions: PowerActions, close
             style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(account, { account = it; inputChanged() }, label = { Text("电费账号") }, singleLine = true,
             enabled = !saving, modifier = Modifier.fillMaxWidth(), isError = attempted && account.isBlank(),
-            supportingText = { if (attempted && account.isBlank()) Text("请输入电费账号") })
+            visualTransformation = if (revealAccount) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = { TextButton(onClick = { revealAccount = !revealAccount }) { Text(if (revealAccount) "隐藏" else "显示") } },
+            supportingText = { Text(if (attempted && account.isBlank()) "请输入电费账号" else "确认绑定后以 Keystore 加密保存；账号不写入界面恢复状态。") })
         OutlinedTextField(codeText, { codeText = it; inputChanged() }, label = { Text("学校代码（customerCode）") },
             singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), isError = attempted && code == null,

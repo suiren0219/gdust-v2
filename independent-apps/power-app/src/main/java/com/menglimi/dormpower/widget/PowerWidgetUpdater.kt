@@ -7,5 +7,7 @@ import androidx.glance.appwidget.updateAll
 internal object PowerWidgetUpdater {
     suspend fun updateAll(context: Context) {
         runCatching { DormPowerWidget().updateAll(context) }
+        runCatching { PowerCalendarWidget().updateAll(context) }
+        runCatching { PowerLedgerWidget().updateAll(context) }
     }
 }
