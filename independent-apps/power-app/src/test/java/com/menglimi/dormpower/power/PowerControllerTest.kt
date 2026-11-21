@@ -42,6 +42,33 @@ class PowerControllerTest {
         rooms: suspend (String, Int) -> List<PowerRoom> = { _, _ -> listOf(room) }): PowerController =
         PowerController(store, source, rooms, this, clock = clock)
 
+    @Test fun unreadableSnapshotIsNotPresentedAsUnboundAndRetryRestoresPersistedData() = runTest {
+        val memory = Memory()
+        val store = PowerStorage(memory)
+        store.bind(binding, room.name, 0)
+        val old = now - 600_000L
+        store.update(binding) { PowerMonitorState(binding.key, PowerReading(detail, old), old, old,
+            listOf(PowerSample(old, 42.0))) }
+        val valid = memory.value
+        memory.value = "{broken snapshot"
+        val reopened = PowerStorage(memory)
+        val controller = controller(reopened)
+        advanceUntilIdle()
+        assertNotNull(controller.state.value.localError)
+        assertFalse(controller.state.value.localLoading)
+        controller.setPreset(PowerQueryPreset.MANUAL)
+        controller.unbind()
+        advanceUntilIdle()
+        assertEquals("{broken snapshot", memory.value)
+        memory.value = valid
+        controller.reload()
+        advanceUntilIdle()
+        assertNull(controller.state.value.localError)
+        assertEquals(binding, controller.state.value.config.binding)
+        assertEquals(42.0, controller.state.value.reading!!.detail.odd!!, 0.0)
+        assertEquals(listOf(PowerSample(old, 42.0)), controller.state.value.samples)
+    }
+
     @Test fun roomLookupAloneNeverBindsAndEmptyResultKeepsTheQueriedInputs() = runTest {
         val store = storage()
         val controller = controller(store, rooms = { _, _ -> emptyList() })

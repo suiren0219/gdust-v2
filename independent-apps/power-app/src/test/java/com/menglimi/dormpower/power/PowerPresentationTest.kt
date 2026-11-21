@@ -55,6 +55,13 @@ class PowerPresentationTest {
         assertEquals(TrendAxis(-0.5, 0.0), trendAxis(points))
     }
 
+    @Test fun allHistoryIncludesOldAndClockRollbackSamplesWithoutInventingInvalidValues() {
+        val samples = listOf(PowerSample(now - 100 * 86_400_000L, 100.0), PowerSample(now + 60_000L, 40.0),
+            PowerSample(0, 12.0), PowerSample(now, Double.NaN))
+        assertEquals(samples.take(2), trendSamples(samples, null, now))
+        assertTrue(trendSamples(samples, 30, now).isEmpty())
+    }
+
     @Test fun singlePointIsNotDayUsageAndRechargeIsExplicitlyBalanceChange() {
         assertEquals("—（仅一次采样）", balanceChange(listOf(PowerSample(now, 10.0))))
         val change = balanceChange(listOf(PowerSample(now - 60_000, 10.0), PowerSample(now, 30.0)))

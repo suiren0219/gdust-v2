@@ -149,7 +149,7 @@ class PowerMonitor(
                     plan.intervalMinutes,
                 )
                 if (!due && (cached != null || background)) return@withLock PowerMonitorResult(cached)
-            } else if (cached != null && cached.updatedAt >= requestedAt) {
+            } else if (cached != null && cached.updatedAt in requestedAt..now) {
                 return@withLock PowerMonitorResult(cached)
             }
 

@@ -170,13 +170,14 @@ object PowerQueryPolicy {
         return now - anchor >= intervalMinutes.coerceAtLeast(15) * MINUTE
     }
 
-    /** 同一 15 分钟桶保留最后读数；自动与手动共享历史，不重复堆积同一时段。 */
+    /** 同一 15 分钟桶保留时间最新的读数。保存新读数不会清理其他时段的历史。 */
     fun appendSample(samples: List<PowerSample>, sample: PowerSample): List<PowerSample> {
         if (!sample.odd.isFinite() || sample.time <= 0) return samples
         val bucket = sample.time / (15 * MINUTE)
-        return (samples.filter {
-            it.time >= sample.time - 30 * DAY && it.time <= sample.time &&
-                it.time / (15 * MINUTE) != bucket && it.odd.isFinite()
-        } + sample).sortedBy { it.time }
+        val latest = samples.asSequence()
+            .filter { it.time > sample.time && it.odd.isFinite() && it.time / (15 * MINUTE) == bucket }
+            .maxByOrNull { it.time } ?: sample
+        return (samples.filter { it.time > 0 && it.odd.isFinite() && it.time / (15 * MINUTE) != bucket } + latest)
+            .sortedBy { it.time }
     }
 }

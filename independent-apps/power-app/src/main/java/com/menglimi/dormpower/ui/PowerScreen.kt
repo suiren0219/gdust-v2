@@ -30,6 +30,10 @@ import com.menglimi.power.PowerRoom
 @Composable
 internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, preview: Boolean) {
     var bindingOpen by rememberSaveable { mutableStateOf(false) }
+    if (state.localError != null || state.localLoading && state.reading == null) {
+        LocalPowerDataNotice(state, actions)
+        return
+    }
     val bound = state.config.binding?.isValid == true
     val reading = state.reading.takeIf { bound }
     val presentation = readingPresentation(state, now)
@@ -72,6 +76,9 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
             MessageCard(message, actions.clearError)
             TextButton(onClick = if (bound) actions.refresh else actions.reload,
                 enabled = !state.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("重试") }
+        } }
+        state.recoveryMessage?.let { message -> item {
+            Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } }
         state.message?.let { message -> item {
             Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -126,6 +133,17 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
         }
     }
     if (bindingOpen) PowerBindingDialog(state, actions) { bindingOpen = false }
+}
+
+@Composable
+internal fun LocalPowerDataNotice(state: PowerUiState, actions: PowerActions? = null) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        PageHeader("本机电量数据", if (state.localError == null) "正在读取保存的记录" else "暂时无法读取")
+        if (state.localError != null) {
+            MessageCard(state.localError)
+            actions?.let { Button(onClick = it.reload, enabled = !state.localLoading) { Text("重试读取") } }
+        } else CircularProgressIndicator()
+    }
 }
 
 @Composable

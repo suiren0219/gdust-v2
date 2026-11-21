@@ -9,6 +9,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.menglimi.dormpower.power.PowerBackgroundStatus
+import com.menglimi.dormpower.power.PowerLedgerEntry
 import com.menglimi.dormpower.power.PowerUiState
 import com.menglimi.ksu.ui.Appearance
 import com.menglimi.ksu.ui.Glyph
@@ -31,6 +33,9 @@ internal data class PowerActions(
     val interval: (Int) -> Unit,
     val thresholds: (Double, Double) -> Unit,
     val unbind: () -> Unit,
+    val price: (String, Long) -> Unit = { _, _ -> },
+    val saveEntry: (PowerLedgerEntry, Long) -> Unit = { _, _ -> },
+    val removeEntry: (String, Long) -> Unit = { _, _ -> },
 )
 
 @Composable
@@ -48,9 +53,11 @@ internal fun PowerRoot(
     schedulingError: String? = null,
     onRetryScheduling: () -> Unit = {},
     preview: Boolean = false,
+    backgroundStatus: PowerBackgroundStatus = PowerBackgroundStatus(),
+    bootQueryEnabled: Boolean = false,
+    onBootQueryEnabled: (Boolean) -> Unit = {},
 ) {
     var clockTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    // 新快照到达时同步读时钟，避免读数晚于上一次 30 秒 tick 被误判为时间回退。
     val now = remember(clockTick, state) { System.currentTimeMillis() }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) {
@@ -58,13 +65,16 @@ internal fun PowerRoot(
             while (true) { clockTick = System.currentTimeMillis(); delay(30_000) }
         }
     }
-    val tabs = remember { listOf(NavItem("电量", Glyph.BOLT), NavItem("历史", Glyph.CHART), NavItem("设置", Glyph.SETTINGS)) }
+    val tabs = remember { listOf(NavItem("电量", Glyph.BOLT), NavItem("历史", Glyph.CHART),
+        NavItem("设置", Glyph.SETTINGS), NavItem("账本", Glyph.BOOK)) }
     KsuScaffold(tab, onTab, tabs) { page ->
         when (page) {
             0 -> PowerScreen(state, actions, now, preview)
             1 -> PowerHistoryScreen(state, now, preview)
+            3 -> PowerLedgerScreen(state, actions, now, preview)
             else -> PowerSettingsScreen(appearance, onAppearance, state, actions, notificationsEnabled,
-                onNotifications, onTestNotification, notificationMessage, schedulingError, onRetryScheduling, preview)
+                onNotifications, onTestNotification, notificationMessage, schedulingError, onRetryScheduling,
+                preview, backgroundStatus, bootQueryEnabled, onBootQueryEnabled)
         }
     }
 }

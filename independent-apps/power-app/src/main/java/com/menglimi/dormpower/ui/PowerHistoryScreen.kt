@@ -34,31 +34,35 @@ import java.time.format.DateTimeFormatter
 
 @Composable
 internal fun PowerHistoryScreen(state: PowerUiState, now: Long, preview: Boolean) {
-    var range by rememberSaveable { mutableIntStateOf(7) }
+    if (state.localError != null || state.localLoading && state.reading == null) {
+        LocalPowerDataNotice(state)
+        return
+    }
+    var range by rememberSaveable { mutableIntStateOf(0) }
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
-    val samples = remember(state.samples, range, now) { trendSamples(state.samples, range, now) }
+    val samples = remember(state.samples, range, now) { trendSamples(state.samples, range.takeIf { it > 0 }, now) }
     val days = remember(samples, state.config.zone) {
         PowerHistory.group(samples, state.config.zone).values.sortedByDescending { it.date }
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 124.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { PageHeader("电量历史", if (preview) "合成预览 · 示例采样含充值变化" else "本机记录 · 最多保留最近 30 天") }
+        item { PageHeader("电量历史", if (preview) "合成预览 · 示例采样含充值变化" else "本机记录 · 保留全部有效采样") }
         if (state.config.binding == null) item {
             EmptyCard("尚无宿舍记录", "请在电量页绑定宿舍。每次成功查询会留下一个真实读数，不补造此前的历史。", Glyph.CHART)
         } else {
             item {
                 KCard(Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(1, 7, 30).forEach { value ->
+                        listOf(0, 1, 7, 30).forEach { value ->
                             TextButton(onClick = { range = value; expanded = null },
                                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                                 colors = ButtonDefaults.textButtonColors(containerColor =
                                     if (range == value) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)) {
-                                Text("${value}天")
+                                Text(if (value == 0) "全部" else "${value}天")
                             }
                         }
                     }
-                    Text("最近 $range 天 · ${samples.size} 条有效采样", style = MaterialTheme.typography.bodySmall,
+                    Text("${if (range == 0) "全部记录" else "最近 $range 天"} · ${samples.size} 条有效采样", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
                     BalanceTrend(samples, state.config.zone)
                 }
