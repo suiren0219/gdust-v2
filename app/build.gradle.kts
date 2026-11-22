@@ -16,11 +16,12 @@ android {
     compileSdk = 37
 
     // 版本标识单一来源：versionName 直接带构建号，装的是不是最新一眼可见
-    val vCode = 20
+    val vCode = 21
     val vName = "2.0.0-alpha.$vCode"
 
     defaultConfig {
-        applicationId = "com.menglimi.gdust.v2"
+        // 安装包名按学校域名反写；namespace 仍为代码命名空间，二者互不影响
+        applicationId = "cn.edu.gdust.course"
         minSdk = 33
         targetSdk = 35
         versionCode = vCode

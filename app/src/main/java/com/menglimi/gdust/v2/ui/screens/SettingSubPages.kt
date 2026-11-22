@@ -1,11 +1,14 @@
 package com.menglimi.gdust.v2.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,12 +27,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.menglimi.gdust.v2.R
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.ui.pageBackground
@@ -36,6 +45,7 @@ import com.menglimi.gdust.v2.ui.pageBackground
 /** 作者署名与主页（改这里一处即可）。 */
 internal const val APP_AUTHOR = "穗稔"
 internal const val APP_GITHUB = "https://github.com/suiren0219/gdust-v2"
+internal const val SCHOOL_SITE = "https://www.gdust.edu.cn"
 
 internal fun openProjectHomepage(context: android.content.Context) {
     runCatching {
@@ -44,6 +54,16 @@ internal fun openProjectHomepage(context: android.content.Context) {
         context.getSystemService(android.content.ClipboardManager::class.java)
             .setPrimaryClip(android.content.ClipData.newPlainText("GitHub", APP_GITHUB))
         android.widget.Toast.makeText(context, "项目地址已复制", android.widget.Toast.LENGTH_SHORT).show()
+    }
+}
+
+internal fun openSchoolSite(context: android.content.Context) {
+    runCatching {
+        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(SCHOOL_SITE)))
+    }.onFailure {
+        context.getSystemService(android.content.ClipboardManager::class.java)
+            .setPrimaryClip(android.content.ClipData.newPlainText("学校官网", SCHOOL_SITE))
+        android.widget.Toast.makeText(context, "官网地址已复制", android.widget.Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -161,6 +181,9 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
     val versionCode = pkgInfo?.let {
         if (android.os.Build.VERSION.SDK_INT >= 28) it.longVersionCode else @Suppress("DEPRECATION") it.versionCode
     } ?: 1L
+    // 彩蛋：连点「当前版本」7 次，翻开藏在仓库里的那张贺卡
+    var versionTaps by remember { mutableStateOf(0) }
+    var showGift by remember { mutableStateOf(false) }
     SettingSubPage("关于与更新", "版本 · 更新说明 · 数据链路", onBack) {
         val hostContext = androidx.compose.ui.platform.LocalContext.current
         SectionHeader("版本")
@@ -173,7 +196,23 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
                 onClick = { openProjectHomepage(hostContext) },
             )
             SettingDivider()
-            SettingOption(title = "当前版本", detail = versionName)
+            SettingOption(
+                title = "学校官网",
+                subtitle = "广东科技学院 · gdust.edu.cn",
+                onClick = { openSchoolSite(hostContext) },
+            )
+            SettingDivider()
+            SettingOption(
+                title = "当前版本",
+                detail = versionName,
+                onClick = {
+                    versionTaps += 1
+                    if (versionTaps >= 7) {
+                        versionTaps = 0
+                        showGift = true
+                    }
+                },
+            )
             SettingDivider()
             SettingOption(title = "内部版本号", detail = versionCode.toString())
             SettingDivider()
@@ -200,12 +239,37 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            "广科课程表 · 由 $APP_AUTHOR 制作 · AGPL-3.0 开源\n感谢 Miuix 提供界面组件",
+            "广科课程表 · 由 $APP_AUTHOR 制作 · AGPL-3.0 开源\n个人项目，与广东科技学院官方无关 · 界面组件来自 Miuix",
             fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub,
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp).wrapContentSize(Alignment.Center),
         )
         Spacer(Modifier.height(16.dp))
         ProjectStarEntry()
+    }
+    if (showGift) BirthdayGiftDialog(onDismiss = { showGift = false })
+}
+
+/** 彩蛋：藏在「当前版本」后面的生日贺卡（连点 7 次）。 */
+@Composable
+private fun BirthdayGiftDialog(onDismiss: () -> Unit) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        val ds = LocalDs.current
+        AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(18.dp)) {
+            Text("十九穗 · 生日快乐", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+            Text(
+                "这张贺卡从 2026 年的生日起就藏在 App 里了。\n谢谢你还带着它一起上课、看电费、翻公告。",
+                fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
+                modifier = Modifier.padding(top = 6.dp, bottom = 14.dp),
+            )
+            Image(
+                painter = painterResource(R.drawable.birthday_gift),
+                contentDescription = "十九岁生日贺卡",
+                contentScale = ContentScale.FillWidth,
+                modifier = Modifier.fillMaxWidth().aspectRatio(1080f / 778f).clip(RoundedCornerShape(16.dp)),
+            )
+            Spacer(Modifier.height(16.dp))
+            Button("收下祝福", onClick = onDismiss)
+        }
     }
 }
 
