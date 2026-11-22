@@ -247,8 +247,6 @@ fun AppRoot(
         schoolLogin.launch(com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.learningIntent(context))
     }
 
-    fun loadNotices() { noticeFeed.refresh(scope) }
-
     fun logout() {
         if (loggingOut) return
         loggingOut = true
