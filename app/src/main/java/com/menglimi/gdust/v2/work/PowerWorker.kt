@@ -9,14 +9,14 @@ import android.content.SharedPreferences
 import androidx.core.app.NotificationCompat
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
-import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.google.gson.Gson
+import com.menglimi.gdust.v2.App
 import com.menglimi.gdust.v2.MainActivity
 import com.menglimi.gdust.v2.data.GdustApi
 import com.menglimi.gdust.v2.data.PowerDetail
@@ -24,11 +24,13 @@ import com.menglimi.gdust.v2.data.PowerQueryPolicy
 import com.menglimi.gdust.v2.data.PowerQueryPreset
 import com.menglimi.gdust.v2.data.PowerSample
 import com.menglimi.gdust.v2.data.PowerScheduleAction
+import com.menglimi.gdust.v2.data.ScheduleSyncPolicy
 import com.menglimi.gdust.v2.data.Store
 import com.menglimi.gdust.v2.ui.schedule.ScheduleTimes
 import java.security.MessageDigest
 import java.time.LocalTime
 import java.time.ZoneId
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -37,23 +39,23 @@ import kotlinx.coroutines.sync.withLock
 /** 同一绑定的最新详情；前台读缓存不再重复记录采样。 */
 data class PowerReading(val detail: PowerDetail, val updatedAt: Long)
 
-/** 按预设与作息串行查询；6h 心跳仅修复断链，不联网。 */
+/** 按预设与作息串行查询，并复用一次性 chain 维护学校会话、同步课表。 */
 class PowerWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
-        val prefs = preferences(applicationContext)
-        if (binding(prefs) == null || preset(prefs) == PowerQueryPreset.MANUAL) {
-            cancel(applicationContext)
-            return Result.success()
-        }
         try {
-            query(applicationContext, background = true)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            // 失败也按当前节奏等待；不叠加 WorkManager 的短周期重试。
+            try {
+                query(applicationContext, background = true)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // 电量失败也按当前节奏等待，不阻止学校同步。
+            }
+            // 学校网络请求不在电量 queryMutex 内；夜间只跳过电量查询。
+            ScheduleSyncWorker.syncIfDue(applicationContext)
         } finally {
-            // 续接运行中的任务，而非 REPLACE 自己造成取消；下次节奏使用本次新读数。
-            if (!isStopped) scheduleNextSample(applicationContext, prefs, ExistingWorkPolicy.APPEND_OR_REPLACE)
+            // 续接当前 generation，避免配置重排后旧 Worker 再追加重复唤醒。
+            if (!isStopped) scheduleAfterRun(applicationContext, powerChain = true,
+                generation = inputData.getString(GENERATION))
         }
         return Result.success()
     }
@@ -70,6 +72,7 @@ class PowerWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         private const val CHAIN = "gdust_power_chain"
         private const val HEARTBEAT = "gdust_power_heartbeat"
         private const val LEGACY_PERIODIC = "gdust_power"
+        private const val GENERATION = "generation"
         private val queryMutex = Mutex()
         private val scheduleLock = Any()
         private val gson = Gson()
@@ -198,50 +201,81 @@ class PowerWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
             return start to end
         }
 
-        internal fun scheduleNextSample(ctx: Context, prefs: SharedPreferences, policy: ExistingWorkPolicy): Long? {
+        internal fun scheduleNextSample(
+            ctx: Context, prefs: SharedPreferences, policy: ExistingWorkPolicy, now: Long, syncAt: Long?,
+        ): Long? {
             if (binding(prefs) == null || preset(prefs) == PowerQueryPreset.MANUAL) return null
-            val now = System.currentTimeMillis()
             val (start, end) = awakeWindow()
-            val at = PowerQueryPolicy.nextSampleAt(now, prefs.getLong("last_sample", 0L),
-                prefs.getLong("last_attempt", 0L), plan(ctx, prefs, now).intervalMinutes, start, end, ZoneId.systemDefault()) ?: return null
+            val powerAt = PowerQueryPolicy.nextSampleAt(now, prefs.getLong("last_sample", 0L),
+                prefs.getLong("last_attempt", 0L), plan(ctx, prefs, now).intervalMinutes, start, end, ZoneId.systemDefault())
+            val at = ScheduleSyncPolicy.nextWakeAt(powerAt, syncAt) ?: return null
+            val generation = if (policy == ExistingWorkPolicy.REPLACE) UUID.randomUUID().toString()
+                else prefs.getString("scheduled_generation", null) ?: UUID.randomUUID().toString()
+            prefs.edit().putString("scheduled_generation", generation).apply()
             WorkManager.getInstance(ctx).enqueueUniqueWork(CHAIN, policy,
                 OneTimeWorkRequestBuilder<PowerWorker>()
+                    .setInputData(workDataOf(GENERATION to generation))
                     .setInitialDelay((at - now).coerceAtLeast(0), TimeUnit.MILLISECONDS)
                     .setConstraints(chainConstraints).build())
             return at
         }
 
-        fun cancel(ctx: Context) = synchronized(scheduleLock) {
+        private fun cancelPowerChain(ctx: Context) {
             val wm = WorkManager.getInstance(ctx)
             wm.cancelUniqueWork(CHAIN)
             wm.cancelUniqueWork(HEARTBEAT)
             wm.cancelUniqueWork(LEGACY_PERIODIC)
-            preferences(ctx).edit().remove("scheduled_config").apply()
+            preferences(ctx).edit().remove("scheduled_config").remove("scheduled_generation").apply()
         }
 
-        /** 同一配置 KEEP；只有绑定、预设、间隔或预警阈值改变才重排。 */
+        fun cancel(ctx: Context) = synchronized(scheduleLock) {
+            cancelPowerChain(ctx)
+            // 只取消电量时，不能丢掉已开启的学校自动同步。
+            ScheduleSyncWorker.scheduleStandalone(ctx, ExistingWorkPolicy.KEEP)
+            Unit
+        }
+
+        /** 同一配置 KEEP；绑定、预设、间隔、阈值或学校同步开关改变才重排。 */
         fun schedule(ctx: Context) = schedule(ctx, afterQuery = false)
 
         private fun schedule(ctx: Context, afterQuery: Boolean) = synchronized(scheduleLock) {
+            scheduleLocked(ctx, afterQuery)
+        }
+
+        internal fun scheduleAfterRun(ctx: Context, powerChain: Boolean, generation: String?) = synchronized(scheduleLock) {
+            val current = if (powerChain) generation != null &&
+                generation == preferences(ctx).getString("scheduled_generation", null)
+                else ScheduleSyncWorker.isCurrentRun(ctx, generation)
+            if (current) scheduleLocked(ctx, afterQuery = false, continuingPowerChain = powerChain)
+        }
+
+        private fun scheduleLocked(ctx: Context, afterQuery: Boolean, continuingPowerChain: Boolean? = null) {
             val prefs = preferences(ctx)
             val current = binding(prefs)
+            val now = System.currentTimeMillis()
+            val repo = (ctx.applicationContext as App).repo
+            val syncAt = repo.nextAutomaticSyncAt(now)
             val threshold = prefs.getFloat("threshold", 20f).takeIf { it.isFinite() && it >= 0 } ?: 20f
             val dropRate = prefs.getFloat("drop_rate", 5f).takeIf { it.isFinite() && it > 0 } ?: 5f
-            val signature = digest(gson.toJson(listOf("power-v2", current?.key, preset(prefs).key,
-                prefs.getInt("interval", 60), threshold, dropRate)))
+            val signature = digest(gson.toJson(listOf("power-v3", current?.key, preset(prefs).key,
+                prefs.getInt("interval", 60), threshold, dropRate, repo.store.autoSyncEnabled, syncAt != null)))
             val action = PowerQueryPolicy.scheduleAction(current != null, preset(prefs),
                 signature != prefs.getString("scheduled_config", null))
             if (action == PowerScheduleAction.CANCEL) {
-                cancel(ctx)
-                return@synchronized
+                cancelPowerChain(ctx)
+                ScheduleSyncWorker.scheduleStandalone(ctx,
+                    if (continuingPowerChain == false) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP)
+                return
             }
             val wm = WorkManager.getInstance(ctx)
             wm.cancelUniqueWork(LEGACY_PERIODIC)
-            wm.enqueueUniquePeriodicWork(HEARTBEAT, ExistingPeriodicWorkPolicy.KEEP,
-                PeriodicWorkRequestBuilder<PowerHeartbeatWorker>(6, TimeUnit.HOURS)
-                    .setInitialDelay(6, TimeUnit.HOURS).build())
-            scheduleNextSample(ctx, prefs,
-                if (action == PowerScheduleAction.REPLACE || afterQuery) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP)
+            wm.cancelUniqueWork(HEARTBEAT) // 历史修复心跳不再额外唤醒。
+            ScheduleSyncWorker.cancelStandalone(ctx)
+            scheduleNextSample(ctx, prefs, when {
+                continuingPowerChain == true -> ExistingWorkPolicy.APPEND_OR_REPLACE
+                action == PowerScheduleAction.REPLACE || afterQuery -> ExistingWorkPolicy.REPLACE
+                else -> ExistingWorkPolicy.KEEP
+            }, now, syncAt)
             if (action == PowerScheduleAction.REPLACE) prefs.edit().putString("scheduled_config", signature).apply()
         }
     }

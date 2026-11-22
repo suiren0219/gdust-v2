@@ -240,7 +240,7 @@ fun SettingsScreen(
                 detail = if (store.todoReminderEnabled) "已开启" else "未开启", onClick = onTodoReminder,
             ),
             SettingsEntry(
-                id = "autoSync", title = "自动同步课表", summary = "保持已登录账号的课表更新", icon = MiuixIcons.Refresh,
+                id = "autoSync", title = "自动同步课表", summary = "每 4 小时本机直连维护学校会话、无感更新课表，复用电量调度", icon = MiuixIcons.Refresh,
                 checked = autoSyncLocal,
                 onCheckedChange = {
                     autoSyncLocal = it

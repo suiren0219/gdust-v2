@@ -46,6 +46,9 @@ import com.menglimi.gdust.v2.data.NoticeFeed
 import com.menglimi.gdust.v2.data.readId
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -108,6 +111,13 @@ fun AppRoot(
     // 免责声明：普通 prefs 不触发重组，用状态控制弹窗，确认后写盘不再出现。
     var disclaimerShown by remember { mutableStateOf(!repo.store.disclaimerAccepted) }
 
+    DisposableEffect(repo) {
+        val stop = repo.store.observeSchedule {
+            calendar = repo.store.loadCalendar()
+            blocks = repo.store.loadBlocks()
+        }
+        onDispose { stop() }
+    }
     DisposableEffect(repo, noticeAccount) {
         val stop = repo.store.observeNoticeReads {
             readNoticeIds = repo.store.readNoticeIds(noticeAccount)
@@ -125,6 +135,15 @@ fun AppRoot(
     }
     // 备份导出：SAF 建文档，写入后提示
     val context = androidx.compose.ui.platform.LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var resumeRevision by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) resumeRevision++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val serviceWeb = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
     ) { webReturnVersion++ }
@@ -173,8 +192,9 @@ fun AppRoot(
     }
 
 
-    fun sync() {
+    fun sync(silentIfDue: Boolean = false) {
         if (syncing) return
+        if (silentIfDue && (repo.nextAutomaticSyncAt() ?: Long.MAX_VALUE) > System.currentTimeMillis()) return
         if (!repo.store.casTicket.isNotBlank() && !repo.hasTeachingSession() && !repo.store.hasSession) {
             needLogin = true
             return
@@ -184,23 +204,35 @@ fun AppRoot(
         netDown = false
         val version = repo.sessionVersion.value
         syncJob = scope.launch {
-            val result = runCatching {
-                kotlinx.coroutines.withTimeoutOrNull(60_000L) {
-                    when {
-                        repo.hasTeachingSession() -> repo.syncTermWithCookies()
-                        repo.store.hasSession -> repo.syncSchedule()
-                        else -> repo.syncTermWithLogin()
-                    }
-                } ?: error("读取课表超过 60 秒，已停止等待，请稍后重试。")
+            val result = if (silentIfDue) {
+                runCatching {
+                    kotlinx.coroutines.withTimeoutOrNull(60_000L) { repo.syncTermSilentlyIfDue() }
+                }
+            } else {
+                runCatching {
+                    kotlinx.coroutines.withTimeoutOrNull(60_000L) {
+                        when {
+                            repo.hasTeachingSession() -> repo.syncTermWithCookies()
+                            repo.store.hasSession -> repo.syncSchedule()
+                            else -> repo.syncTermWithCookies()
+                        }
+                    } ?: error("读取课表超过 60 秒，已停止等待，请稍后重试。")
+                }
             }
             if (!repo.isCurrentSession(version)) {
                 syncing = false
                 return@launch
             }
             result
-                .onSuccess { (cal, list) -> calendar = cal; blocks = list; syncError = null }
+                .onSuccess { data ->
+                    data?.let { (cal, list) -> calendar = cal; blocks = list; syncError = null }
+                }
                 .onFailure {
-                    if (it is kotlinx.coroutines.CancellationException) throw it
+                    if (it is kotlinx.coroutines.CancellationException) {
+                        syncing = false
+                        syncJob = null
+                        throw it
+                    }
                     val displayError = syncFailureMessage(
                         it, java.time.LocalTime.now(), repo.store.maintenanceStartMin,
                         repo.store.maintenanceEndMin, repo.store.maintenanceReminderEnabled,
@@ -209,6 +241,7 @@ fun AppRoot(
                     syncError = displayError
                     // 只有明确的「票据失效」才提示重登；SSO 被学校拒绝时给可读文案并可切网页登录
                     if (it is com.menglimi.gdust.v2.data.AuthFailed) {
+                        if (silentIfDue) com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(context)
                         needLogin = true
                     } else if (it.message?.let { m ->
                             m.contains("学校未用登录票据放行教务会话") || m.contains("旧版本门户登录态") ||
@@ -223,6 +256,12 @@ fun AppRoot(
             syncing = false
             syncJob = null
         }
+    }
+
+    LaunchedEffect(resumeRevision) {
+        if (resumeRevision > 0 && repo.store.autoSyncEnabled &&
+            repo.nextAutomaticSyncAt()?.let { it <= System.currentTimeMillis() } == true
+        ) sync(silentIfDue = true)
     }
 
     val schoolLogin = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -308,10 +347,10 @@ fun AppRoot(
             if (alive && blocks.isEmpty()) sync()
             loadNotices()
         }
-        // 打开 App 顺手续租：有教务会话且距上次同步超过 6 小时，就静默刷新一次
-        val teachingReady = repo.store.casTicket.isNotBlank() || repo.hasTeachingSession()
-        val stale = System.currentTimeMillis() - repo.store.lastSyncAt > 6L * 60 * 60 * 1000
-        if (teachingReady && stale && repo.store.autoSyncEnabled) sync()
+        // 启动时补一次已到期的四小时静默课表维护；Worker 负责后续周期。
+        if (repo.store.autoSyncEnabled && repo.nextAutomaticSyncAt()?.let { it <= System.currentTimeMillis() } == true) {
+            sync(silentIfDue = true)
+        }
     }
 
     Crossfade(
