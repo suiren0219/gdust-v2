@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name=".debug.PreviewActivity" android:exported="true" android:process=":preview" android:label="学习助手 · 合成预览" />
+    </application>
+</manifest>
