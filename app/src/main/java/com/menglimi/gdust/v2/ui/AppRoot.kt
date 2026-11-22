@@ -19,10 +19,10 @@ import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.data.isNetworkDown
+import com.menglimi.gdust.v2.data.syncFailureMessage
 import com.menglimi.gdust.v2.ui.schedule.ScheduleScreen
 import com.menglimi.gdust.v2.ui.screens.LoginScreen
 import com.menglimi.gdust.v2.ui.screens.InfoDialog
-import com.menglimi.gdust.v2.ui.screens.NetworkDownDialog
 import com.menglimi.gdust.v2.ui.screens.PowerScreen
 import com.menglimi.gdust.v2.ui.screens.SettingsScreen
 import com.menglimi.gdust.v2.ui.screens.TermImportScreen
@@ -57,7 +57,7 @@ private const val DISCLAIMER_TEXT =
         "· 密码与登录凭证仅保存在本机加密存储；作者不收集、不中转、看不到你的任何数据。\n" +
         "· 请仅使用本人账号，并遵守学校相关规定。\n" +
         "· 作业与考试只做查询和到期提醒，本应用不会自动提交任何作业或考试。\n" +
-        "· 学校服务器的可用性不受本应用控制，例如夜间维护时段教务会关闭。\n\n" +
+        "· 学校服务器的可用性不受本应用控制，维护安排以学校通知为准。\n\n" +
         "继续使用即表示你已知悉并同意以上内容。"
 
 @Composable
@@ -77,7 +77,7 @@ fun AppRoot(
     var netDown by remember { mutableStateOf(false) }
     var syncing by remember { mutableStateOf(false) }
     var needLogin by remember { mutableStateOf(false) }
-    var showWebImport by remember { mutableStateOf(false) }
+    var showWebImport by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var webImportReport by remember { mutableStateOf<String?>(null) }
     var directFallbackMessage by remember { mutableStateOf<String?>(null) }
     var showProfile by remember { mutableStateOf(false) }
@@ -90,6 +90,7 @@ fun AppRoot(
     var showChxCourses by remember { mutableStateOf(false) }
     var showWidgets by remember { mutableStateOf(false) }
     var webReturnVersion by remember { mutableIntStateOf(0) }
+    var schoolLoginMessage by remember { mutableStateOf<String?>(null) }
     val sessionVersion by repo.sessionVersion.collectAsState()
     val publicNotices = com.menglimi.gdust.v2.data.SchoolNoticeApi()
     val noticeFeed = remember(repo) { NoticeFeed(repo::portalSession, repo::notices, publicNotices::notices) }
@@ -180,15 +181,17 @@ fun AppRoot(
         }
         syncing = true
         syncError = null
+        netDown = false
         val version = repo.sessionVersion.value
         syncJob = scope.launch {
-            val result = when {
-                // 已有教务会话（网页或直连）→ 拉整学期
-                repo.hasTeachingSession() -> runCatching { repo.syncTermWithCookies() }
-                // 只有门户会话（例如钉钉只换了门户）→ 老实同步门户本周，不假称整学期
-                repo.store.hasSession -> runCatching { repo.syncSchedule() }
-                // 只有票据 → 尝试换教务会话
-                else -> runCatching { repo.syncTermWithLogin() }
+            val result = runCatching {
+                kotlinx.coroutines.withTimeoutOrNull(60_000L) {
+                    when {
+                        repo.hasTeachingSession() -> repo.syncTermWithCookies()
+                        repo.store.hasSession -> repo.syncSchedule()
+                        else -> repo.syncTermWithLogin()
+                    }
+                } ?: error("读取课表超过 60 秒，已停止等待，请稍后重试。")
             }
             if (!repo.isCurrentSession(version)) {
                 syncing = false
@@ -198,17 +201,12 @@ fun AppRoot(
                 .onSuccess { (cal, list) -> calendar = cal; blocks = list; syncError = null }
                 .onFailure {
                     if (it is kotlinx.coroutines.CancellationException) throw it
-                    // 夜间时段学校教务主动停服：无论网络层失败还是业务失败，都先给时段提醒。
-                    val maintenance = if (repo.store.maintenanceReminderEnabled) {
-                        com.menglimi.gdust.v2.data.MaintenanceWindow.notice(
-                            java.time.LocalTime.now(),
-                            repo.store.maintenanceStartMin,
-                            repo.store.maintenanceEndMin,
-                            it.message,
-                        )
-                    } else null
-                    netDown = it.isNetworkDown() && maintenance == null
-                    syncError = maintenance ?: (it.message ?: "网络失败")
+                    val displayError = syncFailureMessage(
+                        it, java.time.LocalTime.now(), repo.store.maintenanceStartMin,
+                        repo.store.maintenanceEndMin, repo.store.maintenanceReminderEnabled,
+                    )
+                    netDown = it.isNetworkDown()
+                    syncError = displayError
                     // 只有明确的「票据失效」才提示重登；SSO 被学校拒绝时给可读文案并可切网页登录
                     if (it is com.menglimi.gdust.v2.data.AuthFailed) {
                         needLogin = true
@@ -225,6 +223,28 @@ fun AppRoot(
             syncing = false
             syncJob = null
         }
+    }
+
+    val schoolLogin = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val data = result.data
+        val portal = data?.getBooleanExtra(com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.EXTRA_PORTAL_READY, false) == true
+        val teaching = data?.getBooleanExtra(com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.EXTRA_TEACHING_READY, false) == true
+        webReturnVersion++
+        if (portal || teaching) {
+            loggedIn.value = true
+            if (repo.store.autoSyncEnabled) com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(context)
+            sync()
+            if (teaching && repo.store.birthdayMonthDay.isBlank()) scope.launch { repo.refreshTeachingBirthday() }
+        }
+        schoolLoginMessage = data?.getStringExtra(com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.EXTRA_MESSAGE)?.takeIf { it.isNotBlank() }
+    }
+    fun openSchoolLogin() {
+        schoolLogin.launch(com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.intent(context))
+    }
+    fun openLearningLogin() {
+        schoolLogin.launch(com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.learningIntent(context))
     }
 
     fun logout() {
@@ -347,16 +367,19 @@ fun AppRoot(
             }
             "grades" -> androidx.compose.runtime.key(webReturnVersion) {
                 GradesScreen(repo = repo, onBack = { showGrades = false },
-                    onWebLogin = { openServiceWeb(ChxSso.teachingWebUrl) })
+                    onWebLogin = ::openSchoolLogin)
             }
             "chx_courses" -> androidx.compose.runtime.key(webReturnVersion) {
                 ChxCoursesScreen(repo = repo, onBack = { showChxCourses = false },
-                    onLogin = { openServiceWeb(ChxSso.fyssoUrl) }, onOpenCourse = ::openServiceWeb)
+                    onLogin = ::openLearningLogin, onOpenCourse = ::openServiceWeb)
             }
             "chx_entry" -> {
                 androidx.activity.compose.BackHandler { showChxEntry = false }
-                ChxEntryScreen(repo = repo, onBack = { showChxEntry = false },
-                    onCourses = { showChxCourses = true })
+                androidx.compose.runtime.key(webReturnVersion) {
+                    ChxEntryScreen(repo = repo, onBack = { showChxEntry = false },
+                        onCourses = { showChxCourses = true }, onConnect = ::openLearningLogin,
+                        onNotifications = { showChxNotifications = true })
+                }
             }
             "notices" -> {
                 androidx.activity.compose.BackHandler { showNotices = false }
@@ -397,12 +420,11 @@ fun AppRoot(
                 repo = repo,
                 onLoggedIn = {
                     loggedIn.value = true
-                    // 登录成功即开启定时同步
-                    runCatching { com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(context) }
-                    sync()
+                    openSchoolLogin()
                 },
                 onOpenSettings = { showSettings.value = true },
                 onPreview = { loggedIn.value = true },
+                onSchoolLogin = ::openSchoolLogin,
             )
             "settings" -> SettingsScreen(
                 repo = repo,
@@ -486,6 +508,23 @@ fun AppRoot(
             },
         )
     }
+    if (syncing && !showWebImport && schoolLoginMessage == null) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = {
+            syncJob?.cancel(); syncJob = null; syncing = false
+        }) {
+            com.menglimi.gdust.v2.ui.screens.ScheduleLoadingCard(
+                title = "正在同步课表",
+                detail = if (repo.hasTeachingSession()) "正在读取教务课程与周次，原课表会保留到读取成功。"
+                    else "正在读取学校门户课表，原课表会保留到读取成功。",
+                onCancel = { syncJob?.cancel(); syncJob = null; syncing = false },
+            )
+        }
+    }
+    com.menglimi.gdust.v2.ui.screens.BirthdayCelebration(repo,
+        enabled = loggedIn.value && !loggingOut && !disclaimerShown && schoolLoginMessage == null &&
+            webImportReport == null && directFallbackMessage == null && importReport == null &&
+            !netDown && !needLogin && syncError == null && !showWebImport)
+    if (schoolLoginMessage != null) InfoDialog("学校服务连接", schoolLoginMessage!!, onDismiss = { schoolLoginMessage = null })
     if (webImportReport != null) InfoDialog("网页登录导入完成", webImportReport!!, onDismiss = { webImportReport = null })
     if (directFallbackMessage != null) {
         androidx.compose.material3.AlertDialog(
@@ -508,7 +547,8 @@ fun AppRoot(
         InfoDialog("教务课表已导入", importReport!!, onDismiss = { importReport = null })
     }
     // 网络层失败（连不上学校官网）时弹窗提示，业务错误仍走行内提示
-    NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
+    if (netDown && !syncing) InfoDialog("连接暂时中断", syncError ?: "请检查网络后重试。",
+        onDismiss = { netDown = false; syncError = null })
     if (disclaimerShown) {
         InfoDialog(
             title = "使用须知与免责声明",

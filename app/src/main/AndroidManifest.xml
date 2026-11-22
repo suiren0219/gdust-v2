@@ -27,6 +27,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.screens.SchoolLoginActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- 学习通/教务网页登录：独立 Activity 承载 WebView（Compose AndroidView 会白屏，见类注释） -->
         <activity
             android:name=".ui.screens.ChxWebActivity"
@@ -64,6 +69,10 @@
         </receiver>
 
         <receiver
+            android:name=".work.LessonNotificationExpiryReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".work.ClassDndToggleReceiver"
             android:exported="false">
             <intent-filter>
@@ -84,8 +93,20 @@
         </service>
 
         <receiver
+            android:name=".widget.WidgetClockReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".widget.ScheduleWideReceiver"
-            android:label="课表 · 今日条子"
+            android:label="课表 · 今日课程 4×2"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -97,7 +118,7 @@
 
         <receiver
             android:name=".widget.ScheduleMediumReceiver"
-            android:label="课表 · 下一节"
+            android:label="课表 · 下一节 2×2"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -109,7 +130,7 @@
 
         <receiver
             android:name=".widget.ScheduleTallReceiver"
-            android:label="课表 · 周进度"
+            android:label="课表 · 课程计数 1×2"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -120,8 +141,20 @@
         </receiver>
 
         <receiver
+            android:name=".widget.ScheduleLongReceiver"
+            android:label="课表 · 课程明细 1×4"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/schedule_long_info" />
+        </receiver>
+
+        <receiver
             android:name=".widget.PowerWideReceiver"
-            android:label="宿舍电量 · 走势"
+            android:label="宿舍电量 · 走势 4×2"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -133,7 +166,7 @@
 
         <receiver
             android:name=".widget.PowerMediumReceiver"
-            android:label="宿舍电量 · 大字"
+            android:label="宿舍电量 · 大字 2×2"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -145,7 +178,7 @@
 
         <receiver
             android:name=".widget.PowerTallReceiver"
-            android:label="宿舍电量 · 竖条"
+            android:label="宿舍电量 · 读数 1×2"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -153,6 +186,18 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/power_tall_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.PowerLongReceiver"
+            android:label="宿舍电量 · 状态明细 1×4"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/power_long_info" />
         </receiver>
 
         <receiver

@@ -11,10 +11,8 @@ import com.menglimi.gdust.v2.MainActivity
 import com.menglimi.gdust.v2.data.Store
 import com.menglimi.gdust.v2.ui.schedule.ScheduleTimes
 import org.json.JSONObject
-import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
-import java.time.temporal.ChronoUnit
 
 /**
  * 课程提醒通知（v9 起对齐 Nexio 课程提醒卡的字段结构）：
@@ -41,17 +39,24 @@ object LessonReminderWorker {
 
     /** 按 [ReminderEvent] 发一条提醒，写去重键，刷新桌面小组件。 */
     internal fun emit(ctx: Context, store: Store, event: ReminderEvent) {
-        val now = LocalTime.now()
+        val now = System.currentTimeMillis()
+        val expiresAtMillis = lessonNotificationDeadline(event) ?: return
+        // 非精确闹钟/Worker 可能晚到；下课后不发布倒计时已结束的新岛。
+        if (expiresAtMillis <= now) {
+            store.lastReminderKey = event.key
+            return
+        }
+        val timeoutSec = lessonIslandTimeoutSeconds(expiresAtMillis, now)
         val dndWindow = event.block?.let { block ->
             val termStart = ScheduleTimes.parseDate(store.termStartDate.ifBlank { store.loadCalendar()?.startDate.orEmpty() })
-            classDndWindows(listOf(block), termStart).firstOrNull { it.endMillis > System.currentTimeMillis() }
+            classDndWindows(listOf(block), termStart).firstOrNull { it.endMillis > now }
         }
         when (event.kind) {
             ReminderKind.BEFORE_CLASS -> {
                 val b = event.block ?: return
                 val start = LocalTime.parse(event.startText)
-                val minutes = ChronoUnit.MINUTES.between(now, start).coerceAtLeast(0)
                 val startMillis = event.date.atTime(start).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val minutes = ((startMillis - now) / 60_000L).coerceAtLeast(0)
                 val content = "第 ${b.startSection}-${b.endSection} 节 | ${b.room}"
                 post(
                     ctx, 21,
@@ -60,11 +65,13 @@ object LessonReminderWorker {
                     ticker = "${store.shortClassroom(b.room)}  ${minutes}分钟后上课",
                     island = store.islandEnabled,
                     dndWindow = dndWindow,
+                    expiresAtMillis = expiresAtMillis,
+                    event = event,
                     islandExtras = focusJson(
                         ctx = ctx, store = store, dndWindow = dndWindow,
                         courseName = b.name, content = content, classroom = b.room,
                         startMillis = startMillis, endMillis = null,
-                        timeoutSec = (minutes + 5).toInt() * 60,
+                        timeoutSec = timeoutSec,
                         inClass = false,
                     ),
                 )
@@ -72,8 +79,8 @@ object LessonReminderWorker {
             ReminderKind.IN_CLASS -> {
                 val b = event.block ?: return
                 val end = LocalTime.parse(event.endText)
-                val left = ChronoUnit.MINUTES.between(now, end).coerceAtLeast(0)
                 val endMillis = event.date.atTime(end).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val left = ((endMillis - now) / 60_000L).coerceAtLeast(0)
                 val content = "第 ${b.startSection}-${b.endSection} 节 | ${b.room}"
                 post(
                     ctx, 23,
@@ -82,11 +89,13 @@ object LessonReminderWorker {
                     ticker = "${store.shortClassroom(b.room)}  ${left}分钟后下课",
                     island = store.islandEnabled,
                     dndWindow = dndWindow,
+                    expiresAtMillis = expiresAtMillis,
+                    event = event,
                     islandExtras = focusJson(
                         ctx = ctx, store = store, dndWindow = dndWindow,
                         courseName = b.name, content = content, classroom = b.room,
                         startMillis = null, endMillis = endMillis,
-                        timeoutSec = (left + 5).toInt() * 60,
+                        timeoutSec = timeoutSec,
                         inClass = true,
                     ),
                 )
@@ -105,13 +114,15 @@ object LessonReminderWorker {
                     ticker = "明天 ${lessons.first().name} 等 ${lessons.size} 节课",
                     island = store.islandEnabled,
                     dndWindow = dndWindow,
+                    expiresAtMillis = expiresAtMillis,
+                    event = event,
                     islandExtras = focusJson(
                         ctx = ctx, store = store, dndWindow = dndWindow,
                         courseName = "明天 ${lessons.size} 节课",
                         content = lessons.first().name + " 等 ${lessons.size} 门课",
                         classroom = lessons.first().room,
                         startMillis = null, endMillis = null,
-                        timeoutSec = 12 * 3600,
+                        timeoutSec = timeoutSec,
                         inClass = false,
                     ),
                 )
@@ -131,7 +142,13 @@ object LessonReminderWorker {
         island: Boolean = true,
         islandExtras: Bundle? = null,
         dndWindow: ClassDndWindow? = null,
+        expiresAtMillis: Long? = null,
+        event: ReminderEvent? = null,
     ) {
+        val now = System.currentTimeMillis()
+        val deadline = expiresAtMillis ?: dndWindow?.endMillis ?: (now + 25 * 60_000L)
+        val timeout = lessonNotificationTimeout(deadline, now)
+        if (timeout == 0L) return
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureAudibleChannel(ctx, nm)
         val pi = PendingIntent.getActivity(
@@ -148,6 +165,7 @@ object LessonReminderWorker {
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setContentIntent(pi)
             .setAutoCancel(true)
+            .setTimeoutAfter(timeout)
         dndWindow?.let { window ->
             val action = PendingIntent.getBroadcast(
                 ctx, id,
@@ -156,10 +174,10 @@ object LessonReminderWorker {
                     .putExtra(ClassDndToggleReceiver.EXTRA_END, window.endMillis),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-            builder.addAction(android.R.drawable.ic_lock_silent_mode, "本次上课勿扰", action)
+            builder.addAction(android.R.drawable.ic_lock_silent_mode, "本次上课${ClassDndAlarms.sessionLabel(ctx)}", action)
         }
         if (island && islandExtras != null) builder.addExtras(islandExtras)
-        nm.notify(id, builder.build())
+        LessonNotificationExpiry.post(ctx, id, builder.build(), deadline, event)
     }
 
     /**
@@ -243,7 +261,7 @@ object LessonReminderWorker {
                 put("colorSubTitle", "#222222")
                 put("colorSubTitleDark", "#eeeeee")
                 if (actionIntent != null) put("actionInfo", JSONObject().apply {
-                    put("actionTitle", "上课勿扰")
+                    put("actionTitle", "上课${ClassDndAlarms.sessionLabel(ctx)}")
                     put("actionIntentType", 2)
                     put("actionIntent", actionIntent)
                 })

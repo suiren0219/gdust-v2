@@ -108,7 +108,7 @@ private class PreviewContext(base: Context) : ContextWrapper(base) {
 }
 
 private val mainPages = listOf("today", "schedule", "power", "todo")
-private val previewPages = mainPages + listOf("history", "widgets", "settings", "profile", "about", "widget_render", "term_import", "identity", "identity_pending")
+private val previewPages = mainPages + listOf("history", "widgets", "settings", "profile", "about", "widget_render", "term_import", "identity", "identity_pending", "birthday", "desktop", "learning_result", "schedule_loading")
 
 private data class PreviewRequest(
     val screen: String = "today",
@@ -203,10 +203,20 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
                         canVerify = true, onVerify = offlineAction, onOpenProfile = { screen = "profile" },
                     )
                 }
+                "birthday" -> com.menglimi.gdust.v2.ui.screens.BirthdayDialog(onDismiss = back)
+                "desktop" -> com.menglimi.gdust.v2.ui.screens.DesktopAppearanceScreen(onBack = back)
+                "learning_result" -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    com.menglimi.gdust.v2.ui.screens.ChxSyncResult(
+                        "部分完成：检查了 12 门课（42 门读取失败：\n22 门：课程跳转暂不支持\n19 门：作业列表结构无法识别\n1 门：请求未完成），新增 3 条、更新 5 条，未交 6 条", false)
+                }
                 "profile" -> ProfileScreen(repo, onBack = back)
                 "about" -> AboutScreen(repo, onBack = back)
                 "widget_render" -> RealWidgetPreview(request.kind, request.shape, request.width, request.height)
                 "term_import" -> TermImportScreen(repo, onBack = back, onImported = { _, _ -> offlineAction() })
+                "schedule_loading" -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    com.menglimi.gdust.v2.ui.screens.ScheduleLoadingCard(
+                        "读取学期课表", "动画预览 · 正在读取所选学期的课程与周次。", onCancel = back)
+                }
                 "settings" -> SettingsScreen(
                     repo = repo,
                     syncError = null,

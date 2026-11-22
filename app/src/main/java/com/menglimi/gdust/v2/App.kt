@@ -14,7 +14,7 @@ class App : Application() {
 
     private val scheduleKeys = setOf("calendar", "blocks", "schedule_source", "term_start", "term_weeks", "term_week")
     private val widgetKeys = scheduleKeys + setOf(
-        "todos", "samples", "warn_th", "widget_power_range", "ui_style", "monet_enabled",
+        "todos", "samples", "warn_th", "widget_power_range", "ui_style", "monet_enabled", "last_sync_at",
     )
     // SharedPreferences 仅弱引用 listener，由 Application 持有至进程结束；同步/通知/导入等所有写入都覆盖。
     private val cacheChanges = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -26,7 +26,7 @@ class App : Application() {
         if (key == null || key in widgetKeys) WidgetRefresher.refreshAll(this)
     }
     private val powerChanges = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == null || key in setOf("prev_odd", "last_sample", "name", "threshold")) {
+        if (key == null || key in setOf("prev_odd", "last_sample", "name", "threshold", "account", "code", "verify", "cached_detail", "cached_binding")) {
             WidgetRefresher.refreshAll(this)
         }
     }
@@ -57,6 +57,8 @@ class App : Application() {
         // 课程提醒（课前 + 次日）；开关在设置里控制
         if (repo.store.reminderEnabled) {
             com.menglimi.gdust.v2.work.LessonReminderWorker.schedule(this)
+        } else {
+            com.menglimi.gdust.v2.work.LessonNotificationExpiry.reschedule(this, repo.store)
         }
         if (repo.store.todoReminderEnabled) {
             LessonReminderAlarms.rescheduleTodo(this, repo.store)

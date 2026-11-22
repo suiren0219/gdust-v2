@@ -28,6 +28,7 @@ import androidx.compose.ui.viewinterop.AndroidView
  *   adb shell am start -n com.menglimi.gdust.v2.debug/com.menglimi.gdust.v2.debug.WebViewProbeActivity --es mode compose-box
  *
  * mode:
+ *   school              直接打开实际统一登录 Activity，不注入账号或伪造认证结果
  *   bare                裸 WebView（对照，已知正常）
  *   full                裸 WebView + 与联动页相同的 WebSettings（对照，已知正常）
  *   compose-box         Box 里 AndroidView（最小复现，已知白屏）
@@ -45,6 +46,15 @@ class WebViewProbeActivity : ComponentActivity() {
         WebView.setWebContentsDebuggingEnabled(true)
 
         val mode = intent.getStringExtra("mode") ?: "bare"
+        if (mode in setOf("school", "teaching", "learning")) {
+            startActivity(when (mode) {
+                "teaching" -> com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.teachingIntent(this)
+                "learning" -> com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.learningIntent(this)
+                else -> com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.intent(this)
+            })
+            finish()
+            return
+        }
         val url = intent.getStringExtra("url")
             ?: "https://cas.gdust.edu.cn/cas/?service=http%3A%2F%2Fgdkjxy.fysso.chaoxing.com%2Fsso%2Fgdkjxy"
 

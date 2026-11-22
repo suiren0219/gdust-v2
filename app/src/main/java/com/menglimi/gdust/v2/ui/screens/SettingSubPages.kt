@@ -1,6 +1,5 @@
 package com.menglimi.gdust.v2.ui.screens
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +23,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -132,9 +134,29 @@ fun ProfileScreen(repo: Repository, onBack: () -> Unit) {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "2.0.0-alpha"
         }.getOrDefault("2.0.0-alpha")
     }
+    val scope = rememberCoroutineScope()
+    var birthdayReading by remember { mutableStateOf(false) }
+    var birthdayStatus by remember { mutableStateOf(if (store.birthdayMonthDay.isBlank()) "尚未从教务获取" else "已保存生日月日") }
     SettingSubPage("个人信息", "本机账号与数据快照", onBack) {
         SectionHeader("身份")
         AccountIdentityCard(repo)
+        SettingGroup {
+            SettingOption(title = "生日祝福", subtitle = "仅保存教务返回的月日，生日当天显示一次；不推算年龄。", detail = birthdayStatus)
+            SettingEditor {
+                Button(if (birthdayReading) "正在读取…" else "从教务读取生日", enabled = !birthdayReading) {
+                    birthdayReading = true
+                    scope.launch {
+                        try {
+                            birthdayStatus = if (repo.refreshTeachingBirthday()) "已保存生日月日" else "教务未提供可识别的出生日期"
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } finally {
+                            birthdayReading = false
+                        }
+                    }
+                }
+            }
+        }
         Spacer(Modifier.height(10.dp))
         SectionHeader("数据")
         SettingGroup {
@@ -181,9 +203,6 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
     val versionCode = pkgInfo?.let {
         if (android.os.Build.VERSION.SDK_INT >= 28) it.longVersionCode else @Suppress("DEPRECATION") it.versionCode
     } ?: 1L
-    // 彩蛋：连点「当前版本」7 次，翻开藏在仓库里的那张贺卡
-    var versionTaps by remember { mutableStateOf(0) }
-    var showGift by remember { mutableStateOf(false) }
     SettingSubPage("关于与更新", "版本 · 更新说明 · 数据链路", onBack) {
         val hostContext = androidx.compose.ui.platform.LocalContext.current
         SectionHeader("版本")
@@ -202,17 +221,7 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
                 onClick = { openSchoolSite(hostContext) },
             )
             SettingDivider()
-            SettingOption(
-                title = "当前版本",
-                detail = versionName,
-                onClick = {
-                    versionTaps += 1
-                    if (versionTaps >= 7) {
-                        versionTaps = 0
-                        showGift = true
-                    }
-                },
-            )
+            SettingOption(title = "当前版本", detail = versionName)
             SettingDivider()
             SettingOption(title = "内部版本号", detail = versionCode.toString())
             SettingDivider()
@@ -245,31 +254,6 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
         )
         Spacer(Modifier.height(16.dp))
         ProjectStarEntry()
-    }
-    if (showGift) BirthdayGiftDialog(onDismiss = { showGift = false })
-}
-
-/** 彩蛋：藏在「当前版本」后面的生日贺卡（连点 7 次）。 */
-@Composable
-private fun BirthdayGiftDialog(onDismiss: () -> Unit) {
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        val ds = LocalDs.current
-        AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(18.dp)) {
-            Text("十九穗 · 生日快乐", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
-            Text(
-                "这张贺卡从 2026 年的生日起就藏在 App 里了。\n谢谢你还带着它一起上课、看电费、翻公告。",
-                fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
-                modifier = Modifier.padding(top = 6.dp, bottom = 14.dp),
-            )
-            Image(
-                painter = painterResource(R.drawable.birthday_gift),
-                contentDescription = "十九岁生日贺卡",
-                contentScale = ContentScale.FillWidth,
-                modifier = Modifier.fillMaxWidth().aspectRatio(1080f / 778f).clip(RoundedCornerShape(16.dp)),
-            )
-            Spacer(Modifier.height(16.dp))
-            Button("收下祝福", onClick = onDismiss)
-        }
     }
 }
 

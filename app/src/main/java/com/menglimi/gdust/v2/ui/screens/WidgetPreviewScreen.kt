@@ -56,7 +56,7 @@ import com.menglimi.gdust.v2.widget.pinWidget
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-/** 九款预览直接复用生产 Glance 布局、缓存数据与密度策略，避免两套 UI 漂移。 */
+/** 分类预览复用生产 Glance 布局、缓存数据与密度策略。 */
 @Composable
 fun WidgetPreviewScreen(onBack: () -> Unit) {
     val ds = LocalDs.current
@@ -69,15 +69,9 @@ fun WidgetPreviewScreen(onBack: () -> Unit) {
         PageTitle(title = "桌面小部件", onBack = onBack)
         M3Text("课表、电量与待办，随时抬眼可见。点按预览添加到桌面。",
             fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
-        WidgetPresets.ALL.chunked(3).forEachIndexed { group, presets ->
-            SectionLabel(listOf("课表数据", "宿舍电量", "待办条子")[group])
-            presets.forEachIndexed { index, preset ->
-                PresetRow(preset, when (index) {
-                    1 -> DpSize(180.dp, 180.dp)
-                    2 -> DpSize(96.dp, 192.dp)
-                    else -> DpSize(340.dp, 170.dp)
-                })
-            }
+        WidgetPresets.ALL.groupBy { it.category }.forEach { (category, presets) ->
+            SectionLabel(category)
+            presets.forEach { preset -> PresetRow(preset, preset.previewSize) }
         }
         Spacer(Modifier.height(24.dp))
     }

@@ -40,15 +40,19 @@ class MaintenanceWindowTest {
         val start = 23 * 60
         val end = 6 * 60 + 30
         val text = MaintenanceWindow.notice(at(23, 5), start, end, "连接超时")
-        assertTrue(text!!.contains("夜间关闭"))
+        assertTrue(text!!.startsWith("连接超时\n\n"))
         assertTrue(text.contains("23:00–06:30"))
-        assertTrue(text.contains("具体错误：连接超时"))
+        assertTrue(text.contains("设置的维护提醒时段"))
+        assertTrue(text.contains("可能正在维护"))
+        assertTrue(text.contains("仅供参考，不代表教务停服，可继续重试或换入口"))
+        assertFalse(text.contains("夜间关闭"))
+        assertFalse(text.contains("停止服务"))
+        assertFalse(text.contains("请白天再试"))
         assertNull(MaintenanceWindow.notice(at(12, 0), start, end, "连接超时"))
-        assertNull(MaintenanceWindow.notice(at(23, 5), start, end, null)!!.let { it.takeIf { t -> t.contains("具体错误") } })
         assertEquals(
+            "当前处于设置的维护提醒时段（23:00–06:30），教务可能正在维护。" +
+                "该时段仅供参考，不代表教务停服，可继续重试或换入口。",
             MaintenanceWindow.notice(at(23, 5), start, end, null),
-            "教务系统夜间关闭（约 23:00–06:30）：学校教务此时段停止服务，" +
-                "课表与成绩暂时无法同步。学习通与电量查询不受影响，请白天再试。",
         )
     }
 
