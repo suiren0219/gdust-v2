@@ -108,7 +108,7 @@ private class PreviewContext(base: Context) : ContextWrapper(base) {
 }
 
 private val mainPages = listOf("today", "schedule", "power", "todo")
-private val previewPages = mainPages + listOf("history", "widgets", "settings", "profile", "about", "widget_render", "term_import", "identity", "identity_pending", "birthday", "desktop", "learning_result")
+private val previewPages = mainPages + listOf("history", "widgets", "settings", "profile", "about", "widget_render", "term_import", "identity", "identity_pending", "birthday", "desktop", "learning_result", "schedule_loading")
 
 private data class PreviewRequest(
     val screen: String = "today",
@@ -210,6 +210,10 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
                 "about" -> AboutScreen(repo, onBack = back)
                 "widget_render" -> RealWidgetPreview(request.kind, request.shape, request.width, request.height)
                 "term_import" -> TermImportScreen(repo, onBack = back, onImported = { _, _ -> offlineAction() })
+                "schedule_loading" -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    com.menglimi.gdust.v2.ui.screens.ScheduleLoadingCard(
+                        "读取学期课表", "动画预览 · 正在读取所选学期的课程与周次。", onCancel = back)
+                }
                 "settings" -> SettingsScreen(
                     repo = repo,
                     syncError = null,

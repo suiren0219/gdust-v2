@@ -3,10 +3,7 @@ package com.menglimi.gdust.v2.data
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-/**
- * 教务夜间关闭提醒：学校教务在夜间维护时段停止服务，同步失败时给出明确提示，
- * 而不是笼统的「网络失败」。学习通（超星）与电费查询不受学校教务关闭影响。
- */
+/** 教务维护时段仅是用户设置的参考提醒，不能据此判断学校是否停服。 */
 object MaintenanceWindow {
     /** 默认 23:00–06:30；可在设置页修改，分钟数取 0..1439。 */
     const val DEFAULT_START_MIN: Int = 23 * 60
@@ -25,7 +22,7 @@ object MaintenanceWindow {
         return hour * 60 + minute
     }
 
-    /** start == end 表示全天关闭视为未配置（不提示）；跨午夜（start > end）按两段判断。 */
+    /** start == end 视为未配置（不提示）；跨午夜（start > end）按两段判断。 */
     fun isWithin(now: LocalTime, startMin: Int, endMin: Int): Boolean {
         if (startMin !in 0..1439 || endMin !in 0..1439 || startMin == endMin) return false
         val minute = now.hour * 60 + now.minute
@@ -33,13 +30,11 @@ object MaintenanceWindow {
         else minute >= startMin || minute < endMin
     }
 
-    /**
-     * 处于关闭时段时返回给用户看的提示；[cause] 为原始失败原因，追加在提示之后。
-     */
+    /** 仅供实际教务读取失败时使用；先展示 [cause]，再追加非确定性的时段提醒。 */
     fun notice(now: LocalTime, startMin: Int, endMin: Int, cause: String?): String? {
         if (!isWithin(now, startMin, endMin)) return null
-        val text = "教务系统夜间关闭（约 ${format(startMin)}–${format(endMin)}）：学校教务此时段停止服务，" +
-            "课表与成绩暂时无法同步。学习通与电量查询不受影响，请白天再试。"
-        return if (cause.isNullOrBlank()) text else "$text\n\n具体错误：${cause.take(160)}"
+        val text = "当前处于设置的维护提醒时段（${format(startMin)}–${format(endMin)}），教务可能正在维护。" +
+            "该时段仅供参考，不代表教务停服，可继续重试或换入口。"
+        return if (cause.isNullOrBlank()) text else "$cause\n\n$text"
     }
 }

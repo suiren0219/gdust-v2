@@ -2,7 +2,7 @@
 
 # 进度卡
 
-> 最后更新：2026-11-13（通知改版 + 待办结构化 + 研究线合并 main）。下次开工先读这张卡。
+> 历史快照：以下记录截至 2026-11-13，不代表当前分支、设备、待办或许可状态。当前构建与功能以 [README.md](README.md) 和源码为准，许可见 [LICENSE](LICENSE)；开始工作前重新核对 Git 状态，提交和推送仅在用户明确要求时执行。
 
 ## 本轮新增（versionCode 11，研究线合并 main 后）
 
@@ -91,7 +91,7 @@
 - 设置 → 课程提醒 → 超级岛 加了诊断行：焦点协议 v0-3（Settings.System notification_focus_protocol）+ persist.sys.feature.island；v3 且白名单通过才会上岛
 - 真机验证路径：修复 HyperCeiler → 设置里点「测试提醒」→ 看岛/
 
-## 许可状态（2026-11-13 更新）
+## 历史许可状态（2026-11-13，现已失效）
 
 - 应作者与上游（Nexio 作者）的沟通结论，**项目先闭源自用**：LICENSE 换成闭源声明、README/关于页改回「闭源自用」
 - 代码文件头**保留**「Ported from NexioSchedule 28a99a3」出处注释（SPDX AGPL 标识行已删）；NOTICE.md 记录上游许可与授权状态
@@ -101,7 +101,7 @@
 ## 远程备份（已解决）
 
 - `origin` = `https://github.com/suiren0219/gdust-v2`，**PRIVATE**，48+ 提交已全部推上去
-- 以后每次提交记得 `git push`（或让我推）
+- 历史推送安排已失效；仅在用户明确要求时执行提交或推送。
 - 推送前审计过：历史里从未出现过 `*.jks` / `keystore.properties`；仓库 765KB
 - `.gitignore` 已加 `*.har`（抓包带 Cookie/uid/token，禁止入库）
 - gh CLI 位置：`D:\机器人插件\gh-cli\Program Files\GitHub CLI\gh.exe`（账号 suiren0219，keyring 登录）

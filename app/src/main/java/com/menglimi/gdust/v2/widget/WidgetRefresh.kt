@@ -29,9 +29,11 @@ object WidgetRefresher {
         Provider(ScheduleWideReceiver::class.java, Kind.SCHEDULE),
         Provider(ScheduleMediumReceiver::class.java, Kind.SCHEDULE),
         Provider(ScheduleTallReceiver::class.java, Kind.SCHEDULE),
+        Provider(ScheduleLongReceiver::class.java, Kind.SCHEDULE),
         Provider(PowerWideReceiver::class.java, Kind.POWER),
         Provider(PowerMediumReceiver::class.java, Kind.POWER),
         Provider(PowerTallReceiver::class.java, Kind.POWER),
+        Provider(PowerLongReceiver::class.java, Kind.POWER),
         Provider(TodoWideReceiver::class.java, Kind.TODO),
         Provider(TodoMediumReceiver::class.java, Kind.TODO),
         Provider(TodoTallReceiver::class.java, Kind.TODO),
@@ -64,7 +66,10 @@ object WidgetRefresher {
         return providers.any { manager.getAppWidgetIds(ComponentName(context, it.receiver)).isNotEmpty() }
     }
 
-    suspend fun updateAll(context: Context) = update(context, Kind.entries.toSet())
+    suspend fun updateAll(context: Context) {
+        update(context, Kind.entries.toSet())
+        WidgetRefreshScheduler.ensureScheduled(context)
+    }
     suspend fun updatePower(context: Context) = update(context, setOf(Kind.POWER))
     suspend fun updateTodos(context: Context) = update(context, setOf(Kind.TODO))
 
@@ -104,7 +109,7 @@ object WidgetRefresher {
     }
 }
 
-/** 九个静态 provider 共用生命周期：每次检查全体实例，不能因某一款移除而停掉其他款。 */
+/** 静态 provider 共用生命周期：不能因某一款移除而停掉其他款的刷新。 */
 abstract class GdustWidgetReceiver : GlanceAppWidgetReceiver() {
     override fun onEnabled(context: Context) {
         super.onEnabled(context)

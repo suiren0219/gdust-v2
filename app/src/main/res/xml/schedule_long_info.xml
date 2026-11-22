@@ -1,0 +1,12 @@
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="57dp"
+    android:minHeight="250dp"
+    android:minResizeWidth="57dp"
+    android:minResizeHeight="110dp"
+    android:targetCellWidth="1"
+    android:targetCellHeight="4"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:previewLayout="@layout/preview_schedule_long"
+    android:description="@string/widget_schedule_long_desc"
+    android:updatePeriodMillis="1800000" />

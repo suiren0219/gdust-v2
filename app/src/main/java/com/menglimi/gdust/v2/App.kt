@@ -14,7 +14,7 @@ class App : Application() {
 
     private val scheduleKeys = setOf("calendar", "blocks", "schedule_source", "term_start", "term_weeks", "term_week")
     private val widgetKeys = scheduleKeys + setOf(
-        "todos", "samples", "warn_th", "widget_power_range", "ui_style", "monet_enabled",
+        "todos", "samples", "warn_th", "widget_power_range", "ui_style", "monet_enabled", "last_sync_at",
     )
     // SharedPreferences 仅弱引用 listener，由 Application 持有至进程结束；同步/通知/导入等所有写入都覆盖。
     private val cacheChanges = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -26,7 +26,7 @@ class App : Application() {
         if (key == null || key in widgetKeys) WidgetRefresher.refreshAll(this)
     }
     private val powerChanges = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == null || key in setOf("prev_odd", "last_sample", "name", "threshold")) {
+        if (key == null || key in setOf("prev_odd", "last_sample", "name", "threshold", "account", "code", "verify", "cached_detail", "cached_binding")) {
             WidgetRefresher.refreshAll(this)
         }
     }

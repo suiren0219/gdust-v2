@@ -31,6 +31,8 @@ object ChxSso {
 
     /** 教务（正方）网页入口，同样走 CAS，验证「一次登录双通」用。 */
     private const val TEACHING_SERVICE = "http://gkjx.gdust.edu.cn/sso/lyiotlogin"
+    // 门户“教学综合服务平台”公布的校园网入口；公网失败时由 CAS 重新签票。
+    private const val CAMPUS_TEACHING_SERVICE = "http://172.16.254.1/sso/lyiotlogin"
 
     /** CAS 登出入口，用于显式退出共享的学校网页登录会话。 */
     const val LOGOUT_URL = "https://cas.gdust.edu.cn/cas/logout"
@@ -40,6 +42,9 @@ object ChxSso {
     val fyssoUrl: String get() = sso(FYSSO_SERVICE)
     val mhUrl: String get() = sso(MH_SERVICE)
     val teachingWebUrl: String get() = sso(TEACHING_SERVICE)
+    val campusTeachingWebUrl: String get() = sso(CAMPUS_TEACHING_SERVICE)
+    // 沿用教务学期导入的校外 WebVPN 入口，由网页完成认证并进入教务。
+    const val TEACHING_VPN_LOGIN = "https://webvpn.gdust.edu.cn/https/77726476706e69737468656265737421f3f652d220347d436a468ca88d1b203b/cas/?service=https%3A%2F%2Fwebvpn.gdust.edu.cn%2Flogin%3Fcas_login%3Dtrue"
 
     /** 只检测 CAS 网页会话候选，不能把匿名 JSESSIONID 或原生登录 ticket 当成已认证。 */
     val casCookieProbes = listOf("https://cas.gdust.edu.cn/lyuapServer/login", "https://cas.gdust.edu.cn/cas/login")

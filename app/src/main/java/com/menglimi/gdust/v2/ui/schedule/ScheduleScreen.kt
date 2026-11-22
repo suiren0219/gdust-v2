@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
@@ -62,7 +63,12 @@ import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
 import java.time.LocalDate
 import java.time.LocalDateTime
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -94,12 +100,15 @@ fun ScheduleScreen(
     onImport: () -> Unit = {},
 ) {
     // One snapshot drives dates, week navigation, section markers and course status.
+    val lifecycleOwner = LocalLifecycleOwner.current
     var now by remember { mutableStateOf(LocalDateTime.now()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            val tick = LocalDateTime.now()
-            now = tick
-            delay((60_000L - tick.second * 1_000L - tick.nano / 1_000_000L + 50L).coerceAtLeast(50L))
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (currentCoroutineContext().isActive) {
+                val tick = LocalDateTime.now()
+                now = tick
+                delay((60_000L - System.currentTimeMillis() % 60_000L).coerceAtLeast(1L))
+            }
         }
     }
     val termStart = remember(calendar?.startDate) { ScheduleTimes.parseDate(calendar?.startDate) }
@@ -301,6 +310,7 @@ private fun WeekGrid(
     val currentSection = remember(dates, today, time) {
         if (dates.values.any { it == today }) ScheduleTimes.currentSection(time) else null
     }
+    val currentPosition = remember(time) { ScheduleTimes.sectionPosition(time) }
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val systemFontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
     val sectionWidth = ScheduleLayout.SectionWidth * systemFontScale
@@ -396,6 +406,21 @@ private fun WeekGrid(
                                     }
                                 }
                             }
+                            val markerY = currentPosition?.let { position ->
+                                ScheduleLayout.sectionY(position.section, rowHeight) + rowHeight * position.progress
+                            }
+                            if (dates[day] == today && markerY != null) {
+                                Row(
+                                    Modifier.fillMaxWidth().offset(y = markerY).zIndex(2f),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Box(Modifier.size(6.dp).background(ds.text.copy(alpha = 0.72f), CircleShape))
+                                    Box(
+                                        Modifier.weight(1f).height(1.5.dp)
+                                            .background(ds.text.copy(alpha = 0.62f), CircleShape),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -464,22 +489,30 @@ private fun CompactWeekAgenda(
                 }
             }
             dayLessons.forEach { lesson ->
+                val timeStatus = ScheduleTimes.timeStatus(lesson, termStart, now)
+                val isPast = timeStatus == ScheduleTimes.LessonTimeStatus.PAST
+                val foreground = if (isPast) ds.sub else ds.text
+                val surface = when (timeStatus) {
+                    ScheduleTimes.LessonTimeStatus.PAST -> ds.sub.copy(alpha = 0.10f).compositeOver(ds.card)
+                    ScheduleTimes.LessonTimeStatus.ONGOING -> ds.text.copy(alpha = 0.07f).compositeOver(ds.card)
+                    else -> ds.card
+                }
                 AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding),
-                    onClick = { onLessonClick(lesson) }) {
-                    val status = when {
-                        ScheduleTimes.isOngoing(lesson, termStart, now) -> " · 上课中"
-                        ScheduleTimes.isPast(lesson, termStart, now) -> " · 已结束"
+                    color = surface, onClick = { onLessonClick(lesson) }) {
+                    val status = when (timeStatus) {
+                        ScheduleTimes.LessonTimeStatus.ONGOING -> " · 上课中"
+                        ScheduleTimes.LessonTimeStatus.PAST -> " · 已结束"
                         else -> ""
                     }
                     Text("第 ${lesson.startSection}–${lesson.endSection} 节$status", fontSize = 13.sp, color = ds.sub)
                     Text(lesson.name, fontSize = 18.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold,
-                        color = ds.text, modifier = Modifier.padding(top = 10.dp))
+                        color = foreground, modifier = Modifier.padding(top = 10.dp))
                     val start = ScheduleTimes.start(lesson.startSection)
                     val end = ScheduleTimes.end(lesson.endSection)
                     if (start.isNotBlank() && end.isNotBlank()) Text("$start–$end", fontSize = 15.sp,
-                        color = ds.text, modifier = Modifier.padding(top = 12.dp))
+                        color = foreground, modifier = Modifier.padding(top = 12.dp))
                     if (showClassroom && lesson.room.isNotBlank()) Text(lesson.room, fontSize = 14.sp,
-                        color = ds.text, modifier = Modifier.padding(top = 6.dp))
+                        color = foreground, modifier = Modifier.padding(top = 6.dp))
                     if (showTeacher && lesson.teacher.isNotBlank()) Text(lesson.teacher, fontSize = 13.sp,
                         color = ds.sub, modifier = Modifier.padding(top = 4.dp))
                 }
@@ -557,10 +590,14 @@ private fun LessonCard(
     modifier: Modifier,
 ) {
     val ds = LocalDs.current
-    // 先与实底合成，卡片始终不透明；已结束的课程保持同样的可读性。
-    val cardColor = CourseColors.tint(block.name)
-        .copy(alpha = if (ds.isDark) 0.24f else 0.16f).compositeOver(ds.card)
-    val foreground = CourseColors.readableText(ds.text, cardColor)
+    // 已结束用中性灰；进行中增强明度层次，文字始终保持可读。
+    val cardColor = when {
+        isPast -> ds.sub.copy(alpha = if (ds.isDark) 0.16f else 0.10f).compositeOver(ds.card)
+        isOngoing -> ds.text.copy(alpha = if (ds.isDark) 0.10f else 0.07f).compositeOver(ds.card)
+        else -> CourseColors.tint(block.name)
+            .copy(alpha = if (ds.isDark) 0.24f else 0.16f).compositeOver(ds.card)
+    }
+    val foreground = if (isPast) ds.sub else CourseColors.readableText(ds.text, cardColor)
     val scale = textScale.coerceIn(0.7f, 1.4f)
     val nameSize = (12.7f * scale).sp
     val nameLine = (14.2f * scale).sp
@@ -611,9 +648,6 @@ private fun LessonCard(
                     Modifier.align(Alignment.TopCenter).padding(top = 2.dp)
                         .width(16.dp).height(3.dp).background(foreground, CircleShape),
                 )
-            }
-            if (hasMultipleCourses) {
-                Box(Modifier.align(Alignment.BottomEnd).padding(5.dp).size(6.dp).background(foreground, CircleShape))
             }
         }
     }

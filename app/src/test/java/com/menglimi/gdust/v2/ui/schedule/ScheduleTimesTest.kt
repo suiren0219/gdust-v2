@@ -109,6 +109,74 @@ class ScheduleTimesTest {
     }
 
     @Test
+    fun statusUsesTheFullDateBeforeComparingClockTime() {
+        val yesterday = lesson(date = "2026-09-06", day = 7)
+        val today = lesson(date = "2026-09-07", day = 1)
+        val otherDay = lesson(date = "2026-09-08", day = 2)
+
+        assertEquals(
+            ScheduleTimes.LessonTimeStatus.PAST,
+            ScheduleTimes.timeStatus(yesterday, termStart, LocalDateTime.of(2026, 9, 7, 8, 30)),
+        )
+        assertEquals(
+            ScheduleTimes.LessonTimeStatus.UPCOMING,
+            ScheduleTimes.timeStatus(today, termStart, LocalDateTime.of(2026, 9, 7, 8, 0)),
+        )
+        assertEquals(
+            ScheduleTimes.LessonTimeStatus.ONGOING,
+            ScheduleTimes.timeStatus(today, termStart, LocalDateTime.of(2026, 9, 7, 9, 0)),
+        )
+        assertEquals(
+            ScheduleTimes.LessonTimeStatus.PAST,
+            ScheduleTimes.timeStatus(today, termStart, LocalDateTime.of(2026, 9, 7, 10, 5)),
+        )
+        assertEquals(
+            ScheduleTimes.LessonTimeStatus.UPCOMING,
+            ScheduleTimes.timeStatus(otherDay, termStart, LocalDateTime.of(2026, 9, 7, 9, 0)),
+        )
+    }
+
+    @Test
+    fun statusHandlesWeekendAndTermBoundariesWithoutBorrowingAnotherDate() {
+        val weekend = lesson(date = "2026-09-12", week = 1, day = 6)
+        val beforeTerm = lesson(date = "2026-09-06", week = 0, day = 7)
+        val afterTerm = lesson(date = "2026-09-14", week = 2, day = 1)
+
+        assertEquals(
+            ScheduleTimes.LessonTimeStatus.ONGOING,
+            ScheduleTimes.timeStatus(weekend, termStart, LocalDateTime.of(2026, 9, 12, 8, 45)),
+        )
+        assertEquals(
+            ScheduleTimes.LessonTimeStatus.PAST,
+            ScheduleTimes.timeStatus(beforeTerm, termStart, LocalDateTime.of(2026, 9, 7, 8, 45)),
+        )
+        assertEquals(
+            ScheduleTimes.LessonTimeStatus.UPCOMING,
+            ScheduleTimes.timeStatus(afterTerm, termStart, LocalDateTime.of(2026, 9, 13, 23, 59)),
+        )
+    }
+
+    @Test
+    fun unknownDateOrSectionRemainsUnknown() {
+        val noDate = lesson(date = "", week = 1, day = 1)
+        val unknownSection = lesson(start = 11, end = 12)
+        val reversedSection = lesson(start = 4, end = 3)
+
+        assertEquals(
+            ScheduleTimes.LessonTimeStatus.UNKNOWN,
+            ScheduleTimes.timeStatus(noDate, null, LocalDateTime.of(2026, 9, 7, 9, 0)),
+        )
+        assertEquals(
+            ScheduleTimes.LessonTimeStatus.UNKNOWN,
+            ScheduleTimes.timeStatus(unknownSection, termStart, LocalDateTime.of(2026, 9, 7, 23, 59)),
+        )
+        assertEquals(
+            ScheduleTimes.LessonTimeStatus.UNKNOWN,
+            ScheduleTimes.timeStatus(reversedSection, termStart, LocalDateTime.of(2026, 9, 7, 9, 0)),
+        )
+    }
+
+    @Test
     fun sectionAndRedLineStopAtBellAndDuringBreaks() {
         assertNull(ScheduleTimes.currentSection(LocalTime.of(8, 29, 59)))
         assertEquals(1, ScheduleTimes.currentSection(LocalTime.of(8, 30)))
@@ -120,6 +188,14 @@ class ScheduleTimesTest {
         assertEquals(0f, ScheduleTimes.sectionProgress(1, LocalTime.of(8, 30))!!, 0.0001f)
         assertEquals(0.5f, ScheduleTimes.sectionProgress(1, LocalTime.of(8, 52, 30))!!, 0.0001f)
         assertNull(ScheduleTimes.sectionProgress(1, LocalTime.of(9, 15)))
+    }
+
+    @Test
+    fun sectionPositionTracksOnlyTheCurrentClass() {
+        assertEquals(ScheduleTimes.SectionPosition(5, 0f), ScheduleTimes.sectionPosition(LocalTime.of(14, 40)))
+        assertEquals(0.5f, ScheduleTimes.sectionPosition(LocalTime.of(15, 2, 30))!!.progress, 0.0001f)
+        assertNull(ScheduleTimes.sectionPosition(LocalTime.of(14, 39)))
+        assertNull(ScheduleTimes.sectionPosition(LocalTime.of(15, 25)))
     }
 
     @Test

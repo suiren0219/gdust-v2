@@ -268,7 +268,7 @@ fun SettingsScreen(
                 keywords = "超星 课程 任务 作业 通知 登录 联动", onClick = onChxEntry,
             ),
             SettingsEntry(
-                id = "maintenance", title = "教务夜间关闭提醒", summary = "学校教务停服时段同步失败时明确提示",
+                id = "maintenance", title = "教务维护时段提醒", summary = "同步失败时参考此时段，不代表教务已经停服",
                 icon = MiuixIcons.Timer,
                 checked = maintenanceLocal,
                 onCheckedChange = { maintenanceLocal = it; store.maintenanceReminderEnabled = it },

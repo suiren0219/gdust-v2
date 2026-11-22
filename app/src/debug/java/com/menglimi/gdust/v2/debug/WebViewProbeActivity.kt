@@ -46,8 +46,12 @@ class WebViewProbeActivity : ComponentActivity() {
         WebView.setWebContentsDebuggingEnabled(true)
 
         val mode = intent.getStringExtra("mode") ?: "bare"
-        if (mode == "school") {
-            startActivity(com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.intent(this))
+        if (mode in setOf("school", "teaching", "learning")) {
+            startActivity(when (mode) {
+                "teaching" -> com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.teachingIntent(this)
+                "learning" -> com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.learningIntent(this)
+                else -> com.menglimi.gdust.v2.ui.screens.SchoolLoginActivity.intent(this)
+            })
             finish()
             return
         }

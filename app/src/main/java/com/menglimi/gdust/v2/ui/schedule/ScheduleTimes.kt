@@ -29,6 +29,10 @@ object ScheduleTimes {
     val dayNames = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
     private val times = slots.map { (start, end) -> LocalTime.parse(start) to LocalTime.parse(end) }
 
+    data class SectionPosition(val section: Int, val progress: Float)
+
+    enum class LessonTimeStatus { PAST, ONGOING, UPCOMING, UNKNOWN }
+
     fun start(s: Int) = slots.getOrNull(s - 1)?.first.orEmpty()
     fun end(s: Int) = slots.getOrNull(s - 1)?.second.orEmpty()
 
@@ -42,6 +46,13 @@ object ScheduleTimes {
         if (now.isBefore(start) || !now.isBefore(end)) return null
         return (now.toSecondOfDay() - start.toSecondOfDay()).toFloat() /
             (end.toSecondOfDay() - start.toSecondOfDay())
+    }
+
+    /** 当前时间在作息表中的位置；课间不伪造正在上课的位置。 */
+    fun sectionPosition(now: LocalTime): SectionPosition? {
+        val section = currentSection(now) ?: return null
+        val progress = sectionProgress(section, now) ?: return null
+        return SectionPosition(section, progress)
     }
 
     fun parseDate(value: String?): LocalDate? {
@@ -67,22 +78,30 @@ object ScheduleTimes {
     fun lessonDate(block: CourseBlock, termStart: LocalDate?): LocalDate? =
         if (block.date.isBlank()) dateAt(termStart, block.week, block.day) else parseDate(block.date)
 
-    fun isOngoing(block: CourseBlock, termStart: LocalDate?, now: LocalDateTime): Boolean {
-        if (lessonDate(block, termStart) != now.toLocalDate()) return false
-        if (times.getOrNull(block.startSection - 1) == null || times.getOrNull(block.endSection - 1) == null) return false
-        val time = now.toLocalTime()
-        return segments(block.startSection, block.endSection).any { segment ->
-            val start = times[segment.first - 1].first
-            val end = times[segment.last - 1].second
-            !time.isBefore(start) && time.isBefore(end)
-        }
-    }
+    fun isOngoing(block: CourseBlock, termStart: LocalDate?, now: LocalDateTime): Boolean =
+        timeStatus(block, termStart, now) == LessonTimeStatus.ONGOING
 
-    fun isPast(block: CourseBlock, termStart: LocalDate?, now: LocalDateTime): Boolean {
-        val date = lessonDate(block, termStart) ?: return false
-        if (date != now.toLocalDate()) return date.isBefore(now.toLocalDate())
-        val end = times.getOrNull(block.endSection - 1)?.second ?: return false
-        return !now.toLocalTime().isBefore(end)
+    fun isPast(block: CourseBlock, termStart: LocalDate?, now: LocalDateTime): Boolean =
+        timeStatus(block, termStart, now) == LessonTimeStatus.PAST
+
+    /** 卡片着色、进行中提示与小组件共用完整日期状态。 */
+    fun timeStatus(block: CourseBlock, termStart: LocalDate?, now: LocalDateTime): LessonTimeStatus {
+        val date = lessonDate(block, termStart) ?: return LessonTimeStatus.UNKNOWN
+        if (date.isBefore(now.toLocalDate())) return LessonTimeStatus.PAST
+        if (date.isAfter(now.toLocalDate())) return LessonTimeStatus.UPCOMING
+        if (times.getOrNull(block.startSection - 1) == null || times.getOrNull(block.endSection - 1) == null) {
+            return LessonTimeStatus.UNKNOWN
+        }
+        val time = now.toLocalTime()
+        val segments = segments(block.startSection, block.endSection)
+        if (segments.isEmpty()) return LessonTimeStatus.UNKNOWN
+        if (segments.any { segment ->
+                val start = times[segment.first - 1].first
+                val end = times[segment.last - 1].second
+                !time.isBefore(start) && time.isBefore(end)
+            }) return LessonTimeStatus.ONGOING
+        val finalEnd = times[segments.last().last - 1].second
+        return if (!time.isBefore(finalEnd)) LessonTimeStatus.PAST else LessonTimeStatus.UPCOMING
     }
 
     /** Adapted from Nexio DayColumn.kt: courses crossing break dividers are separate visual segments. */
