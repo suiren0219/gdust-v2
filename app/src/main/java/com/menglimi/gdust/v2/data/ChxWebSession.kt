@@ -31,6 +31,48 @@ object ChxWebSession {
     private val casPaths = listOf("/", "/cas", "/cas/", "/cas/login", "/cas/logout",
         "/lyuapServer", "/lyuapServer/", "/lyuapServer/login", "/lyuapServer/logout")
 
+    /** CookieManager 自行决定 Domain/Path/Secure 匹配；不把教务 Cookie 复制给 CAS 或超星。 */
+    fun candidateCookie(): String? = readCandidateCookie(CookieManager.getInstance()::getCookie)
+
+    internal fun readCandidateCookie(readCookie: (String) -> String?): String? =
+        ChxSso.cookieProbes.firstNotNullOfOrNull { url -> readCookie(url)?.takeIf(ChxSso::hasSessionCookie) }
+
+    fun hasCasWebSession(): Boolean = ChxSso.casCookieProbes.any { url ->
+        ChxSso.hasCasTicket(CookieManager.getInstance().getCookie(url))
+    }
+
+    /**
+     * 以网页当前会话探活，保存的请求头只是快照。两次明确拒绝才清快照；
+     * 等待期间发生退出/换号由 checkCurrent 中断，Cookie 已更新则不能用旧响应清掉新会话。
+     */
+    internal suspend fun verifyCandidate(
+        readCookie: () -> String?,
+        probe: suspend () -> Boolean?,
+        checkCurrent: () -> Unit,
+        saveCandidate: (String) -> Unit,
+        clearCandidate: () -> Unit,
+    ): Boolean? {
+        checkCurrent()
+        val cookie = readCookie()?.takeIf(ChxSso::hasSessionCookie)
+        if (cookie == null) {
+            clearCandidate()
+            return false
+        }
+        saveCandidate(cookie)
+        val first = probe()
+        checkCurrent()
+        val alive = if (first == false) probe() else first
+        checkCurrent()
+        val currentCookie = readCookie()?.takeIf(ChxSso::hasSessionCookie)
+        if (currentCookie != cookie) {
+            // 服务器轮换 Cookie 或用户刚完成新登录，本次结果不再代表当前会话。
+            if (currentCookie != null) saveCandidate(currentCookie)
+            return null
+        }
+        if (alive == false) clearCandidate()
+        return alive
+    }
+
     /** 仅记主机与路径以补充本次浏览范围，不保留 query、fragment 或 Cookie 值。在 Main 调用。 */
     fun recordVisited(url: String) {
         val parsed = url.toHttpUrlOrNull() ?: return

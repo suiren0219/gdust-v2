@@ -1,0 +1,41 @@
+{
+  "code": 1,
+  "msg": "操作成功!",
+  "success": true,
+  "data": [
+    {
+      "id": "92001",
+      "siteId": "37",
+      "lanmuId": "393",
+      "sublanmuId": "1538",
+      "sortId": "1618",
+      "title": "示例教务处课程申报通知",
+      "memberPrice": "1,8|,",
+      "username": "fixture-author",
+      "content": null,
+      "code": "920012319",
+      "thedate": "2031-03-04 12:34:56.0",
+      "paAutor": "",
+      "paIntroduct": "",
+      "actdat": null,
+      "staticDir": "jiaowu/20310304"
+    },
+    {
+      "id": "92002",
+      "siteId": "37",
+      "lanmuId": "393",
+      "sublanmuId": "1538",
+      "sortId": "1618",
+      "title": "示例教务处评审结果公示",
+      "memberPrice": "1,8|,",
+      "username": "fixture-author",
+      "content": null,
+      "code": "920024305",
+      "thedate": "2031-03-02 00:00:00.0",
+      "paAutor": "",
+      "paIntroduct": "",
+      "actdat": null,
+      "staticDir": "jiaowu/20310306"
+    }
+  ]
+}

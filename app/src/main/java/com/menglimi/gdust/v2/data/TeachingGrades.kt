@@ -32,7 +32,9 @@ data class GradeReport(val entries: List<TeachingGrade>, val total: Int) {
 }
 
 internal enum class GradeFailure(val message: String) {
-    STRUCTURE("教务返回的成绩格式无法识别，请稍后重试"),
+    FORM("教务成绩查询页缺少必要信息，请在教务网页打开「学生成绩查询」后重试"),
+    HTML("教务返回了网页，未能取得成绩；请在教务网页确认后重试"),
+    STRUCTURE("教务返回的成绩格式暂不支持，请在教务网页查看"),
     INCOMPLETE("成绩分页不完整或已发生变化，请重新查询"),
     LIMIT("成绩条数超出单次读取范围，请在教务网页查看"),
     TERM_UNAVAILABLE("教务页面暂未提供所选学年或学期，请调整后重试"),

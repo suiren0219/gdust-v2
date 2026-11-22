@@ -25,8 +25,9 @@ class PortalNewsTest {
 
     @Test
     fun academicNewsUsesConfiguredChannelAndAcademicPrefix() {
-        val notice = PortalNews.parse(envelope(newsRow().toString()), NoticeSource.ACADEMIC).single()
-        assertEquals("https://www.gdust.edu.cn/jwc/article/101/202.html", notice.url)
+        val row = newsRow().apply { addProperty("staticDir", "jiaowu/20310304") }
+        val notice = PortalNews.parse(envelope(row.toString()), NoticeSource.ACADEMIC).single()
+        assertEquals("https://www.gdust.edu.cn/jwc/jiaowu/20310304/202.html", notice.url)
         assertEquals("教务处公告", notice.type)
         assertEquals("教务处", notice.issuer)
         assertEquals("https://portal.gdust.edu.cn/smart-admin-api/app/news/list?source=jiaowu", PortalNews.requestUrl(NoticeSource.ACADEMIC))
@@ -140,7 +141,7 @@ class PortalNewsTest {
             assertThrows(IllegalStateException::class.java) { PortalNews.parse(envelope(row.toString()), NoticeSource.CAMPUS) }
         }
         listOf("../202", "%32%30%32", "202.html", "202/303", "https://untrusted.invalid/202", "202?x=1", "２０２", "", "202\n").forEach { id ->
-            val row = newsRow().apply { addProperty("id", id) }
+            val row = newsRow().apply { addProperty("id", id); addProperty("staticDir", "jiaowu/20310304") }
             assertThrows(IllegalStateException::class.java) { PortalNews.parse(envelope(row.toString()), NoticeSource.ACADEMIC) }
         }
     }

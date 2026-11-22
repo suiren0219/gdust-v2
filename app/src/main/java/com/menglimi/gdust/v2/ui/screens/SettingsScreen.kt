@@ -121,6 +121,7 @@ fun SettingsScreen(
     val store = repo.store
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     var query by rememberSaveable { mutableStateOf("") }
 
     var base by remember { mutableStateOf(store.llmBase) }
@@ -135,11 +136,12 @@ fun SettingsScreen(
     var dropText by remember { mutableStateOf(store.warnDropRate.toInt().toString()) }
     var thresholdSaved by remember { mutableStateOf(false) }
     var warnThresholdLocal by remember { mutableStateOf(store.warnThreshold) }
-    var termStart by remember { mutableStateOf(store.termStartDate) }
+    var termStart by rememberSaveable { mutableStateOf(store.termStartDate) }
     var termStartLocal by remember { mutableStateOf(store.termStartDate) }
     // 普通 prefs 不会触发重组，选中态必须用本地镜像并同步写回。
     var startTabLocal by remember { mutableStateOf(store.startTab) }
     var sampleIntervalLocal by remember { mutableStateOf(store.sampleIntervalMinutes) }
+    var powerPresetLocal by remember { mutableStateOf(store.powerQueryPreset) }
     var smartWeekendLocal by remember { mutableStateOf(store.smartHideWeekend) }
     var autoSyncLocal by remember { mutableStateOf(store.autoSyncEnabled) }
     // 教务夜间关闭：开关与 HH:mm 时段（prefs 不触发重组，用本地镜像）。
@@ -150,6 +152,7 @@ fun SettingsScreen(
     var termWeeksText by remember { mutableStateOf(store.termWeeks.takeIf { it > 0 }?.toString() ?: "") }
     var termWeekText by remember { mutableStateOf(store.termCurrentWeek.takeIf { it > 0 }?.toString() ?: "") }
     var termSaved by remember { mutableStateOf(false) }
+    var termError by remember { mutableStateOf<String?>(null) }
     var showWidgetPicker by rememberSaveable { mutableStateOf(false) }
 
     // 导入与恢复后的状态重载统一由宿主处理，不能在本页直接写 Store。
@@ -163,12 +166,8 @@ fun SettingsScreen(
     }
 
     val accountEntry = SettingsEntry(
-        id = "profile",
-        title = store.realName.ifBlank { if (loggedIn) "个人信息" else "未登录" },
-        summary = if (store.jobNumber.isNotBlank()) "广东科技学院 · ${store.jobNumber}" else "广东科技学院 · 本机数据与偏好",
-        keywords = "账户 账号 学校 学号 个人信息 隐私",
-        icon = MiuixIcons.ContactsCircle,
-        onClick = onProfile,
+        id = "profile", title = "个人信息", summary = "广东科技学院 · 本机数据与偏好",
+        keywords = "账户 账号 学校 学号 姓名 登录 验证 隐私", icon = MiuixIcons.ContactsCircle,
     )
     val groups = listOf(
         SettingsSection("通用", listOf(
@@ -192,17 +191,34 @@ fun SettingsScreen(
                 keywords = "校历 开学日期 总周数 当前周", detail = termStartLocal.ifBlank { "跟随校历" },
                 onClick = { toggle("term") },
                 editor = {
-                    InputField(termStart, { termStart = it; termSaved = false }, "第一周周一，YYYY-MM-DD")
-                    InputField(termWeeksText, { termWeeksText = it; termSaved = false }, "学期总周数", KeyboardType.Number)
-                    InputField(termWeekText, { termWeekText = it; termSaved = false }, "当前第几周", KeyboardType.Number)
+                    TermDateField(
+                        value = termStart,
+                        onValueChange = { termStart = it; termSaved = false; termError = null },
+                        fallback = store.loadCalendar()?.startDate.orEmpty(),
+                        allowFollowCalendar = true,
+                    )
+                    InputField(termWeeksText, { termWeeksText = it; termSaved = false; termError = null }, "学期总周数", KeyboardType.Number)
+                    InputField(termWeekText, { termWeekText = it; termSaved = false; termError = null }, "当前第几周", KeyboardType.Number)
                     Button(if (termSaved) "已保存，重新同步生效" else "保存学期设置") {
-                        store.termStartDate = termStart.trim()
-                        termStartLocal = store.termStartDate
-                        store.termWeeks = termWeeksText.toIntOrNull() ?: 0
-                        store.termCurrentWeek = termWeekText.toIntOrNull() ?: 0
-                        termSaved = true
+                        val total = if (termWeeksText.isBlank()) 0 else termWeeksText.toIntOrNull()
+                        val current = if (termWeekText.isBlank()) 0 else termWeekText.toIntOrNull()
+                        termError = when {
+                            !DateWheelSelection.validTermStart(termStart) -> "请选择第一周的周一日期"
+                            total == null || (termWeeksText.isNotBlank() && total !in 1..60) -> "学期总周数须为 1–60，留空跟随校历"
+                            current == null || (termWeekText.isNotBlank() && current !in 1..60) -> "当前周须为 1–60，留空自动计算"
+                            total > 0 && current > total -> "当前周不能超过学期总周数"
+                            else -> null
+                        }
+                        if (termError == null) {
+                            store.termStartDate = termStart.trim()
+                            termStartLocal = store.termStartDate
+                            store.termWeeks = total ?: 0
+                            store.termCurrentWeek = current ?: 0
+                            termSaved = true
+                        }
                     }
-                    Text("留空则跟随校历。这里只调整日期与周次；学期课程请从教务导入，未取得的周次不能视为无课。", fontSize = 13.sp, color = secondary)
+                    termError?.let { Text(it, fontSize = 13.sp, color = ds.danger) }
+                    Text("日期可选择跟随校历，周数留空则自动计算。这里只调整日期与周次；学期课程请从教务导入，未取得的周次不能视为无课。", fontSize = 13.sp, color = secondary)
                 },
             ),
             SettingsEntry(
@@ -221,7 +237,12 @@ fun SettingsScreen(
             SettingsEntry(
                 id = "autoSync", title = "自动同步课表", summary = "保持已登录账号的课表更新", icon = MiuixIcons.Refresh,
                 checked = autoSyncLocal,
-                onCheckedChange = { autoSyncLocal = it; store.autoSyncEnabled = it },
+                onCheckedChange = {
+                    autoSyncLocal = it
+                    store.autoSyncEnabled = it
+                    if (it) com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(context)
+                    else com.menglimi.gdust.v2.work.ScheduleSyncWorker.cancel(context)
+                },
             ),
         )),
         SettingsSection("服务", listOf(
@@ -289,19 +310,30 @@ fun SettingsScreen(
                         dropText.toFloatOrNull()?.let { store.warnDropRate = it }
                         thresholdSaved = true
                     }
-                    Text("后台每 15 分钟巡检，同类预警间隔 12 小时。", fontSize = 13.sp, color = secondary)
+                    Text("按电量查询预设执行，同类预警间隔 12 小时；手动模式只在查询时检查。", fontSize = 13.sp, color = secondary)
                 },
             ),
             SettingsEntry(
-                id = "interval", title = "电量采样间隔", summary = "记录宿舍电量走势", icon = MiuixIcons.Timer,
-                detail = "$sampleIntervalLocal 分钟", onClick = { toggle("interval") },
+                id = "interval", title = "电量查询预设", summary = "按宿舍余量调整查询节奏", icon = MiuixIcons.Timer,
+                detail = powerPresetLocal.title, onClick = { toggle("interval") },
                 editor = {
+                    val presets = com.menglimi.gdust.v2.data.PowerQueryPreset.entries
                     SegmentedChoice(
-                        options = listOf(15, 30, 60, 120).map { it to "${it}分" },
-                        selected = sampleIntervalLocal,
-                        onSelect = { sampleIntervalLocal = it; store.sampleIntervalMinutes = it },
+                        options = presets.map { it to it.title }, selected = powerPresetLocal,
+                        onSelect = { powerPresetLocal = it; store.powerQueryPreset = it },
                     )
-                    Text("间隔越短，走势越细；后台仍按 15 分钟巡检。", fontSize = 13.sp, color = secondary)
+                    if (powerPresetLocal == com.menglimi.gdust.v2.data.PowerQueryPreset.CUSTOM) {
+                        SegmentedChoice(
+                            options = listOf(15, 30, 60, 120).map { it to "${it}分" }, selected = sampleIntervalLocal,
+                            onSelect = { sampleIntervalLocal = it; store.sampleIntervalMinutes = it },
+                        )
+                    }
+                    Text(when (powerPresetLocal) {
+                        com.menglimi.gdust.v2.data.PowerQueryPreset.MANUAL -> "仅点按查询时更新，停止后台电量任务。"
+                        com.menglimi.gdust.v2.data.PowerQueryPreset.BALANCED -> "通常每 2 小时查询；余量偏低或预计不足两天时每小时查询。"
+                        com.menglimi.gdust.v2.data.PowerQueryPreset.LOW_POWER -> "通常每小时查询；余量偏低或预计不足两天时每 30 分钟查询。"
+                        com.menglimi.gdust.v2.data.PowerQueryPreset.CUSTOM -> "按自定间隔采样。后台仅在日间时段查询，系统省电策略可能延后执行。"
+                    }, fontSize = 13.sp, color = secondary)
                 },
             ),
             SettingsEntry(
@@ -443,7 +475,7 @@ fun SettingsScreen(
         PageTitle(title = "设置", onBack = onBack)
         SettingsSearchField(query = query, onQueryChange = { query = it })
         if (showAccount) {
-            SettingGroup { SettingsPreference(accountEntry) }
+            AccountIdentityCard(repo, onOpenProfile = onProfile)
         }
         visibleGroups.forEach { group ->
             key(group.title) {
@@ -474,6 +506,9 @@ fun SettingsScreen(
         if (!showAccount && visibleGroups.isEmpty() && !showLogout) {
             Text("没有找到相关设置", fontSize = 14.sp, color = secondary,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
+        }
+        if (search.isBlank() || "GitHub 项目主页 star 支持 开源".contains(search, ignoreCase = true)) {
+            ProjectStarEntry()
         }
         Spacer(Modifier.navigationBarsPadding().height(110.dp))
     }

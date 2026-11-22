@@ -39,6 +39,7 @@ class TeachingGradeApiTest {
             assertEquals("query", request.url.queryParameter("doType"))
             assertEquals("N305005", request.url.queryParameter("gnmkdm"))
             assertEquals(requests.first().url.toString(), request.header("Referer"))
+            assertEquals("XMLHttpRequest", request.header("X-Requested-With"))
             assertEquals(mapOf(
                 "xnm" to "2026", "xqm" to "3", "sfzgcj" to "", "kcbj" to "", "pkey" to "runtime&+",
                 "_search" to "false", "nd" to (1_000L + index).toString(), "queryModel.showCount" to "15",
@@ -49,6 +50,49 @@ class TeachingGradeApiTest {
             val sortIndex = (0 until body.size).single { body.name(it) == "queryModel.sortName" }
             assertEquals("%2B", body.encodedValue(sortIndex))
         }
+    }
+
+    @Test
+    fun wrappedPagesLoadTheWholeTermAndOnlyExplicitEmptyPagesReturnEmpty() = runBlocking {
+        for (key in listOf("items", "rows")) {
+            val requests = mutableListOf<Request>()
+            val loader = TeachingGradeLoader("https://teaching.example.test/prefix", execute = { request ->
+                requests += request
+                if (request.method == "GET") response(gradeFormFixture())
+                else {
+                    val page = request.form().getValue("queryModel.currentPage").toInt()
+                    val start = (page - 1) * GRADE_PAGE_SIZE
+                    response(wrappedGradePageFixture((start until minOf(start + GRADE_PAGE_SIZE, 16))
+                        .map { gradeFixture("C$it") }, page, total = 16, rowsKey = key))
+                }
+            })
+            val report = loader.load("2026", "3")
+            assertEquals(16, report.total)
+            assertEquals((0 until 16).map { "C$it" }, report.entries.map { it.courseCode })
+            assertEquals(3, requests.size)
+            for (pages in 0..1) {
+                val empty = queuedLoader(listOf(response(gradeFormFixture()),
+                    response(wrappedGradePageFixture(emptyList(), totalPages = pages, rowsKey = key))))
+                assertEquals(GradeReport(emptyList(), 0), empty.load("2026", "3"))
+            }
+        }
+    }
+
+    @Test
+    fun wrappedResponsesKeepPaginationAndSemesterChecks() {
+        val firstItems = (0 until GRADE_PAGE_SIZE).map { gradeFixture("C$it") }
+        val first = wrappedGradePageFixture(firstItems, total = 16)
+        assertEquals(GradeFailure.INCOMPLETE, assertFailure(listOf(first,
+            wrappedGradePageFixture(listOf(gradeFixture("C15")), currentPage = 1, total = 16))).reason)
+        assertEquals(GradeFailure.INCOMPLETE, assertFailure(listOf(first,
+            wrappedGradePageFixture(emptyList(), currentPage = 2, total = 16))).reason)
+        assertEquals(GradeFailure.INCOMPLETE, assertFailure(listOf(first,
+            wrappedGradePageFixture(listOf(gradeFixture("C15")), currentPage = 2, total = 17))).reason)
+        assertEquals(GradeFailure.INCOMPLETE, assertFailure(listOf(
+            wrappedGradePageFixture(firstItems, total = 30),
+            wrappedGradePageFixture(firstItems.reversed(), currentPage = 2, total = 30))).reason)
+        assertEquals(GradeFailure.TERM_MISMATCH,
+            assertFailure(listOf(wrappedGradePageFixture(listOf(gradeFixture(semester = "12"))))).reason)
     }
 
     @Test
@@ -154,18 +198,42 @@ class TeachingGradeApiTest {
     }
 
     @Test
-    fun unknownHtmlAndNonLoginRedirectsAreStructureOrResponseFailures() {
-        for (reply in listOf(
-            response("<html><h1>维护中，请稍后登录</h1></html>"),
-            SessionResponse(302, "", "/maintenance"),
-            SessionResponse(500, "private-value", null),
+    fun formHtmlUnknownJsonAndHttpErrorsRemainDistinct() {
+        for ((reply, reason) in listOf(
+            response("<html><h1>维护中，请稍后登录</h1></html>") to GradeFailure.FORM,
+            response(gradeFormFixture().replace("<input id='pkey' value=''>", "")) to GradeFailure.FORM,
+            SessionResponse(302, "", "/maintenance") to GradeFailure.RESPONSE,
+            SessionResponse(500, "private-value", null) to GradeFailure.RESPONSE,
+            // 网关损坏的 JSON 不能掩盖明确的 HTTP 失败。
+            SessionResponse(502, "{private-value", null) to GradeFailure.RESPONSE,
+            SessionResponse(503, "<html><title>服务维护</title></html>", null) to GradeFailure.RESPONSE,
         )) {
             val failure = assertThrows(GradeLoadException::class.java) {
                 runBlocking { queuedLoader(listOf(reply)).load("2026", "3") }
             }
+            assertEquals(reason, failure.reason)
             assertTrue(!failure.message.orEmpty().contains("private-value"))
         }
-        assertFailure(listOf("<html><h1>系统维护</h1></html>"))
+        assertEquals(GradeFailure.HTML,
+            assertFailure(listOf("<html><h1>系统维护，请稍后登录</h1></html>")).reason)
+        assertEquals(GradeFailure.STRUCTURE, assertFailure(listOf("{}")).reason)
+        assertEquals(GradeFailure.STRUCTURE, assertFailure(listOf("[]")).reason)
+        assertEquals(GradeFailure.STRUCTURE, assertFailure(listOf("not-json-private-value")).reason)
+    }
+
+    @Test
+    fun bomWrappedAuthFailureAfterTheFormStillRequiresLogin() {
+        for (code in listOf(401, 901)) {
+            val error = assertThrows(AuthFailed::class.java) {
+                runBlocking {
+                    queuedLoader(listOf(response(gradeFormFixture()),
+                        response(" \n\uFEFF{\"code\":0,\"data\":{\"code\":$code,\"message\":\"private-value\"}}")))
+                        .load("2026", "3")
+                }
+            }
+            assertEquals(code, error.code)
+            assertTrue(!error.message.orEmpty().contains("private-value"))
+        }
     }
 
     @Test

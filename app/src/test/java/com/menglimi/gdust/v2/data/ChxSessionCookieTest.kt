@@ -1,5 +1,6 @@
 package com.menglimi.gdust.v2.data
 
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -50,6 +51,41 @@ class ChxSessionCookieTest {
         listOf(ChxSso.fyssoUrl, ChxSso.mhUrl, ChxSso.teachingWebUrl).forEach { url ->
             assertTrue(url, url.startsWith("https://cas.gdust.edu.cn/lyuapServer/login?service="))
         }
+    }
+
+    @Test fun ssoServicesMatchPublicPortalLinksWithoutDoubleEncoding() {
+        assertEquals("http://gdkjxy.fysso.chaoxing.com/sso/gdkjxy",
+            ChxSso.fyssoUrl.toHttpUrl().queryParameter("service"))
+        assertEquals("http://gkjx.gdust.edu.cn/sso/lyiotlogin",
+            ChxSso.teachingWebUrl.toHttpUrl().queryParameter("service"))
+        // 学校公开 index.js 的完整 collegeContentUrl，不能把 refer 的 % 再编码为 %25。
+        assertEquals("https://cas.gdust.edu.cn/lyuapServer/login?service=" +
+            "https%3A%2F%2Fgdkj.mh.chaoxing.com%2Fsso%2Flogin%2F3rd%3Fwfwfid%3D420%26refer%3Dhttps%3A%2F%2Fgdkj.mh.chaoxing.com",
+            ChxSso.mhUrl)
+        assertEquals("https://gdkj.mh.chaoxing.com/sso/login/3rd?wfwfid=420&refer=https://gdkj.mh.chaoxing.com",
+            ChxSso.mhUrl.toHttpUrl().queryParameter("service"))
+    }
+
+    @Test fun teachingAndPortalCredentialsAreNeverCasWebSessionEvidence() {
+        listOf("JSESSIONID=teaching", "TOKEN=portal", "ticket=GKCAS-test", "TGC=").forEach {
+            assertFalse(it, ChxSso.hasCasTicket(it))
+        }
+        assertTrue(ChxSso.hasCasTicket("TGC=synthetic-test-ticket"))
+        assertTrue(ChxSso.casCookieProbes.all {
+            val url = it.toHttpUrl()
+            url.scheme == "https" && url.host == "cas.gdust.edu.cn" && url.query == null
+        })
+        assertTrue(ChxSso.linkingHint(false).contains("教务或门户登录不代表已登录学习通"))
+        assertTrue(ChxSso.linkingHint(true).contains("仍需验证"))
+    }
+
+    @Test fun directLoginRemainsAnIndependentHttpsWebFallback() {
+        val direct = ChxSso.DIRECT_LOGIN.toHttpUrl()
+        assertEquals("https", direct.scheme)
+        assertEquals("passport2.chaoxing.com", direct.host)
+        assertEquals("/login", direct.encodedPath)
+        assertEquals(setOf("fid", "refer"), direct.queryParameterNames)
+        assertTrue(ChxSso.isLoginUrl(ChxSso.DIRECT_LOGIN))
     }
 
     @Test fun teachingWebEntryMatchesSaveWebImportWhitelist() {

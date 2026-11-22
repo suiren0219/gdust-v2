@@ -3,9 +3,11 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 网页登录页内的扫码需要摄像头；仅在网页真正申请时才向用户询问 -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:name=".App"
@@ -57,6 +59,7 @@
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
 
@@ -65,8 +68,20 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="com.menglimi.gdust.v2.CLASS_DND_TOGGLE" />
+                <action android:name="com.menglimi.gdust.v2.CLASS_DND_BOUNDARY" />
+                <action android:name="android.app.action.AUTOMATIC_ZEN_RULE_STATUS_CHANGED" />
             </intent-filter>
         </receiver>
+
+        <service
+            android:name=".work.ClassDndConditionProvider"
+            android:label="上课勿扰"
+            android:permission="android.permission.BIND_CONDITION_PROVIDER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.ConditionProviderService" />
+            </intent-filter>
+        </service>
 
         <receiver
             android:name=".widget.ScheduleWideReceiver"

@@ -7,4 +7,6 @@
     <color name="widget_accent">#7AB0FF</color>
     <color name="widget_accent_soft">#3D7AB0FF</color>
     <color name="widget_danger">#FF6B6B</color>
+    <color name="widget_accent_text">#7AB0FF</color>
+    <color name="widget_danger_text">#FF6B6B</color>
 </resources>

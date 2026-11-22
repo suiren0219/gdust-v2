@@ -1,94 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@drawable/preview_glass"
-    android:orientation="vertical"
-    android:padding="12dp">
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:text="待办"
-        android:textSize="12sp"
-        android:textColor="@color/widget_text" android:textStyle="bold" android:layout_weight="1" />
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="共 4 项"
-        android:textSize="11sp"
-        android:textColor="@color/widget_sub" android:gravity="end" />
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/preview_glass" android:orientation="vertical" android:padding="@dimen/widget_padding">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="待办" android:textSize="@dimen/widget_text_title" android:textStyle="bold"
+            android:textColor="@color/widget_text" android:maxLines="1" />
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="@dimen/widget_gap"
+            android:text="1 逾期" android:textSize="@dimen/widget_text_caption" android:textStyle="bold"
+            android:textColor="@color/widget_danger_text" android:maxLines="1" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="共 4 项" android:textSize="@dimen/widget_text_label" android:textColor="@color/widget_sub"
+            android:gravity="end" android:maxLines="1" />
     </LinearLayout>
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginTop="5dp">
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="○"
-        android:textSize="12sp"
-        android:textColor="@color/widget_sub" />
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:text="提交数据结构实验报告"
-        android:textSize="12sp"
-        android:textColor="@color/widget_text" android:layout_weight="1" />
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="逾期 1 天"
-        android:textSize="11sp"
-        android:textColor="@color/widget_danger" />
+    <TextView android:layout_width="1dp" android:layout_height="@dimen/widget_gap" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="@dimen/widget_row_height" android:gravity="center_vertical">
+        <TextView android:layout_width="24dp" android:layout_height="24dp" android:gravity="center"
+            android:text="○" android:textSize="20sp" android:textColor="@color/widget_sub" android:maxLines="1" />
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:layout_marginStart="@dimen/widget_gap" android:text="提交数据结构实验报告" android:textSize="@dimen/widget_text_body"
+            android:textColor="@color/widget_text" android:maxLines="1" android:ellipsize="end" />
+        <TextView android:layout_width="104dp" android:layout_height="wrap_content" android:layout_marginStart="@dimen/widget_gap"
+            android:text="逾期 1 天" android:textSize="@dimen/widget_text_caption" android:textStyle="bold"
+            android:textColor="@color/widget_danger_text" android:gravity="end" android:maxLines="1" android:ellipsize="end" />
     </LinearLayout>
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginTop="5dp">
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="○"
-        android:textSize="12sp"
-        android:textColor="@color/widget_sub" />
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:text="高数期中考试（A栋101）"
-        android:textSize="12sp"
-        android:textColor="@color/widget_text" android:layout_weight="1" />
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="今天 14:20"
-        android:textSize="11sp"
-        android:textColor="@color/widget_sub" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="@dimen/widget_row_height" android:gravity="center_vertical">
+        <TextView android:layout_width="24dp" android:layout_height="24dp" android:gravity="center"
+            android:text="○" android:textSize="20sp" android:textColor="@color/widget_sub" android:maxLines="1" />
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:layout_marginStart="@dimen/widget_gap" android:text="高数期中考试（A栋101）" android:textSize="@dimen/widget_text_body"
+            android:textColor="@color/widget_text" android:maxLines="1" android:ellipsize="end" />
+        <TextView android:layout_width="104dp" android:layout_height="wrap_content" android:layout_marginStart="@dimen/widget_gap"
+            android:text="今天 14:20" android:textSize="@dimen/widget_text_caption" android:textColor="@color/widget_sub"
+            android:gravity="end" android:maxLines="1" android:ellipsize="end" />
     </LinearLayout>
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginTop="5dp">
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="○"
-        android:textSize="12sp"
-        android:textColor="@color/widget_sub" />
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:text="英语听力打卡"
-        android:textSize="12sp"
-        android:textColor="@color/widget_text" android:layout_weight="1" />
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="明天 10:20"
-        android:textSize="11sp"
-        android:textColor="@color/widget_sub" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="@dimen/widget_row_height" android:gravity="center_vertical">
+        <TextView android:layout_width="24dp" android:layout_height="24dp" android:gravity="center"
+            android:text="○" android:textSize="20sp" android:textColor="@color/widget_sub" android:maxLines="1" />
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:layout_marginStart="@dimen/widget_gap" android:text="英语听力打卡" android:textSize="@dimen/widget_text_body"
+            android:textColor="@color/widget_text" android:maxLines="1" android:ellipsize="end" />
+        <TextView android:layout_width="104dp" android:layout_height="wrap_content" android:layout_marginStart="@dimen/widget_gap"
+            android:text="明天 10:20" android:textSize="@dimen/widget_text_caption" android:textColor="@color/widget_sub"
+            android:gravity="end" android:maxLines="1" android:ellipsize="end" />
     </LinearLayout>
 </LinearLayout>

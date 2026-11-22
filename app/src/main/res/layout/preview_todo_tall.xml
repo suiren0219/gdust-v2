@@ -1,34 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@drawable/preview_glass"
-    android:orientation="vertical"
-    android:padding="12dp">
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="待办"
-        android:textSize="11sp"
-        android:textColor="@color/widget_text" android:textStyle="bold" android:gravity="center" />
-    <View android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="4"
-        android:textSize="26sp"
-        android:textColor="@color/widget_text" android:textStyle="bold" android:gravity="center" />
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="条待办"
-        android:textSize="11sp"
-        android:textColor="@color/widget_sub" android:gravity="center" />
-    <View android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
-    <TextView android:maxLines="1" android:ellipsize="end"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="1 逾期"
-        android:textSize="11sp"
-        android:textColor="@color/widget_danger" android:textStyle="bold" android:gravity="center" />
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/preview_glass" android:orientation="vertical"
+    android:gravity="center_horizontal" android:padding="@dimen/widget_padding_tall">
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="待办" android:textSize="@dimen/widget_text_label" android:textStyle="bold"
+        android:textColor="@color/widget_text" android:gravity="center" android:maxLines="1" />
+    <TextView android:layout_width="1dp" android:layout_height="0dp" android:layout_weight="1" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="4" android:textSize="@dimen/widget_text_tall_number" android:textStyle="bold"
+        android:textColor="@color/widget_text" android:gravity="center" android:maxLines="1" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="项待办" android:textSize="@dimen/widget_text_label" android:textColor="@color/widget_sub"
+        android:gravity="center" android:maxLines="2" android:ellipsize="end" />
+    <TextView android:layout_width="1dp" android:layout_height="0dp" android:layout_weight="1" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="1 项逾期" android:textSize="@dimen/widget_text_caption" android:textStyle="bold"
+        android:textColor="@color/widget_danger_text" android:gravity="center" android:maxLines="2" android:ellipsize="end" />
 </LinearLayout>

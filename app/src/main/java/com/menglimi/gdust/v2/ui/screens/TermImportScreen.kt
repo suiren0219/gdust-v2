@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -68,7 +69,7 @@ fun TermImportScreen(
     val cached = remember { repo.store.loadCalendar() }
     var year by remember { mutableStateOf(cached?.year ?: LocalDate.now().let { if (it.monthValue < 8) it.year - 1 else it.year }.toString()) }
     var semester by remember { mutableStateOf(cached?.semester ?: "3") }
-    var start by remember { mutableStateOf(repo.store.termStartDate.ifBlank { cached?.startDate.orEmpty() }) }
+    var start by rememberSaveable { mutableStateOf(repo.store.termStartDate.ifBlank { cached?.startDate.orEmpty() }) }
     var weeks by remember { mutableStateOf((repo.store.termWeeks.takeIf { it > 0 } ?: cached?.allWeek ?: 20).toString()) }
     var web by remember { mutableStateOf<WebView?>(null) }
     var page by remember { mutableStateOf("") }
@@ -145,8 +146,7 @@ fun TermImportScreen(
                         Text("起始学年", color = ds.sub, fontSize = 13.sp)
                         InputField(year, { year = it }, "起始学年，如 2026", KeyboardType.Number)
                         SegmentedChoice(listOf("3" to "第一学期", "12" to "第二学期"), semester, { semester = it })
-                        Text("第一周周一", color = ds.sub, fontSize = 13.sp)
-                        InputField(start, { start = it }, "第一周周一，如 2026-08-31")
+                        TermDateField(value = start, onValueChange = { start = it })
                         Text("学期总周数", color = ds.sub, fontSize = 13.sp)
                         InputField(weeks, { weeks = it }, "学期总周数", KeyboardType.Number)
                     }

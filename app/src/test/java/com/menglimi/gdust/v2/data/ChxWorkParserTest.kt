@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -75,11 +76,6 @@ class ChxWorkParserTest {
                 <h3><a class="color1" href="https://mooc1.chaoxing.com/visit/stucoursemiddle?courseid=111111111&clazzid=222222222&cpi=333333333&ismooc2=1&v=2">
                 <span class="course-name overHidden2" title="测试课程名">测试课程名</span></a></h3>
             </div>
-            <div class="course clearfix learnCourse" id="c_999999999">
-                <input type="hidden" class="clazzId" name="clazzId" value="888888888"/>
-                <input type="hidden" class="courseId" value="999999999"/>
-                <!-- 无课程名的异常卡：跳过 -->
-            </div>
         </div>
         </body></html>
     """.trimIndent()
@@ -96,6 +92,74 @@ class ChxWorkParserTest {
 
     @Test fun tabsParseReturnsNullWhenStructureChanges() {
         assertNull(ChxWorkParser.parseCourseTabs("<html><body>没有隐藏域</body></html>"))
+    }
+
+    @Test fun hiddenFieldsSupportAttributeOrderAndSingleQuotesButRejectDuplicatesAndTemplates() {
+        val reordered = tabsHtml.replace(Regex("id=\"([^\"]+)\" value=\"([^\"]*)\"")) {
+            "value='${it.groupValues[2]}' id='${it.groupValues[1]}'"
+        }
+        assertEquals(ChxWorkParser.parseCourseTabs(tabsHtml), ChxWorkParser.parseCourseTabs(reordered))
+        assertNull(ChxWorkParser.parseCourseTabs("<script>const example = `$tabsHtml`;</script>"))
+        assertNull(ChxWorkParser.parseCourseTabs(tabsHtml + "<input type='hidden' id='enc' value='duplicate'>"))
+        assertNull(ChxWorkParser.parseCourseTabs(tabsHtml.replace("id=\"t\"", "id=\"other\"")))
+        assertNull(ChxWorkParser.parseCourseTabs(tabsHtml.replace("id=\"moocDomainName\"", "id=\"other\"")))
+    }
+
+    @Test fun actualLowercasePageAllowsRepeatedIdenticalCourseIdentity() {
+        val html = javaClass.getResource("/chaoxing/course-tabs-lowercase.html")!!.readText()
+        val course = ChxWorkCourse(201, 101, 301, "示例课程", "")
+        val tabs = ChxWorkParser.readCourseTabs(html, course)
+        assertEquals("synthetic-stu", tabs.enc)
+        assertEquals("synthetic-work", tabs.workEnc)
+        assertEquals("1700000000000", tabs.t)
+        assertEquals("https://mooc1.chaoxing.com", tabs.moocDomain)
+        assertNull(ChxWorkParser.parseCourseTabs(html.replaceFirst("id=\"clazzid\" value=\"101\"", "id=\"clazzid\" value=\"102\""), course))
+        assertNull(ChxWorkParser.parseCourseTabs(html, course.copy(cpi = 999)))
+    }
+
+    @Test fun missingAndConflictingFieldsAreNamedWithoutPrintingTheirValues() {
+        val html = javaClass.getResource("/chaoxing/course-tabs-lowercase.html")!!.readText()
+        val course = ChxWorkCourse(201, 101, 301, "示例课程", "")
+        val missing = assertThrows(ChxCourseReadException::class.java) {
+            ChxWorkParser.readCourseTabs(html.replace("id=\"workEnc\"", "id=\"other\""), course)
+        }
+        assertTrue(missing.message.orEmpty().contains("workEnc"))
+        assertTrue(!missing.message.orEmpty().contains("synthetic"))
+        val conflict = assertThrows(ChxCourseReadException::class.java) {
+            ChxWorkParser.readCourseTabs(html + "<input type='hidden' id='courseId' value='999'>", course)
+        }
+        assertTrue(conflict.message.orEmpty().contains("courseid"))
+        assertTrue(!conflict.message.orEmpty().contains("999"))
+    }
+
+    @Test fun unknownOrMalformedCourseListsDoNotBecomeAnEmptySuccess() {
+        listOf("", "<html>维护</html>", "<div id='courseList'>暂无课程</div>",
+            coursesHtml.replace("value=\"333333333\"", "value=\"0\""),
+            coursesHtml.replace("cpi=333333333", "cpi=999999999"),
+            coursesHtml.replace("https://mooc1.chaoxing.com/", "https://example.org/"),
+        ).forEach {
+            assertThrows(ChxCourseReadException::class.java) { ChxWorkParser.parseCourses(it) }
+        }
+        val malformed = "<div class='course learnCourse'><input type='hidden' class='courseId' value='999'/></div>"
+        assertThrows(ChxCourseReadException::class.java) {
+            ChxWorkParser.parseCourses(coursesHtml.replace("<div id=\"stuNormalCourseListDiv\">",
+                "<div id=\"stuNormalCourseListDiv\">$malformed"))
+        }
+    }
+
+    @Test fun unknownOrIncompleteWorkPagesNeverClaimNoHomework() {
+        listOf("", "<html>维护</html>", "<title>作业列表</title>",
+            "<title>作业列表</title><div class='main task-list'><div class='bottomList' aria-label='作业列表'><ul></ul></div></div>",
+            "<script>const example = `$workListHtml`;</script>",
+            workListHtml.replace("workId=57711010", "workId=0"),
+            workListHtml.replace("<p class=\"status fl\">未交</p>", "<p class=\"status fl\">未知状态</p>"),
+            workListHtml.replace("https://mooc1.chaoxing.com/", "https://unknown.example/"),
+        ).forEach {
+            assertThrows(ChxCourseReadException::class.java) { ChxWorkParser.parseWorkList(it) }
+        }
+        val wrongCourse = ChxWorkCourse(1, 2, 3, "示例", "")
+        assertThrows(ChxCourseReadException::class.java) { ChxWorkParser.parseWorkList(workListHtml, wrongCourse) }
+        assertNull(ChxWorkParser.parseCourseTabs(tabsHtml, wrongCourse))
     }
 
     @Test fun workListParsesItemsWithStates() {
@@ -137,7 +201,7 @@ class ChxWorkParserTest {
     }
 
     @Test fun jobInfoBatchResponseParsesPerClassCounts() {
-        // 改编自真实响应：jobRate 是班级聚合值（finish/count），预过滤只认 finish >= count
+        // 任务点统计只用于展示，不能作为作业数量或预过滤依据。
         val json = """
             {"jobArray": [
                 {"jobFinishCount": 10, "clazzId": 111111112, "jobRate": 17.0, "jobCount": 58},

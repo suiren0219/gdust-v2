@@ -4,6 +4,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import androidx.core.app.NotificationCompat
+import androidx.work.Constraints
+import androidx.work.NetworkType
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
@@ -21,6 +23,7 @@ class ScheduleSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
 
     override suspend fun doWork(): Result {
         val repo = (applicationContext as App).repo
+        if (!repo.store.autoSyncEnabled) return Result.success()
         // 没有任何登录/会话就别打扰
         val hasDirect = repo.store.casTicket.isNotBlank()
         if (!hasDirect && !repo.hasTeachingSession()) return Result.success()
@@ -71,8 +74,11 @@ class ScheduleSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
         fun schedule(ctx: Context) {
             WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
                 "gdust_schedule_sync",
-                ExistingPeriodicWorkPolicy.KEEP,
-                PeriodicWorkRequestBuilder<ScheduleSyncWorker>(12, TimeUnit.HOURS).build(),
+                ExistingPeriodicWorkPolicy.UPDATE,
+                PeriodicWorkRequestBuilder<ScheduleSyncWorker>(12, TimeUnit.HOURS)
+                    .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                    .setInitialDelay(12, TimeUnit.HOURS)
+                    .build(),
             )
         }
 

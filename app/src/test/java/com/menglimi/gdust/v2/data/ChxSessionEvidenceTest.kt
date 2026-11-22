@@ -32,11 +32,15 @@ class ChxSessionEvidenceTest {
 
     @Test fun onlyKnownLoginRedirectsAreExplicitExpiry() {
         listOf("https://passport2.chaoxing.com/login?refer=anything", "/login",
+            "https://cas.gdust.edu.cn/cas/", "https://passport2.chaoxing.com/mlogin",
             "https://cas.gdust.edu.cn/lyuapServer/login?service=anything").forEach {
             assertEquals(false, ChxApi.sessionEvidence(302, ChxSso.HOME, null, it))
         }
         listOf(null, "/maintenance", "https://example.org/login", "/home?refer=login",
-            "https://notchaoxing.com/login", "https://passport2.chaoxing.com/privacy").forEach {
+            "https://notchaoxing.com/login", "https://passport2.chaoxing.com/privacy",
+            "http://passport2.chaoxing.com/login", "https://passport2.chaoxing.com:8443/login",
+            "https://user@passport2.chaoxing.com/login", "http://cas.gdust.edu.cn/lyuapServer/login",
+            "https://cas.gdust.edu.cn:8443/lyuapServer/login").forEach {
             assertNull(ChxApi.sessionEvidence(302, ChxSso.HOME, null, it))
         }
     }

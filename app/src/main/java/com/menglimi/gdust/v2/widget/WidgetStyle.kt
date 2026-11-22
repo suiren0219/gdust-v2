@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.pow
 import com.menglimi.gdust.v2.data.Store
 
 /**
@@ -22,6 +23,26 @@ object WidgetStyle {
 
     /** 主卡圆角，与 CZeroX 卡片统一为 24dp。 */
     val radius: Dp = 24.dp
+
+    /** 以 sp / dp 存储，布局预算与实际渲染共用，放大字体时减内容而不缩小正文。 */
+    object Type {
+        const val title = 16f
+        const val headline = 18f
+        const val body = 14f
+        const val label = 13f
+        const val caption = 12f
+        const val number = 36f
+        const val compactNumber = 32f
+    }
+
+    object Space {
+        const val card = 16f
+        const val compactCard = 12f
+        const val narrowCard = 6f
+        const val gap = 8f
+        const val smallGap = 4f
+        const val row = 34f
+    }
 
     // ── CZeroX 色板：强调色沿用 widget 既有浅/深色蓝，危险色按规范统一 ──
     const val BACKGROUND_LIGHT = 0xFFF7F7F7.toInt()
@@ -42,6 +63,41 @@ object WidgetStyle {
 
     fun accent(dark: Boolean): Int = if (dark) ACCENT_DARK else ACCENT_LIGHT
     fun danger(dark: Boolean): Int = if (dark) DANGER_DARK else DANGER
+    fun card(dark: Boolean): Int = if (dark) CARD_DARK else CARD_LIGHT
+
+    // 基准蓝/红继续画图表；小字用在卡面和柔和徽章底上均达到 4.5:1 的派生色。
+    private val accentTextLight = readableForeground(ACCENT_LIGHT, CARD_LIGHT, blend(ACCENT_LIGHT, CARD_LIGHT, 0.14f))
+    private val accentTextDark = readableForeground(ACCENT_DARK, CARD_DARK, blend(ACCENT_DARK, CARD_DARK, 0.24f))
+    private val dangerTextLight = readableForeground(DANGER, CARD_LIGHT, blend(DANGER, CARD_LIGHT, 0.12f))
+    private val dangerTextDark = readableForeground(DANGER_DARK, CARD_DARK, blend(DANGER_DARK, CARD_DARK, 0.12f))
+
+    fun accentText(dark: Boolean): Int = if (dark) accentTextDark else accentTextLight
+    fun dangerText(dark: Boolean): Int = if (dark) dangerTextDark else dangerTextLight
+
+    internal fun blend(foreground: Int, background: Int, alpha: Float): Int {
+        fun channel(shift: Int): Int = (((foreground ushr shift and 255) * alpha +
+            (background ushr shift and 255) * (1f - alpha)) + 0.5f).toInt()
+        return (255 shl 24) or (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
+    }
+
+    internal fun contrastRatio(foreground: Int, background: Int): Double {
+        fun luminance(color: Int): Double {
+            fun linear(shift: Int): Double {
+                val value = (color ushr shift and 255) / 255.0
+                return if (value <= 0.04045) value / 12.92 else ((value + 0.055) / 1.055).pow(2.4)
+            }
+            return 0.2126 * linear(16) + 0.7152 * linear(8) + 0.0722 * linear(0)
+        }
+        val a = luminance(foreground)
+        val b = luminance(background)
+        return (maxOf(a, b) + 0.05) / (minOf(a, b) + 0.05)
+    }
+
+    private fun readableForeground(base: Int, vararg backgrounds: Int): Int {
+        val target = if (contrastRatio(TEXT_LIGHT, backgrounds.first()) >= 4.5) TEXT_LIGHT else 0xFFFFFFFF.toInt()
+        return (0..100).asSequence().map { blend(target, base, it / 100f) }
+            .first { color -> backgrounds.all { contrastRatio(color, it) >= 4.5 } }
+    }
 
     fun text(dark: Boolean): Color = if (dark) Color(TEXT_DARK) else Color(TEXT_LIGHT)
     fun sub(dark: Boolean): Color =
@@ -90,14 +146,22 @@ object WidgetStyle {
         val canvas = Canvas(bmp)
         val subText = sub(dark).toArgb()
 
-        val labelW = d(32f)
-        val labelH = d(16f)
-        val topPad = d(13f)
-        val rightPad = d(4f)
-        val plotLeft = labelW
-        val plotRight = (widthPx - rightPad).coerceAtLeast(plotLeft + 1)
-        val plotTop = topPad
-        val plotBottom = (heightPx - labelH).coerceAtLeast(plotTop + 1)
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = subText
+            textSize = Type.caption * context.resources.displayMetrics.scaledDensity
+        }
+        val metrics = textPaint.fontMetrics
+        val textHeight = metrics.descent - metrics.ascent
+        val lo = samples.minOfOrNull { it.odd } ?: 0.0
+        val hi = samples.maxOfOrNull { it.odd } ?: 0.0
+        val loLabel = "%.0f".format(kotlin.math.floor(lo))
+        val hiLabel = "%.0f".format(kotlin.math.ceil(hi))
+        // 留白按真正的文字宽高计算，字体放大与四位数刻度不会撞到绘图区。
+        val plotLeft = maxOf(textPaint.measureText(loLabel), textPaint.measureText(hiLabel)) + d(8f)
+        val plotRight = widthPx - d(5f)
+        val plotTop = textHeight / 2f + d(2f)
+        val plotBottom = heightPx - textHeight - d(7f)
+        if (plotRight - plotLeft < d(32f) || plotBottom - plotTop < d(16f)) return null
 
         val grid = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = if (dark) android.graphics.Color.argb(40, 255, 255, 255) else android.graphics.Color.argb(34, 0, 0, 0)
@@ -113,19 +177,12 @@ object WidgetStyle {
         }
         canvas.drawLine(plotLeft, plotBottom, plotRight, plotBottom, baseline)
 
-        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = subText
-            textSize = 11f * context.resources.displayMetrics.scaledDensity
-        }
         if (samples.size < 2) {
-            // 数据不足：只画基线 + 起止时间，等待采样积累
             textPaint.textAlign = Paint.Align.LEFT
-            canvas.drawText("积累中", plotLeft + d(2f), plotTop + d(10f), textPaint)
+            canvas.drawText("积累中", plotLeft, plotTop - metrics.ascent, textPaint)
             return bmp
         }
 
-        val lo = samples.minOf { it.odd }
-        val hi = samples.maxOf { it.odd }
         val span = (hi - lo).takeIf { it > 0.05 } ?: 1.0
         fun x(t: Long): Float {
             val first = samples.first().time
@@ -166,24 +223,30 @@ object WidgetStyle {
                 pathEffect = DashPathEffect(floatArrayOf(d(3f), d(3f)), 0f)
             }
             canvas.drawLine(plotLeft, wy, plotRight, wy, warn)
-            textPaint.color = danger
-            textPaint.textAlign = Paint.Align.LEFT
-            canvas.drawText("%.0f".format(warnTh), d(1f), wy + d(3f), textPaint)
-            textPaint.color = subText
+            // 太接近上下界时只画警戒线，避免三组刻度叠在一起。
+            if (wy - plotTop > textHeight && plotBottom - wy > textHeight) {
+                textPaint.color = dangerText(dark)
+                textPaint.textAlign = Paint.Align.RIGHT
+                canvas.drawText("%.0f".format(warnTh), plotLeft - d(6f), wy - (metrics.ascent + metrics.descent) / 2, textPaint)
+                textPaint.color = subText
+            }
         }
 
         // 纵轴刻度：顶部 hi、底部 lo（取整显示）
-        textPaint.textAlign = Paint.Align.LEFT
-        canvas.drawText("%.0f".format(kotlin.math.ceil(hi)), d(1f), plotTop + d(3f), textPaint)
-        canvas.drawText("%.0f".format(kotlin.math.floor(lo)), d(1f), plotBottom, textPaint)
+        textPaint.textAlign = Paint.Align.RIGHT
+        canvas.drawText(hiLabel, plotLeft - d(6f), plotTop - (metrics.ascent + metrics.descent) / 2, textPaint)
+        canvas.drawText(loLabel, plotLeft - d(6f), plotBottom, textPaint)
 
         // 横轴：起止时间（覆盖 >48h 用 M/d，否则 HH:mm，由 Presentation 决定）
         val stats = WidgetPresentation.trendStats(samples, 0L, System.currentTimeMillis())
         if (stats != null) {
-            textPaint.textAlign = Paint.Align.LEFT
-            canvas.drawText(stats.startLabel, plotLeft, heightPx - d(2f), textPaint)
+            val baselineY = heightPx - metrics.descent - d(1f)
+            if (textPaint.measureText(stats.startLabel) + textPaint.measureText(stats.endLabel) + d(8f) <= plotRight - plotLeft) {
+                textPaint.textAlign = Paint.Align.LEFT
+                canvas.drawText(stats.startLabel, plotLeft, baselineY, textPaint)
+            }
             textPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText(stats.endLabel, plotRight, heightPx - d(2f), textPaint)
+            canvas.drawText(stats.endLabel, plotRight, baselineY, textPaint)
         }
 
         // 末点：浅色卡用深色轮廓、深色卡用白色轮廓，保持与底色的对比
@@ -194,13 +257,15 @@ object WidgetStyle {
         dot.style = Paint.Style.STROKE
         dot.strokeWidth = d(1.4f)
         canvas.drawCircle(x(last.time), y(last.odd), d(3f), dot)
-        val valuePaint = Paint(textPaint).apply {
-            color = accent
-            isFakeBoldText = true
-            textAlign = Paint.Align.RIGHT
+        if (plotBottom - plotTop >= textHeight * 2) {
+            val valuePaint = Paint(textPaint).apply {
+                color = accentText(dark)
+                isFakeBoldText = true
+                textAlign = Paint.Align.RIGHT
+            }
+            val valueY = (y(last.odd) - d(6f)).coerceAtLeast(plotTop - metrics.ascent)
+            canvas.drawText("%.1f".format(last.odd), plotRight, valueY, valuePaint)
         }
-        val valueY = (y(last.odd) - d(5f)).coerceAtLeast(plotTop + d(9f))
-        canvas.drawText("%.1f".format(last.odd), plotRight, valueY, valuePaint)
         return bmp
     }
 

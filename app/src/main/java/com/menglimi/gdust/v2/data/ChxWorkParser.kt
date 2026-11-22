@@ -14,7 +14,7 @@ import org.jsoup.Jsoup
  *   `<li onclick="goTask(this);" data="work/task?…workId&answerId&enc">`，
  *   标题 `p.overHidden2`、状态 `p.status`(未交/已完成)、时间 `div.time`(「剩余X小时X分钟」，相对时间)
  */
-data class ChxWorkCourse(val courseId: Long, val classId: Long, val cpi: Long, val name: String)
+data class ChxWorkCourse(val courseId: Long, val classId: Long, val cpi: Long, val name: String, val url: String)
 
 /** 课程页隐藏域：各 tab 的签名与公共参数。 */
 data class ChxWorkTabs(
@@ -39,83 +39,87 @@ data class ChxWorkItem(
 
 object ChxWorkParser {
 
-    /**
-     * 课程列表 → 每门课的 courseid/clazzid/cpi/课程名。
-     *
-     * 页面结构（HAR 实测）：每张课程卡是一个 `div.course`，卡片内自带
-     * `input.courseId` / `input.clazzId` / `input.curPersonId` 隐藏域与 `.course-name`；
-     * 置顶区（stuTopCourseListDiv）与普通区（stuNormalCourseListDiv）可能重复同一门课，
-     * 按 courseid+classId 去重。
-     */
-    fun parseCourses(html: String): List<ChxWorkCourse> {
-        val doc = Jsoup.parse(html)
-        val out = mutableListOf<ChxWorkCourse>()
-        val seen = mutableSetOf<Pair<Long, Long>>()
-        for (card in doc.select("div.course")) {
-            val courseId = card.select("input.courseId").attr("value").toLongOrNull() ?: continue
-            val classId = card.select("input.clazzId").attr("value").toLongOrNull() ?: continue
-            val key = courseId to classId
-            if (!seen.add(key)) continue
-            val name = card.select(".course-name").text().trim()
-            if (name.isEmpty()) continue
-            // cpi 优先取卡片里 stucoursemiddle 链接上的值，退化用 curPersonId
-            val link = card.select("a[href*=stucoursemiddle]").first()
-            val cpi = link?.let { queryParams(it.attr("href"))["cpi"]?.toLongOrNull() }
-                ?: card.select("input.curPersonId").attr("value").toLongOrNull()
-                ?: 0
-            out += ChxWorkCourse(courseId, classId, cpi, name)
-        }
-        return out
+    /** 与课程展示共用身份和入口校验，未知版式或不完整卡片不能当成没有课程。 */
+    fun parseCourses(html: String): List<ChxWorkCourse> = ChxCourseApi.parseCourses(html).map {
+        ChxWorkCourse(it.courseId.toLong(), it.clazzId.toLong(), it.curPersonId.toLong(), it.name, it.url)
     }
 
-    /**
-     * 课程页 → 各 tab 的签名；缺 enc/workEnc 视为结构变化，返回 null 由调用方跳过。
-     * 课程页是 138KB 的大页面、只需要 6 个隐藏域：正则直抽比 Jsoup 全量解析快一个量级。
-     */
-    fun parseCourseTabs(html: String): ChxWorkTabs? {
-        fun v(id: String): String =
-            Regex("<input[^>]*id=\"$id\"[^>]*value=\"([^\"]*)\"").find(html)
-                ?.groupValues?.get(1)?.trim().orEmpty()
-        val enc = v("enc")
-        val workEnc = v("workEnc")
-        if (enc.isEmpty() || workEnc.isEmpty()) return null
+    /** 兼容旧调用；生产请求使用 readCourseTabs 保留具体缺失/冲突原因。 */
+    fun parseCourseTabs(html: String, expectedCourse: ChxWorkCourse? = null): ChxWorkTabs? = try {
+        readCourseTabs(html, expectedCourse)
+    } catch (_: ChxCourseReadException) {
+        null
+    }
+
+    /** 实际课程页使用小写 courseid/clazzid，并在页头与正文重复同值身份字段。 */
+    internal fun readCourseTabs(html: String, expectedCourse: ChxWorkCourse? = null): ChxWorkTabs {
+        val document = Jsoup.parse(html)
+        val inputs = document.select("input[type=hidden]")
+        fun field(vararg ids: String, required: Boolean = true, repeated: Boolean = false): String {
+            val fields = inputs.filter { it.id() in ids }
+            if (fields.isEmpty()) {
+                if (required) throw ChxCourseReadException("课程页缺少字段 ${ids.first()}，请在网页打开该课程后重试。")
+                return ""
+            }
+            val values = fields.map { it.attr("value").trim() }.distinct()
+            if ((!repeated && fields.size != 1) || values.size != 1) {
+                throw ChxCourseReadException("课程页字段 ${ids.first()} 存在冲突，未读取其他课程的作业。")
+            }
+            return values.single().also {
+                if (required && it.isBlank()) throw ChxCourseReadException("课程页字段 ${ids.first()} 为空，暂时无法读取作业。")
+            }
+        }
+        if (expectedCourse != null) {
+            val identities = listOf(
+                "courseid" to (field("courseid", "courseId", repeated = true) to expectedCourse.courseId),
+                "clazzid" to (field("clazzid", "classId", repeated = true) to expectedCourse.classId),
+                "cpi" to (field("cpi", repeated = true) to expectedCourse.cpi),
+            )
+            identities.forEach { (name, pair) ->
+                if (pair.first != pair.second.toString()) {
+                    throw ChxCourseReadException("课程页标识 $name 与所选课程不符，已停止读取。")
+                }
+            }
+        }
         return ChxWorkTabs(
-            enc = enc,
-            workEnc = workEnc,
-            examEnc = v("examEnc"),
-            t = v("t"),
-            userId = v("userId"),
-            moocDomain = v("moocDomainName").ifEmpty { "https://mooc1.chaoxing.com" },
+            field("enc"), field("workEnc"), field("examEnc", required = false),
+            field("t"), field("userId", required = false), field("moocDomainName"),
         )
     }
 
-    /** 作业列表 → 每条作业（含详情地址里的 workId/answerId/enc 与相对剩余时间）。 */
-    fun parseWorkList(html: String): List<ChxWorkItem> {
+    /** 无可核实的空列表协议；维护页、未知结构或缺字段都不能当成“没有作业”。 */
+    fun parseWorkList(html: String, expectedCourse: ChxWorkCourse? = null): List<ChxWorkItem> {
+        fun unknown(): Nothing = throw ChxCourseReadException("作业列表结构无法识别，未确认是否有作业，请在学习通网页查看。")
         val doc = Jsoup.parse(html)
-        val out = mutableListOf<ChxWorkItem>()
-        for (li in doc.select("li[onclick*=goTask]")) {
+        val containers = doc.select(".main.task-list .bottomList[aria-label=作业列表]")
+        if (doc.title().trim() != "作业列表" || containers.size != 1) unknown()
+        val rows = containers.single().select("li")
+        if (rows.isEmpty()) unknown()
+        val out = linkedMapOf<Long, ChxWorkItem>()
+        for (li in rows) {
+            if (li.attr("onclick").replace(" ", "") !in setOf("goTask(this);", "goTask(this)")) unknown()
             val data = li.attr("data").trim()
             val title = li.select("p.overHidden2").text().trim()
-            if (data.isEmpty() || title.isEmpty()) continue
-            val params = queryParams(data)
-            val detail = if (data.startsWith("//")) "https:$data" else data
-            out += ChxWorkItem(
-                title = title,
-                status = li.select("p.status").text().trim(),
-                detailUrl = detail,
-                workId = params["workId"]?.toLongOrNull() ?: 0,
-                answerId = params["answerId"]?.toLongOrNull() ?: 0,
-                enc = params["enc"].orEmpty(),
-                remainingText = li.select("div.time").text().trim(),
-            )
+            val status = li.select("p.status").text().trim()
+            if (data.isEmpty() || title.isEmpty() || status !in setOf("未交", "已完成")) unknown()
+            val detail = ChxApi.trustedUrl(if (data.startsWith("//")) "https:$data" else data) ?: unknown()
+            if (detail.host != "mooc1.chaoxing.com" || detail.encodedPath != "/mooc-ans/mooc2/work/task") unknown()
+            fun parameter(name: String): String = detail.queryParameterValues(name).singleOrNull() ?: unknown()
+            fun id(name: String): Long = parameter(name).toLongOrNull()?.takeIf { it > 0 } ?: unknown()
+            val courseId = id("courseId")
+            val classId = id("classId")
+            val cpi = id("cpi")
+            if (expectedCourse != null && (courseId != expectedCourse.courseId ||
+                    classId != expectedCourse.classId || cpi != expectedCourse.cpi)) unknown()
+            val item = ChxWorkItem(title, status, detail.toString(), id("workId"), id("answerId"),
+                parameter("enc").takeIf { it.isNotBlank() } ?: unknown(), li.select("div.time").text().trim())
+            val previous = out.putIfAbsent(item.workId, item)
+            if (previous != null && previous != item) unknown()
         }
-        return out
+        return out.values.toList()
     }
 
-    /**
-     * stu-job-info（批量作业计数）→ clazzId → (jobCount, jobFinishCount)。
-     * jobRate = finish/count，是班级聚合值：只有 finish >= count（全班含本人都完成）才可安全跳过。
-     */
+    /** stu-job-info 返回任务点计数，不是作业数量；不能据此跳过任何课程的作业列表。 */
     fun parseJobInfo(json: String): Map<Long, Pair<Int, Int>> {
         val out = mutableMapOf<Long, Pair<Int, Int>>()
         val root = runCatching { JsonParser.parseString(json).asJsonObject }.getOrNull() ?: return out
@@ -175,16 +179,4 @@ object ChxWorkParser {
         return ((d * 24 + h) * 60 + mi) * 60_000L
     }
 
-    private fun queryParams(url: String): Map<String, String> {
-        val q = url.substringAfter('?', "")
-        if (q.isEmpty()) return emptyMap()
-        return q.split('&')
-            .mapNotNull {
-                val i = it.indexOf('=')
-                if (i <= 0) null
-                else java.net.URLDecoder.decode(it.substring(0, i), "UTF-8") to
-                    java.net.URLDecoder.decode(it.substring(i + 1), "UTF-8")
-            }
-            .toMap()
-    }
 }
