@@ -25,10 +25,19 @@ internal class PowerStore(context: Context) : PowerRepository {
     override fun bind(binding: PowerBinding, roomName: String, expectedRevision: Long): PowerSnapshot = storage.bind(binding, roomName, expectedRevision)
     override fun unbind(): PowerSnapshot = storage.unbind()
 
+    fun monitor(requestedBinding: PowerBinding? = config().binding): PowerMonitor =
+        PowerMonitor(storage.monitorStore(), com.menglimi.power.PowerApi(),
+            onWarning = { warning -> PowerNotifications(application).send(warning) })
+
+    fun cachedReading(): com.menglimi.power.PowerReading? = monitor().cachedReading()
+
+    suspend fun refresh(): com.menglimi.power.PowerMonitorResult = monitor().query(force = true)
+
     private companion object {
         const val PREFERENCES = "dorm_power_secure_v1"
         const val MASTER_KEY = "dorm_power_master_v1"
         const val SNAPSHOT = "snapshot_v1"
+        const val BACKUP = "snapshot_backup_v1"
         private val initializationLock = Any()
         @Volatile private var shared: PowerStorage? = null
 
@@ -47,8 +56,20 @@ internal class PowerStore(context: Context) : PowerRepository {
                 }
 
                 override fun read(): String? = preferences.getString(SNAPSHOT, null)
+                override fun readBackup(): String? = preferences.getString(BACKUP, null)
                 override fun write(value: String) {
-                    if (!preferences.edit().putString(SNAPSHOT, value).commit()) {
+                    val next = PowerPersistenceCodec.decode(value)
+                    val previous = runCatching { read() }.getOrNull()?.takeIf { text ->
+                        runCatching { PowerPersistenceCodec.decode(text).config.binding == next.config.binding }
+                            .getOrDefault(false)
+                    }
+                    val backup = if (next.config.binding == null) value else previous
+                        ?: runCatching { readBackup() }.getOrNull()?.takeIf { text ->
+                            runCatching { PowerPersistenceCodec.decode(text).config.binding == next.config.binding }
+                                .getOrDefault(false)
+                        } ?: value
+                    // 同一次提交保存新快照和上次可读快照；换绑/解绑不留下旧宿舍备份。
+                    if (!preferences.edit().putString(SNAPSHOT, value).putString(BACKUP, backup).commit()) {
                         throw IOException("电量数据保存失败")
                     }
                 }

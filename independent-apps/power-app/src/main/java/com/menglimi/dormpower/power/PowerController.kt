@@ -35,6 +35,8 @@ data class PowerUiState(
     val lastAttemptAt: Long = 0L,
     val lastSampleAt: Long = 0L,
     val localLoading: Boolean = false,
+    val localError: String? = null,
+    val recoveryMessage: String? = null,
     val busy: Boolean = false,
     val roomBusy: Boolean = false,
     val bindingBusy: Boolean = false,
@@ -75,7 +77,7 @@ internal class PowerController(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            mutableState.update { it.copy(error = "无法读取本机电量数据，请重试；原数据没有被清除。") }
+            mutableState.update { it.copy(localError = "无法读取本机电量数据，原文件已保留。请重试读取，勿卸载或清除应用数据。") }
         } finally {
             mutableState.update { it.copy(localLoading = false) }
         }
@@ -291,7 +293,8 @@ internal class PowerController(
         mutableState.update { it.copy(config = snapshot.config, roomName = snapshot.roomName,
             bindingRevision = snapshot.bindingRevision, reading = reading,
             samples = if (binding == null) emptyList() else snapshot.monitor.samples,
-            lastAttemptAt = snapshot.monitor.lastAttemptAt, lastSampleAt = snapshot.monitor.lastSampleAt) }
+            lastAttemptAt = snapshot.monitor.lastAttemptAt, lastSampleAt = snapshot.monitor.lastSampleAt,
+            localError = null, recoveryMessage = snapshot.recoveryMessage) }
     }
 
     private class InputFailure(message: String) : IllegalArgumentException(message)
