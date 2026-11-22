@@ -7,10 +7,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.menglimi.dormpower.BuildConfig
+import com.menglimi.dormpower.power.PowerBackgroundSettings
 import com.menglimi.dormpower.power.PowerUiState
 import com.menglimi.dormpower.power.powerValue
 import com.menglimi.ksu.ui.*
@@ -27,6 +29,7 @@ internal fun PowerSettingsScreen(
     var unbindDialog by rememberSaveable { mutableStateOf(false) }
     var thresholdDialog by rememberSaveable { mutableStateOf(false) }
     var intervalDialog by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
     val config = state.config
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 124.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -61,6 +64,21 @@ internal fun PowerSettingsScreen(
                 }
                 Text("后台由系统调度，省电策略可能延后查询；同类预警至少间隔 12 小时。手动模式仍可在刷新时检查预警。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (config.preset == PowerQueryPreset.MANUAL) {
+                    Text("手动模式不会后台采集，不需要自启动授权；桌面小部件的刷新按钮也只在你点按时查询。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp))
+                } else {
+                    Text("后台采集还需要系统允许自启动并关闭省电限制，否则周期任务可能被推迟或停止。Android 没有统一开关，请按机型在系统设置中允许。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(enabled = !preview,
+                            onClick = { PowerBackgroundSettings.openAutostart(context) }) { Text("自启动设置") }
+                        TextButton(enabled = !preview,
+                            onClick = { PowerBackgroundSettings.openBatterySettings(context) }) { Text("电池优化") }
+                    }
+                }
             }
         }
         schedulingError?.let { message -> item {
