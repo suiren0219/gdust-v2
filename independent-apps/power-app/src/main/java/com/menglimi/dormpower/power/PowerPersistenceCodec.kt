@@ -20,6 +20,23 @@ internal object PowerPersistenceCodec {
         addProperty("version", 1)
         addProperty("bindingRevision", snapshot.bindingRevision)
         addProperty("roomName", snapshot.roomName)
+        add("ledger", JsonObject().apply {
+            addProperty("unitPrice", snapshot.ledger.unitPrice)
+            add("entries", JsonArray().apply {
+                snapshot.ledger.entries.forEach { entry -> add(JsonObject().apply {
+                    addProperty("id", entry.id); addProperty("time", entry.time); addProperty("fromTime", entry.fromTime)
+                    addNumber("kwh", entry.kwh); addProperty("price", entry.unitPrice)
+                    addProperty("paid", entry.paidYuan); addProperty("payer", entry.payer); addProperty("note", entry.note)
+                    addProperty("detected", entry.detected); addProperty("ignored", entry.ignored)
+                }) }
+            })
+            add("days", JsonArray().apply {
+                snapshot.ledger.days.forEach { day -> add(JsonObject().apply {
+                    addProperty("date", day.date); addNumber("kwh", day.kwh); addProperty("yuan", day.yuan)
+                    addProperty("intervals", day.intervals); addProperty("firstAt", day.firstAt); addProperty("lastAt", day.lastAt)
+                }) }
+            })
+        })
         add("config", JsonObject().apply {
             val config = snapshot.config
             config.binding?.let { binding ->
@@ -132,8 +149,29 @@ internal object PowerPersistenceCodec {
                 dropWarnAt = monitor.time("dropWarnAt"),
             )
         }
+        val ledgerJson = root.value("ledger")?.asJsonObject
+        val ledger = ledgerJson?.let { data ->
+            PowerLedgerState(
+                unitPrice = data.text("unitPrice")?.takeIf { PowerLedger.price(it) != null } ?: "0.6",
+                entries = data.getAsJsonArray("entries")?.map { value ->
+                    val entry = value.asJsonObject
+                    PowerLedgerEntry(entry.text("id").orEmpty(), entry.time("time"), entry.time("fromTime"),
+                        requireNotNull(entry.number("kwh")), entry.text("price") ?: "0.6", entry.text("paid"),
+                        entry.text("payer").orEmpty(), entry.text("note").orEmpty(),
+                        entry.value("detected")?.asBoolean ?: false, entry.value("ignored")?.asBoolean ?: false)
+                        .also(PowerLedger::validate)
+                }.orEmpty(),
+                days = data.getAsJsonArray("days")?.map { value ->
+                    val day = value.asJsonObject
+                    val date = java.time.LocalDate.parse(day.text("date")).toString()
+                    val kwh = requireNotNull(day.number("kwh")).also { require(it >= 0) }
+                    val yuan = requireNotNull(day.text("yuan")).also { require(it.toBigDecimal().signum() >= 0) }
+                    PowerDayCost(date, kwh, yuan, day.get("intervals").asInt, day.time("firstAt"), day.time("lastAt"))
+                }.orEmpty(),
+            )
+        } ?: PowerLedgerState()
         return PowerSnapshot(config, if (binding == null) "" else root.text("roomName").orEmpty(), state,
-            root.time("bindingRevision"))
+            root.time("bindingRevision"), ledger = if (binding == null) PowerLedgerState(ledger.unitPrice) else ledger)
     }
 
     private fun JsonObject.addNumber(key: String, value: Double?) {

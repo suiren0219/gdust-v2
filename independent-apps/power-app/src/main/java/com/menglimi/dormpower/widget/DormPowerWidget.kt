@@ -64,6 +64,7 @@ internal data class WidgetData(
     val running: Boolean,
     val message: String?,
     val now: Long,
+    val unitPrice: String = "0.6",
 )
 
 internal fun loadWidgetData(context: Context): WidgetData {
@@ -89,6 +90,7 @@ internal fun loadWidgetData(context: Context): WidgetData {
         running = refresh.running,
         message = refresh.message,
         now = now,
+        unitPrice = snapshot?.ledger?.unitPrice ?: "0.6",
     )
 }
 
@@ -141,6 +143,8 @@ private fun WidgetBody(data: WidgetData) {
                 Text(widgetBalanceText(data.odd), style = textStyle(if (wide) 40.sp else 30.sp, true, colors.text), maxLines = 1)
                 Text(" 度", style = textStyle(14.sp, false, colors.sub), maxLines = 1)
             }
+            if (wide) Text("余额折合 ≈¥${com.menglimi.dormpower.power.PowerLedger.yuan(data.odd, data.unitPrice)}",
+                style = textStyle(11.sp, false, colors.sub), maxLines = 1)
             if (wide) {
                 Spacer(GlanceModifier.height(4.dp))
                 Row {

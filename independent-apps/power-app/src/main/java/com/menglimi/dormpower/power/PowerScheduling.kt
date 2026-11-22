@@ -61,6 +61,7 @@ object PowerScheduling {
             }
             mutableError.value = null
                 }
+                PowerWidgetUpdater.updateAll(application)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

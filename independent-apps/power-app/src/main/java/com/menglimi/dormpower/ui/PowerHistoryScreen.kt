@@ -96,7 +96,7 @@ internal fun PowerHistoryScreen(state: PowerUiState, now: Long, preview: Boolean
                         Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(historyTime(sample.time, state.config.zone, "HH:mm:ss"), fontFamily = FontFamily.Monospace,
                                 style = MaterialTheme.typography.bodySmall)
-                            Text("${powerValue(sample.odd)} 度", style = MaterialTheme.typography.bodySmall)
+                            Text("${powerValue(sample.odd)} 度 · ≈¥${com.menglimi.dormpower.power.PowerLedger.yuan(sample.odd, state.ledger.unitPrice)}", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }

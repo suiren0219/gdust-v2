@@ -24,6 +24,8 @@ internal class PowerStore(context: Context) : PowerRepository {
     override fun configure(transform: (PowerMonitorConfig) -> PowerMonitorConfig): PowerSnapshot = storage.configure(transform)
     override fun bind(binding: PowerBinding, roomName: String, expectedRevision: Long): PowerSnapshot = storage.bind(binding, roomName, expectedRevision)
     override fun unbind(): PowerSnapshot = storage.unbind()
+    override fun editLedger(expectedRevision: Long, transform: (PowerLedgerState) -> PowerLedgerState): PowerSnapshot =
+        storage.editLedger(expectedRevision, transform)
 
     fun monitor(requestedBinding: PowerBinding? = config().binding): PowerMonitor =
         PowerMonitor(storage.monitorStore(), com.menglimi.power.PowerApi(),

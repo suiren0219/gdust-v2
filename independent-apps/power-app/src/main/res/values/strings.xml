@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">宿舍电量</string>
     <string name="power_widget_description">宿舍电量，支持手动刷新</string>
+    <string name="power_calendar_description">电费月历与充值记录，点按记账</string>
+    <string name="power_ledger_description">本月电费与充值汇总</string>
 </resources>

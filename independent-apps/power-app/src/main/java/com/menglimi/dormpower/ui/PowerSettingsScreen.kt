@@ -33,12 +33,24 @@ internal fun PowerSettingsScreen(
     var unbindDialog by rememberSaveable { mutableStateOf(false) }
     var thresholdDialog by rememberSaveable { mutableStateOf(false) }
     var intervalDialog by rememberSaveable { mutableStateOf(false) }
+    var priceDialog by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val config = state.config
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 124.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { PageHeader("设置", if (preview) "合成预览 · 设置仅在当前预览内生效" else "查询节奏、提醒和外观") }
         state.settingsError?.let { item { MessageCard(it, actions.clearSettingsError) } }
+        item { SectionTitle("电价与记账") }
+        item {
+            KCard(Modifier.fillMaxWidth()) {
+                SettingRow("电费单价", "${state.ledger.unitPrice} 元/度 · 默认 0.6 元/度", Glyph.BOLT) {
+                    TextButton(onClick = { priceDialog = true }) { Text("修改") }
+                }
+                Text("新电价用于之后的采样与充值识别；旧账保留当时电价。余额折算和服务端用量按当前电价估算，实际扣费以服务为准。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                state.ledgerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        }
         item { SectionTitle("宿舍监控") }
         item {
             KCard(Modifier.fillMaxWidth()) {
@@ -133,6 +145,26 @@ internal fun PowerSettingsScreen(
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp))
             }
+        }
+    }
+    if (priceDialog) {
+        var price by remember { mutableStateOf(state.ledger.unitPrice) }
+        var submitted by remember { mutableStateOf(false) }
+        val initialSavedVersion = remember { state.ledgerSavedVersion }
+        val editorRevision = remember { state.bindingRevision }
+        LaunchedEffect(state.bindingRevision) { if (state.bindingRevision != editorRevision) priceDialog = false }
+        LaunchedEffect(state.ledgerSavedVersion, state.ledgerError, submitted) {
+            if (submitted && state.ledgerSavedVersion > initialSavedVersion) priceDialog = false
+            else if (submitted && state.ledgerError != null && !state.ledgerBusy) submitted = false
+        }
+        PowerDialog("电费单价", { priceDialog = false }, dismissEnabled = !state.ledgerBusy, confirm = {
+            Button(enabled = com.menglimi.dormpower.power.PowerLedger.price(price) != null && !state.ledgerBusy && !submitted,
+                onClick = { submitted = true; actions.price(price, editorRevision) }) { Text("保存") }
+        }) {
+            OutlinedTextField(price, { price = it }, label = { Text("人民币 / 度") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+            Text("默认 0.6 元/度，支持最多四位小数。不会重算旧账。")
+            state.ledgerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
     }
     if (unbindDialog) AlertDialog(onDismissRequest = { unbindDialog = false }, title = { Text("解除宿舍绑定？") },

@@ -14,6 +14,7 @@ internal data class PowerSnapshot(
     val monitor: PowerMonitorState = PowerMonitorState(),
     val bindingRevision: Long = 0L,
     val recoveryMessage: String? = null,
+    val ledger: PowerLedgerState = PowerLedgerState(),
 )
 
 internal interface PowerPersistence {
@@ -28,6 +29,7 @@ internal interface PowerRepository : PowerMonitorStore {
     fun configure(transform: (PowerMonitorConfig) -> PowerMonitorConfig): PowerSnapshot
     fun bind(binding: PowerBinding, roomName: String, expectedRevision: Long): PowerSnapshot
     fun unbind(): PowerSnapshot
+    fun editLedger(expectedRevision: Long, transform: (PowerLedgerState) -> PowerLedgerState): PowerSnapshot
 }
 
 /** Android 与纯 JVM 测试共用的存储事务；同一进程的所有 PowerStore 共享此实例。 */
@@ -81,6 +83,7 @@ internal class PowerStorage(private val persistence: PowerPersistence) : PowerRe
             config = before.config.copy(binding = binding),
             roomName = roomName,
             monitor = if (before.config.binding == binding) before.monitor else PowerMonitorState(),
+            ledger = if (before.config.binding == binding) before.ledger else PowerLedgerState(before.ledger.unitPrice),
             bindingRevision = before.bindingRevision + 1,
         ))
     }
@@ -91,8 +94,18 @@ internal class PowerStorage(private val persistence: PowerPersistence) : PowerRe
             config = before.config.copy(binding = null),
             roomName = "",
             monitor = PowerMonitorState(),
+            ledger = PowerLedgerState(before.ledger.unitPrice),
             bindingRevision = before.bindingRevision + 1,
         ))
+    }
+
+    override fun editLedger(expectedRevision: Long, transform: (PowerLedgerState) -> PowerLedgerState): PowerSnapshot = synchronized(storageLock) {
+        val before = current()
+        check(before.bindingRevision == expectedRevision) { "宿舍绑定已变化，请重新打开记账" }
+        val next = transform(before.ledger)
+        require(PowerLedger.price(next.unitPrice) != null) { "请输入有效电价（0–100 元/度，最多四位小数）" }
+        next.entries.forEach(PowerLedger::validate)
+        save(before.copy(ledger = next))
     }
 
     private fun updateLocked(
@@ -103,7 +116,9 @@ internal class PowerStorage(private val persistence: PowerPersistence) : PowerRe
         val before = current()
         if (before.config.binding != binding || (revision != null && revision != before.bindingRevision)) return false
         // transform 可能发送通知，必须在绑定锁内且只执行一次；持久化失败也不得重试。
-        save(before.copy(monitor = transform(before.monitor)))
+        val monitor = transform(before.monitor)
+        val ledger = PowerLedger.record(before.ledger, before.monitor.reading, monitor.reading, before.config.zone)
+        save(before.copy(monitor = monitor, ledger = ledger))
         return true
     }
 

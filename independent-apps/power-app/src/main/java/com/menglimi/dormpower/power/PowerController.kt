@@ -47,6 +47,10 @@ data class PowerUiState(
     val roomError: String? = null,
     val settingsError: String? = null,
     val message: String? = null,
+    val ledger: PowerLedgerState = PowerLedgerState(),
+    val ledgerBusy: Boolean = false,
+    val ledgerError: String? = null,
+    val ledgerSavedVersion: Long = 0L,
 )
 
 /** 基于合并 App 适配器；依赖可注入，以内存来源验证取消/换绑而不访问真实服务。 */
@@ -186,6 +190,7 @@ internal class PowerController(
                             publish(store.snapshot())
                             mutableState.update { it.copy(error = null,
                                 message = if (result.sampled) "电量已更新" else "已使用刚刚更新的读数") }
+                            onSchedule()
                         }
                     }
                 } catch (cancelled: CancellationException) {
@@ -258,6 +263,42 @@ internal class PowerController(
         }
     }
 
+    fun setPrice(value: String, revision: Long = mutableState.value.bindingRevision) = editLedger(revision) { ledger ->
+        require(PowerLedger.price(value) != null) { "电价须大于 0 且不超过 100 元/度，最多四位小数" }
+        ledger.copy(unitPrice = value.trim())
+    }
+
+    fun saveEntry(entry: PowerLedgerEntry, revision: Long = mutableState.value.bindingRevision) = editLedger(revision) { ledger ->
+        require(store.config().binding != null) { "请先绑定宿舍" }
+        PowerLedger.validate(entry)
+        ledger.copy(entries = ledger.entries.filterNot { it.id == entry.id } + entry)
+    }
+
+    fun removeEntry(id: String, revision: Long = mutableState.value.bindingRevision) = editLedger(revision) { ledger ->
+        // 忽略自动识别条目时保留其 ID，避免再次生成；手工账目可直接删除。
+        ledger.copy(entries = ledger.entries.mapNotNull {
+            if (it.id != id) it else if (it.detected) it.copy(ignored = true) else null
+        })
+    }
+
+    private fun editLedger(revision: Long, transform: (PowerLedgerState) -> PowerLedgerState): Job {
+        mutableState.update { it.copy(ledgerBusy = true, ledgerError = null) }
+        return scope.launch {
+            try {
+                synchronized(mutationLock) {
+                    publish(store.editLedger(revision, transform))
+                    mutableState.update { it.copy(message = "账本已保存", ledgerSavedVersion = it.ledgerSavedVersion + 1) }
+                    onSchedule()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                mutableState.update { it.copy(ledgerError = if (failure is IllegalArgumentException || failure is IllegalStateException)
+                    failure.message ?: "保存失败" else "账本保存失败，原记录仍保留，请重试。") }
+            } finally { mutableState.update { it.copy(ledgerBusy = false) } }
+        }
+    }
+
     fun clearError() { mutableState.update { it.copy(error = null) } }
     fun clearSettingsError() { mutableState.update { it.copy(settingsError = null) } }
     fun close() { cancelRooms(); cancelRefresh(); scope.cancel() }
@@ -294,7 +335,7 @@ internal class PowerController(
             bindingRevision = snapshot.bindingRevision, reading = reading,
             samples = if (binding == null) emptyList() else snapshot.monitor.samples,
             lastAttemptAt = snapshot.monitor.lastAttemptAt, lastSampleAt = snapshot.monitor.lastSampleAt,
-            localError = null, recoveryMessage = snapshot.recoveryMessage) }
+            localError = null, recoveryMessage = snapshot.recoveryMessage, ledger = snapshot.ledger) }
     }
 
     private class InputFailure(message: String) : IllegalArgumentException(message)

@@ -246,4 +246,34 @@ class PowerControllerTest {
         advanceUntilIdle()
         assertEquals(99.0, controller.state.value.reading!!.detail.odd!!, 0.0)
     }
+
+    @Test fun ledgerFormFromPreviousRoomCannotWriteIntoNewRoom() = runTest {
+        val store = storage(bound = true)
+        val controller = controller(store)
+        advanceUntilIdle()
+        val revision = controller.state.value.bindingRevision
+        store.bind(PowerBinding("other", 2, "other"), "另一宿舍", revision)
+        controller.reload()
+        advanceUntilIdle()
+        controller.saveEntry(PowerLedgerEntry(time = now, kwh = 100.0, paidYuan = "60.00"), revision)
+        advanceUntilIdle()
+        assertTrue(store.snapshot().ledger.entries.isEmpty())
+        assertNotNull(controller.state.value.ledgerError)
+        assertEquals(0L, controller.state.value.ledgerSavedVersion)
+    }
+
+    @Test fun ledgerSuccessfulSavePublishesVersionAndInvalidInputPreservesIt() = runTest {
+        val store = storage(bound = true)
+        val controller = controller(store)
+        advanceUntilIdle()
+        controller.saveEntry(PowerLedgerEntry(time = now, kwh = 100.0, paidYuan = "60.00", payer = "室友甲"))
+        advanceUntilIdle()
+        assertEquals(1L, controller.state.value.ledgerSavedVersion)
+        assertEquals("室友甲", controller.state.value.ledger.entries.single().payer)
+        controller.setPrice("NaN")
+        advanceUntilIdle()
+        assertEquals("0.6", controller.state.value.ledger.unitPrice)
+        assertEquals(1L, controller.state.value.ledgerSavedVersion)
+        assertNotNull(controller.state.value.ledgerError)
+    }
 }
