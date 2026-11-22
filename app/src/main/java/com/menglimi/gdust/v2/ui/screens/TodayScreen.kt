@@ -24,11 +24,13 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,15 +50,18 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
+import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.secondaryTextColor
 import com.menglimi.gdust.v2.ui.schedule.ScheduleTimes
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
 import java.time.Duration
@@ -67,15 +72,23 @@ import java.time.temporal.ChronoUnit
 
 @Composable
 fun TodayScreen(
+    repo: Repository,
     calendar: CalendarInfo?,
     blocks: List<CourseBlock>,
     onOpenNotices: () -> Unit = {},
     unreadCount: Int = 0,
     onOpenSchedule: () -> Unit = {},
     onImport: () -> Unit = {},
+    onOpenServices: () -> Unit = {},
+    onService: (CampusService) -> Unit = {},
     hasImportedSchedule: Boolean = blocks.isNotEmpty(),
 ) {
     val now by rememberTodayMinuteClock()
+    var shortcutTarget by remember { mutableStateOf<CampusService?>(null) }
+    androidx.compose.runtime.LaunchedEffect(shortcutTarget) {
+        shortcutTarget?.let(onService)
+        shortcutTarget = null
+    }
     val today = now.toLocalDate()
     val currentWeek = remember(calendar, today) {
         parseScheduleDate(calendar?.startDate.orEmpty())?.let {
@@ -92,6 +105,17 @@ fun TodayScreen(
     }
     val missingDates = currentWeek == null && datedBlocks.any { it.second == null }
     val imported = hasImportedSchedule || blocks.isNotEmpty()
+    val store = remember(repo) { repo.store }
+    var todos by remember(store) { mutableStateOf(store.loadTodos()) }
+    DisposableEffect(store) {
+        val stop = store.observeTodos { todos = store.loadTodos() }
+        onDispose { stop() }
+    }
+    val nowMs = now.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+    val pendingTodos = todos.filterNot { it.done }
+    val overdueTodos = pendingTodos.count { it.dueAt > 0 && it.dueAt < nowMs }
+    val nextDue = pendingTodos.filter { it.dueAt >= nowMs }.minByOrNull { it.dueAt }
+    val hasPower = store.hasPowerBinding
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val ds = LocalDs.current
     val weekText = when {
@@ -122,6 +146,7 @@ fun TodayScreen(
                         modifier = Modifier.weight(1f).semantics { heading() },
                     )
                     TodayNoticeButton(unreadCount, onOpenNotices)
+                    TextButton(text = "服务", onClick = onOpenServices, minHeight = 48.dp)
                 }
                 Text(
                     text = "${today.year}年${today.monthValue}月${today.dayOfMonth}日 · ${ScheduleTimes.dayNames[today.dayOfWeek.value - 1]}",
@@ -131,6 +156,26 @@ fun TodayScreen(
                     modifier = Modifier.padding(top = 8.dp),
                 )
                 Text(weekText, fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub)
+            }
+        }
+        item(key = "today-shortcuts-title") {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("校园服务", fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                    color = ds.text, modifier = Modifier.weight(1f).semantics { heading() })
+                TextButton(text = "全部", onClick = onOpenServices, minHeight = 48.dp)
+            }
+        }
+        item(key = "today-shortcuts") {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap)) {
+                CampusMetricCard("待完成事项", pendingTodos.size.toString(), Modifier.weight(1f),
+                    description = when {
+                        overdueTodos > 0 -> "$overdueTodos 项已到期"
+                        nextDue != null -> "最近到期 ${dashboardTime(nextDue.dueAt)}"
+                        else -> "作业、考试与日常事项"
+                    }, warning = overdueTodos > 0, onClick = { shortcutTarget = CampusService.TODO })
+                CampusMetricCard("宿舍电量", if (hasPower) "已绑定" else "未绑定", Modifier.weight(1f),
+                    description = if (hasPower) store.powerRoomName.ifBlank { "查看电量与走势" } else "绑定宿舍后查看电量",
+                    warning = false, onClick = { shortcutTarget = CampusService.POWER })
             }
         }
         when {
@@ -163,8 +208,8 @@ fun TodayScreen(
                 val unknown = todayCourses.size - completed - ongoing - pending
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap)) {
-                        TodayMetricCard("今日课程", todayCourses.size, Modifier.weight(1f))
-                        TodayMetricCard("待上课程", pending, Modifier.weight(1f))
+                        SmallMetricCard("今日课程", todayCourses.size.toString(), Modifier.weight(1f))
+                        SmallMetricCard("待上课程", pending.toString(), Modifier.weight(1f))
                     }
                     Text(
                         buildList {
@@ -237,14 +282,37 @@ private fun TodayNoticeButton(unreadCount: Int, onClick: () -> Unit) {
 }
 
 @Composable
-private fun TodayMetricCard(label: String, value: Int, modifier: Modifier = Modifier) {
+private fun SmallMetricCard(label: String, value: String, modifier: Modifier = Modifier) {
     val ds = LocalDs.current
     AppCard(modifier = modifier, insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
         Text(label, fontSize = 13.sp, color = ds.sub)
-        Text(value.toString(), fontSize = 36.sp, fontWeight = FontWeight.Bold, color = ds.text,
+        Text(value, fontSize = 36.sp, fontWeight = FontWeight.Bold, color = ds.text,
             modifier = Modifier.padding(top = 8.dp))
     }
 }
+
+@Composable
+private fun CampusMetricCard(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    description: String,
+    warning: Boolean,
+    onClick: () -> Unit,
+) {
+    val ds = LocalDs.current
+    AppCard(modifier = modifier, insideMargin = PaddingValues(AppUiTokens.CardPadding), onClick = onClick) {
+        Text(label, fontSize = 13.sp, color = ds.sub)
+        Text(value, fontSize = if (value.length > 4) 22.sp else 30.sp, fontWeight = FontWeight.Bold,
+            color = if (warning) ds.danger else ds.text, maxLines = 1)
+        Text(description, fontSize = 12.sp, lineHeight = 17.sp, color = ds.sub,
+            modifier = Modifier.padding(top = 6.dp), maxLines = 2)
+    }
+}
+
+private fun dashboardTime(time: Long): String = java.time.Instant.ofEpochMilli(time)
+    .atZone(java.time.ZoneId.systemDefault())
+    .format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm"))
 
 @Composable
 private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, missingDates: Boolean) {
