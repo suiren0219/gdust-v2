@@ -91,7 +91,8 @@ fun AppRoot(
     var showWidgets by remember { mutableStateOf(false) }
     var webReturnVersion by remember { mutableIntStateOf(0) }
     val sessionVersion by repo.sessionVersion.collectAsState()
-    val noticeFeed = remember(repo) { NoticeFeed(repo::portalSession, repo::notices) }
+    val publicNotices = com.menglimi.gdust.v2.data.SchoolNoticeApi()
+    val noticeFeed = remember(repo) { NoticeFeed(repo::portalSession, repo::notices, publicNotices::notices) }
     val noticeState by noticeFeed.state.collectAsState()
     val notices = noticeState.notices
     val noticesLoading = noticeState.loading
