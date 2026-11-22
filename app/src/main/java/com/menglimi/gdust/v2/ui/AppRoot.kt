@@ -32,8 +32,11 @@ import com.menglimi.gdust.v2.ui.screens.SettingsScreen
 import com.menglimi.gdust.v2.ui.screens.TermImportScreen
 import com.menglimi.gdust.v2.ui.screens.TodayScreen
 import com.menglimi.gdust.v2.ui.screens.TodoScreen
+import com.menglimi.gdust.v2.ui.screens.WidgetPreviewScreen
 import com.menglimi.gdust.v2.ui.screens.ProfileScreen
 import com.menglimi.gdust.v2.ui.screens.AboutScreen
+import com.menglimi.gdust.v2.ui.screens.CampusService
+import com.menglimi.gdust.v2.ui.screens.CampusServicesScreen
 import com.menglimi.gdust.v2.ui.screens.NoticeScreen
 import com.menglimi.gdust.v2.ui.screens.ReminderScreen
 import com.menglimi.gdust.v2.ui.screens.ChxNotificationScreen
@@ -92,6 +95,7 @@ fun AppRoot(
     var showChxEntry by remember { mutableStateOf(false) }
     var showGrades by remember { mutableStateOf(false) }
     var showChxCourses by remember { mutableStateOf(false) }
+    var showWidgets by remember { mutableStateOf(false) }
     var webReturnVersion by remember { mutableIntStateOf(0) }
     var schoolLoginMessage by remember { mutableStateOf<String?>(null) }
     val sessionVersion by repo.sessionVersion.collectAsState()
@@ -110,6 +114,7 @@ fun AppRoot(
     var loggingOut by remember { mutableStateOf(false) }
     var logoutFailed by remember { mutableStateOf(repo.store.webLogoutPending) }
     var showAbout by remember { mutableStateOf(false) }
+    var showServices by remember { mutableStateOf(false) }
     // 免责声明：普通 prefs 不触发重组，用状态控制弹窗，确认后写盘不再出现。
     var disclaimerShown by remember { mutableStateOf(!repo.store.disclaimerAccepted) }
 
@@ -154,6 +159,28 @@ fun AppRoot(
     var importReport by remember { mutableStateOf<String?>(null) }
     // 设置页当前展开的编辑区（切风格重建时收起即可，不影响页面栈）
     val openSection = remember { mutableStateOf<String?>(null) }
+    val hasAccount = repo.store.hasSession || repo.store.casTicket.isNotBlank() || repo.hasTeachingSession()
+
+    fun loadNotices() { noticeFeed.refresh(scope) }
+
+    fun openCampusService(service: CampusService) {
+        when (service) {
+            CampusService.SCHEDULE -> { showServices = false; tab.intValue = 1 }
+            CampusService.TODO -> { showServices = false; tab.intValue = 3 }
+            CampusService.POWER -> { showServices = false; tab.intValue = 2 }
+            CampusService.GRADES -> showGrades = true
+            CampusService.CHX_COURSES -> showChxCourses = true
+            CampusService.IMPORT -> showWebImport = true
+            CampusService.NOTICES -> { showNotices = true; loadNotices() }
+            CampusService.FIVE_EDUCATION -> openServiceWeb("http://172.16.1.232/index")
+            CampusService.LESSON_REMINDER -> showReminder = true
+            CampusService.TODO_REMINDER -> showTodoReminder = true
+            CampusService.WIDGETS -> showWidgets = true
+            CampusService.CHX_LINK -> showChxEntry = true
+            CampusService.CHX_NOTIFICATIONS -> showChxNotifications = true
+            CampusService.SUMMARY, CampusService.SETTINGS -> showSettings.value = true
+        }
+    }
 
 
     fun sync(preferred: SchoolService? = null) {
@@ -236,8 +263,6 @@ fun AppRoot(
         schoolLoginMessage = result.message
     }
 
-    fun loadNotices() { noticeFeed.refresh(scope) }
-
     fun logout() {
         if (loggingOut) return
         loggingOut = true
@@ -303,6 +328,7 @@ fun AppRoot(
             repo.refreshAccountLogin()
             if (repo.serviceConnections.value.portal.auth == ServiceAuthStatus.VERIFIED &&
                 blocks.isEmpty() && !repo.hasTeachingSession()) sync(SchoolService.PORTAL)
+            loadNotices()
         }
         val teachingReady = repo.hasTeachingSession() &&
             repo.serviceConnections.value.teaching.auth != ServiceAuthStatus.AUTH_REQUIRED
@@ -323,7 +349,9 @@ fun AppRoot(
             showChxEntry -> "chx_entry"
             showProfile -> "profile"
             showAbout -> "about"
+            showWidgets -> "widgets"
             showSettings.value -> "settings"
+            showServices -> "services"
             !loggedIn.value -> "login"
             else -> "main"
         },
@@ -376,7 +404,6 @@ fun AppRoot(
                 }
             }
             "notices" -> {
-                DisposableEffect(noticeFeed) { onDispose { noticeFeed.cancelRefresh() } }
                 androidx.activity.compose.BackHandler { showNotices = false }
                 NoticeScreen(
                     repo = repo,
@@ -389,7 +416,7 @@ fun AppRoot(
                     onBack = { showNotices = false },
                     onRefresh = { loadNotices() },
                     source = noticeState.source,
-                    onSourceChange = { noticeFeed.select(it) },
+                    onSourceChange = { noticeFeed.refresh(scope, it) },
                 )
             }
             "profile" -> {
@@ -400,6 +427,17 @@ fun AppRoot(
                 androidx.activity.compose.BackHandler { showAbout = false }
                 AboutScreen(repo = repo, onBack = { showAbout = false })
             }
+            "widgets" -> {
+                androidx.activity.compose.BackHandler { showWidgets = false }
+                WidgetPreviewScreen(onBack = { showWidgets = false })
+            }
+            "services" -> CampusServicesScreen(
+                signedIn = hasAccount,
+                accountName = repo.store.realName,
+                onLogin = { showServices = false; showSettings.value = false; loggedIn.value = false },
+                onOpen = ::openCampusService,
+                onBack = { showServices = false },
+            )
             "login" -> LoginScreen(
                 repo = repo,
                 onLoggedIn = {
@@ -421,7 +459,7 @@ fun AppRoot(
                 onChxEntry = { showChxEntry = true },
                 onGrades = { showGrades = true },
                 onChxCourses = { showChxCourses = true },
-                onSchoolNotices = { showNotices = true },
+                onSchoolNotices = { showNotices = true; loadNotices() },
                 onFiveEducation = { openServiceWeb("http://172.16.1.232/index") },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },
@@ -459,7 +497,9 @@ fun AppRoot(
                 onSettings = { showSettings.value = true },
                 serviceSummary = serviceConnectionSummary(connections) +
                     if (syncing) "\n${activeSyncService?.label.orEmpty()}课表同步中，可继续使用其他服务" else "",
-                onOpenNotices = { showNotices = true },
+                onOpenServices = { showServices = true },
+                onService = ::openCampusService,
+                onOpenNotices = { showNotices = true; loadNotices() },
                 notices = notices,
                 unreadCount = notices.count { it.readId !in readNoticeIds },
                 onImport = { showWebImport = true },
@@ -597,6 +637,8 @@ private fun MainScaffold(
     onTab: (Int) -> Unit,
     onSettings: () -> Unit,
     serviceSummary: String,
+    onOpenServices: () -> Unit,
+    onService: (CampusService) -> Unit,
     onOpenNotices: () -> Unit = {},
     notices: List<Notice> = emptyList(),
     unreadCount: Int = 0,
@@ -616,12 +658,15 @@ private fun MainScaffold(
         ) { page ->
             when (page) {
                 0 -> TodayScreen(
+                    repo = repo,
                     calendar = calendar,
                     blocks = blocks,
                     onOpenNotices = onOpenNotices,
                     unreadCount = unreadCount,
                     onOpenSchedule = { onTab(1) },
                     onImport = onImport,
+                    onOpenServices = onOpenServices,
+                    onService = onService,
                     hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
                     serviceSummary = serviceSummary,
                     onServices = onSettings,

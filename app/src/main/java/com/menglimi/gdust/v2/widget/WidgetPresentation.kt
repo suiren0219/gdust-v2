@@ -40,6 +40,13 @@ object WidgetPresentation {
         val contentHeight: Float,
         val fontScale: Float,
     ) {
+        val longTall: Boolean get() = shape == Shape.TALL && contentHeight >= 190f * fontScale
+        val tallNameLines: Int get() = if (narrow) 3 else 2
+        val tallLessonHeight: Dp get() =
+            (line(WidgetStyle.Type.caption) * 2 + line(WidgetStyle.Type.body) * tallNameLines + 12f).dp
+        fun tallVisibleRows(total: Int): Int = minOf(total, 3,
+            ((contentHeight - line(WidgetStyle.Type.label) - line(WidgetStyle.Type.caption) * 3 - 16f) /
+                tallLessonHeight.value).toInt().coerceAtLeast(0))
         fun line(sp: Float): Float = sp * fontScale * 1.3f
         val headerHeight: Float get() = line(WidgetStyle.Type.title) + WidgetStyle.Space.smallGap
         val rowHeight: Dp get() = maxOf(WidgetStyle.Space.row, line(WidgetStyle.Type.body) + 12f).dp
@@ -112,55 +119,71 @@ object WidgetPresentation {
 
     // ── 课表口径：以"堂"计数，标题随展示日期 ─────────────────────────────────
 
-    /** 标题行：今天/明天各用各自日期的星期；周次未知（开学前/无校历）不硬编。 */
     fun scheduleTitle(data: WidgetData): String = when (data.scope) {
         WidgetData.Scope.TODAY_REST, WidgetData.Scope.TODAY_ALL ->
             "今天" + (data.week?.let { " · 第 $it 周" } ?: "")
-        WidgetData.Scope.TOMORROW -> "明天 · ${ScheduleTimes.dayNames[data.scopeDate.dayOfWeek.value - 1]}"
+        WidgetData.Scope.TOMORROW, WidgetData.Scope.TOMORROW_EMPTY ->
+            "明天 · ${ScheduleTimes.dayNames[data.scopeDate.dayOfWeek.value - 1]}"
         WidgetData.Scope.NO_LESSONS -> "暂无课程"
-        WidgetData.Scope.NO_DATA -> "广科课表"
+        WidgetData.Scope.INCOMPLETE, WidgetData.Scope.NO_DATA -> "广科课表"
     }
 
-    /** 右上角摘要：剩余按堂数（张卡），不再把一张多节卡当成多节。 */
     fun scheduleSummary(data: WidgetData): String = when (data.scope) {
         WidgetData.Scope.TODAY_REST -> "剩 ${data.lessons.size} 堂"
         WidgetData.Scope.TODAY_ALL -> "今日 ${data.lessons.size} 堂"
         WidgetData.Scope.TOMORROW -> "明天 ${data.lessons.size} 堂"
+        WidgetData.Scope.TOMORROW_EMPTY -> "明天无课"
         WidgetData.Scope.NO_LESSONS -> "今明无课"
+        WidgetData.Scope.INCOMPLETE -> "待补全"
         WidgetData.Scope.NO_DATA -> "待导入"
     }
 
-    /** 列表区空态：区分"没有课表数据"与"有课表但今明无课"。 */
     fun scheduleEmpty(data: WidgetData): String = when (data.scope) {
         WidgetData.Scope.NO_DATA -> "还没有课表数据"
+        WidgetData.Scope.INCOMPLETE -> "尚未导入整学期课表"
+        WidgetData.Scope.TOMORROW_EMPTY -> "明天没有课程"
         WidgetData.Scope.NO_LESSONS -> "今明两天没有课程"
         else -> "今天课程都结束啦"
     }
 
-    fun tallFootnote(data: WidgetData): String = when (data.scope) {
-        WidgetData.Scope.TOMORROW -> "今天已结束"
-        WidgetData.Scope.TODAY_REST -> "今日剩 ${data.lessons.size} 堂"
-        WidgetData.Scope.TODAY_ALL -> "今天 ${data.lessons.size} 堂"
-        WidgetData.Scope.NO_LESSONS -> "今明两天无课"
-        WidgetData.Scope.NO_DATA -> "导入课表后显示"
+    fun tallFootnote(data: WidgetData): String =
+        if (data.scheduleStale) "较久未同步" else scheduleSummary(data)
+
+    fun powerState(data: WidgetData, hasReading: Boolean = data.odd != null): String = when {
+        !data.powerBound -> "未绑定宿舍"
+        !hasReading -> "等待首次采样"
+        data.powerStale -> "旧读数 · " + DATE_FMT.format(Instant.ofEpochMilli(data.lastSampleAt).atZone(ZoneId.systemDefault()))
+        data.lastSampleAt > 0L -> "更新于 " + TIME_FMT.format(Instant.ofEpochMilli(data.lastSampleAt).atZone(ZoneId.systemDefault()))
+        else -> "采样时间未知"
+    }
+
+    fun scheduleStaleLabel(data: WidgetData): String = when {
+        !data.scheduleImported -> "待导入整学期"
+        data.scheduleStale -> "较久未同步"
+        data.scheduleLastSyncAt <= 0L -> "同步时间未知"
+        else -> "已同步整学期"
     }
 
     fun sectionLabel(b: CourseBlock): String =
         if (b.endSection > b.startSection) "${b.startSection}-${b.endSection}" else "${b.startSection}节"
 
-    /** 下一节倒计时；未知节次不宣称进行中，只给节次。 */
+    /** 结束时不再宣称进行中；跨午休/晚休的课程只计算真实分段。 */
     fun nextCountdown(scope: WidgetData.Scope, b: CourseBlock, now: LocalTime): String {
         if (scope == WidgetData.Scope.TOMORROW) return "明天见"
-        val startT = runCatching { LocalTime.parse(ScheduleTimes.start(b.startSection)) }.getOrNull()
-        val endT = runCatching { LocalTime.parse(ScheduleTimes.end(b.endSection)) }.getOrNull()
-        return when {
-            startT == null -> "第 ${b.startSection} 节"
-            now.isBefore(startT) -> {
-                val mins = ChronoUnit.MINUTES.between(now, startT)
-                if (mins >= 90) "%.1f 小时后".format(mins / 60.0) else "$mins 分钟后"
-            }
-            endT != null && now.isBefore(endT) -> "上课中 · ${ChronoUnit.MINUTES.between(now, endT)} 分后下课"
-            else -> "上课中"
+        val segments = ScheduleTimes.segments(b.startSection, b.endSection).map { segment ->
+            val start = runCatching { LocalTime.parse(ScheduleTimes.start(segment.first)) }.getOrNull()
+            val end = runCatching { LocalTime.parse(ScheduleTimes.end(segment.last)) }.getOrNull()
+            if (start == null || end == null) return "第 ${b.startSection} 节"
+            start to end
+        }
+        val next = segments.firstOrNull { now.isBefore(it.second) } ?: return "已下课"
+        return if (now.isBefore(next.first)) {
+            val mins = (java.time.Duration.between(now, next.first).seconds + 59) / 60
+            if (next != segments.first()) "$mins 分钟后续课"
+            else if (mins >= 90) "%.1f 小时后".format(mins / 60.0) else "$mins 分钟后"
+        } else {
+            val mins = (java.time.Duration.between(now, next.second).seconds + 59) / 60
+            "上课中 · $mins 分后下课"
         }
     }
 
