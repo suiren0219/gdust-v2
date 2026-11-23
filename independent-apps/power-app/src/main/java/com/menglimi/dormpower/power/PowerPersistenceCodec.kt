@@ -20,23 +20,7 @@ internal object PowerPersistenceCodec {
         addProperty("version", 1)
         addProperty("bindingRevision", snapshot.bindingRevision)
         addProperty("roomName", snapshot.roomName)
-        add("ledger", JsonObject().apply {
-            addProperty("unitPrice", snapshot.ledger.unitPrice)
-            add("entries", JsonArray().apply {
-                snapshot.ledger.entries.forEach { entry -> add(JsonObject().apply {
-                    addProperty("id", entry.id); addProperty("time", entry.time); addProperty("fromTime", entry.fromTime)
-                    addNumber("kwh", entry.kwh); addProperty("price", entry.unitPrice)
-                    addProperty("paid", entry.paidYuan); addProperty("payer", entry.payer); addProperty("note", entry.note)
-                    addProperty("detected", entry.detected); addProperty("ignored", entry.ignored)
-                }) }
-            })
-            add("days", JsonArray().apply {
-                snapshot.ledger.days.forEach { day -> add(JsonObject().apply {
-                    addProperty("date", day.date); addNumber("kwh", day.kwh); addProperty("yuan", day.yuan)
-                    addProperty("intervals", day.intervals); addProperty("firstAt", day.firstAt); addProperty("lastAt", day.lastAt)
-                }) }
-            })
-        })
+        snapshot.ledger?.let { ledger -> add("ledger", encodeLedger(ledger)) }
         add("config", JsonObject().apply {
             val config = snapshot.config
             config.binding?.let { binding ->
@@ -115,7 +99,11 @@ internal object PowerPersistenceCodec {
         val key = monitor.text("cachedBindingKey")
         require(monitor.value("cachedBindingKey") == null || key != null) { "缓存身份数据无效" }
         require(binding == null || key == null || key == binding.key) { "缓存与宿舍绑定不匹配" }
-        require(binding != null || key == null && monitor.value("reading") == null && monitor.entries("samples").isEmpty()) {
+        val sampleEntries = monitor.value("samples")?.let { samples ->
+            require(samples.isJsonArray) { "电量历史格式无效" }
+            samples.asJsonArray.toList()
+        }.orEmpty()
+        require(binding != null || key == null && monitor.value("reading") == null && sampleEntries.isEmpty()) {
             "宿舍绑定缺失，原记录已保留"
         }
         val state = if (binding == null) PowerMonitorState() else {
@@ -139,7 +127,7 @@ internal object PowerPersistenceCodec {
                 }?.takeIf { key == binding.key },
                 lastSampleAt = monitor.time("lastSampleAt"),
                 lastAttemptAt = monitor.time("lastAttemptAt"),
-                samples = monitor.entries("samples").mapNotNull { entry ->
+                samples = sampleEntries.mapNotNull { entry ->
                     val sample = entry.objectOrNull() ?: return@mapNotNull null
                     val time = sample.time("time").takeIf { it > 0 } ?: return@mapNotNull null
                     val odd = sample.number("odd") ?: return@mapNotNull null
@@ -149,30 +137,77 @@ internal object PowerPersistenceCodec {
                 dropWarnAt = monitor.time("dropWarnAt"),
             )
         }
-        val ledgerJson = root.value("ledger")?.asJsonObject
-        val ledger = ledgerJson?.let { data ->
-            PowerLedgerState(
-                unitPrice = data.text("unitPrice")?.takeIf { PowerLedger.price(it) != null } ?: "0.6",
-                entries = data.getAsJsonArray("entries")?.map { value ->
-                    val entry = value.asJsonObject
-                    PowerLedgerEntry(entry.text("id").orEmpty(), entry.time("time"), entry.time("fromTime"),
-                        requireNotNull(entry.number("kwh")), entry.text("price") ?: "0.6", entry.text("paid"),
-                        entry.text("payer").orEmpty(), entry.text("note").orEmpty(),
-                        entry.value("detected")?.asBoolean ?: false, entry.value("ignored")?.asBoolean ?: false)
-                        .also(PowerLedger::validate)
-                }.orEmpty(),
-                days = data.getAsJsonArray("days")?.map { value ->
-                    val day = value.asJsonObject
-                    val date = java.time.LocalDate.parse(day.text("date")).toString()
-                    val kwh = requireNotNull(day.number("kwh")).also { require(it >= 0) }
-                    val yuan = requireNotNull(day.text("yuan")).also { require(it.toBigDecimal().signum() >= 0) }
-                    PowerDayCost(date, kwh, yuan, day.get("intervals").asInt, day.time("firstAt"), day.time("lastAt"))
-                }.orEmpty(),
-            )
-        } ?: PowerLedgerState()
+        val ledger = root.value("ledger")?.let { decodeLedger(it) }
+        require(binding != null || ledger == null || ledger.entries.isEmpty() && ledger.days.isEmpty()) {
+            "账本的宿舍绑定缺失，原记录已保留"
+        }
         return PowerSnapshot(config, if (binding == null) "" else root.text("roomName").orEmpty(), state,
-            root.time("bindingRevision"), ledger = if (binding == null) PowerLedgerState(ledger.unitPrice) else ledger)
+            root.time("bindingRevision"), ledger = ledger)
     }
+
+    private fun encodeLedger(ledger: PowerLedgerState): JsonObject = JsonObject().apply {
+        addProperty("unitPrice", ledger.unitPrice)
+        add("entries", JsonArray().apply {
+            ledger.entries.forEach { entry -> add(JsonObject().apply {
+                addProperty("id", entry.id)
+                addProperty("time", entry.time)
+                addProperty("fromTime", entry.fromTime)
+                addNumber("kwh", entry.kwh)
+                addProperty("price", entry.unitPrice)
+                addProperty("paid", entry.paidYuan)
+                addProperty("payer", entry.payer)
+                addProperty("note", entry.note)
+                addProperty("detected", entry.detected)
+                addProperty("ignored", entry.ignored)
+            }) }
+        })
+        add("days", JsonArray().apply {
+            ledger.days.forEach { day -> add(JsonObject().apply {
+                addProperty("date", day.date)
+                addNumber("kwh", day.kwh)
+                addProperty("yuan", day.yuan)
+                addProperty("intervals", day.intervals)
+                addProperty("firstAt", day.firstAt)
+                addProperty("lastAt", day.lastAt)
+            }) }
+        })
+    }
+
+    /** 已存在的账本字段必须完整可读；不能静默用空账本覆盖格式异常的记录。 */
+    private fun decodeLedger(value: JsonElement): PowerLedgerState {
+        val data = requireNotNull(value.objectOrNull()) { "账本数据无法读取" }
+        val price = requireNotNull(data.text("unitPrice")) { "账本电价缺失" }
+        require(PowerLedger.price(price) != null) { "账本电价无效" }
+        val entries = data.requiredEntries("entries").map { item ->
+            val entry = requireNotNull(item.objectOrNull()) { "充值记录格式无效" }
+            PowerLedgerEntry(
+                id = requireNotNull(entry.text("id")), time = entry.time("time"), fromTime = entry.time("fromTime"),
+                kwh = requireNotNull(entry.number("kwh")), unitPrice = requireNotNull(entry.text("price")),
+                paidYuan = entry.nullableText("paid"), payer = entry.optionalText("payer").orEmpty(),
+                note = entry.optionalText("note").orEmpty(),
+                detected = entry.boolean("detected"), ignored = entry.boolean("ignored"),
+            ).also(PowerLedger::validate)
+        }
+        val days = data.requiredEntries("days").map { item ->
+            val day = requireNotNull(item.objectOrNull()) { "账本日汇总格式无效" }
+            val date = java.time.LocalDate.parse(day.text("date")).toString()
+            val kwh = requireNotNull(day.number("kwh")).also { require(it >= 0) }
+            val yuan = requireNotNull(day.text("yuan")).also { require(it.toBigDecimal().signum() >= 0) }
+            PowerDayCost(date, kwh, yuan, day.integer("intervals") ?: error("账本区间缺失"),
+                day.time("firstAt"), day.time("lastAt"))
+        }
+        return PowerLedgerState(price, entries, days)
+    }
+
+    private fun JsonObject.requiredEntries(key: String): List<JsonElement> {
+        val list = requireNotNull(value(key)?.takeIf { it.isJsonArray }) { "账本列表缺失" }
+        return list.asJsonArray.toList()
+    }
+
+    private fun JsonObject.boolean(key: String): Boolean = value(key)?.let {
+        require(it.isJsonPrimitive && it.asJsonPrimitive.isBoolean) { "账本标记格式无效" }
+        it.asBoolean
+    } ?: false
 
     private fun JsonObject.addNumber(key: String, value: Double?) {
         addProperty(key, value?.takeIf { it.isFinite() })
@@ -184,6 +219,14 @@ internal object PowerPersistenceCodec {
         ?.takeIf { it.isJsonArray }?.asJsonArray?.toList().orEmpty()
     private fun JsonObject.text(key: String): String? = value(key)
         ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+    private fun JsonObject.nullableText(key: String): String? {
+        if (has(key) && !get(key).isJsonNull) return requireNotNull(text(key)) { "账本字段格式无效" }
+        return null
+    }
+    private fun JsonObject.optionalText(key: String): String? {
+        if (!has(key) || get(key).isJsonNull) return null
+        return requireNotNull(text(key)) { "账本字段格式无效" }
+    }
     private fun JsonObject.number(key: String): Double? = value(key)
         ?.takeIf { it.isJsonPrimitive && !it.asJsonPrimitive.isBoolean }?.asString
         ?.toDoubleOrNull()?.takeIf { it.isFinite() }

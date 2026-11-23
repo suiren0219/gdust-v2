@@ -180,15 +180,24 @@ class PowerQueryPolicyTest {
         assertEquals(at(14), next(at(12), last = at(13), attempt = at(13)))
     }
 
-    @Test fun historyDeduplicatesOnlyCurrentQuarterHourAndKeepsThirtyDays() {
+    @Test fun historyDeduplicatesOnlyCurrentQuarterHourAndKeepsOlderSamples() {
         val old = PowerSample(at(12, days = -31), 200.0)
         val earlier = PowerSample(at(11, 45), 52.0)
         val currentBucket = PowerSample(at(12, 1), 51.0)
         val latest = PowerSample(at(12, 14), 50.0)
         val result = PowerQueryPolicy.appendSample(listOf(old, earlier, currentBucket), latest)
-        assertEquals(listOf(earlier, latest), result)
+        assertEquals(listOf(old, earlier, latest), result)
         val nextBucket = PowerSample(at(12, 15), 49.0)
-        assertEquals(listOf(earlier, latest, nextBucket), PowerQueryPolicy.appendSample(result, nextBucket))
+        assertEquals(listOf(old, earlier, latest, nextBucket), PowerQueryPolicy.appendSample(result, nextBucket))
+    }
+
+    @Test fun clockRollbackPreservesOtherBucketsAndNewerSampleInCurrentBucket() {
+        val latestInBucket = PowerSample(at(12, 14), 50.0)
+        val laterBucket = PowerSample(at(12, 15), 49.0)
+        val samples = listOf(latestInBucket, laterBucket)
+        assertEquals(samples, PowerQueryPolicy.appendSample(samples, PowerSample(at(12, 1), 51.0)))
+        val earlier = PowerSample(at(11, 45), 52.0)
+        assertEquals(listOf(earlier, latestInBucket, laterBucket), PowerQueryPolicy.appendSample(samples, earlier))
     }
 
     @Test fun invalidReadingCannotReplaceUsefulHistoryButZeroIsPreserved() {

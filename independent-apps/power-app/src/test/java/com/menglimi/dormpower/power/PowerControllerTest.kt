@@ -257,7 +257,7 @@ class PowerControllerTest {
         advanceUntilIdle()
         controller.saveEntry(PowerLedgerEntry(time = now, kwh = 100.0, paidYuan = "60.00"), revision)
         advanceUntilIdle()
-        assertTrue(store.snapshot().ledger.entries.isEmpty())
+        assertTrue(store.snapshot().ledger?.entries.orEmpty().isEmpty())
         assertNotNull(controller.state.value.ledgerError)
         assertEquals(0L, controller.state.value.ledgerSavedVersion)
     }

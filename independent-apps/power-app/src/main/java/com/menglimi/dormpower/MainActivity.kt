@@ -5,7 +5,6 @@ import android.app.Application
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -26,6 +25,7 @@ import com.menglimi.dormpower.power.PowerController
 import com.menglimi.dormpower.power.PowerNotifications
 import com.menglimi.dormpower.power.PowerScheduling
 import com.menglimi.dormpower.power.PowerStore
+import com.menglimi.dormpower.power.PowerBackgroundStatusStore
 import com.menglimi.dormpower.ui.PowerActions
 import com.menglimi.dormpower.ui.PowerRoot
 import com.menglimi.ksu.ui.AppearanceStore
@@ -36,10 +36,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 
 internal class PowerViewModel(application: Application) : AndroidViewModel(application) {
     val appearance = AppearanceStore(application)
     val notifications = PowerNotifications(application)
+    val backgroundStatus = PowerBackgroundStatusStore.status
+    val bootQueryEnabled = MutableStateFlow(PowerScheduling.bootQueryEnabled(application))
+    private val diagnosticScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    fun reloadBackgroundStatus() { diagnosticScope.launch { PowerBackgroundStatusStore.read(getApplication()) } }
+    fun setBootQueryEnabled(value: Boolean) {
+        PowerScheduling.setBootQueryEnabled(getApplication(), value).invokeOnCompletion {
+            bootQueryEnabled.value = PowerScheduling.bootQueryEnabled(getApplication())
+            reloadBackgroundStatus()
+        }
+    }
     private val api by lazy { PowerApi() }
     val controller = PowerController(PowerStore(application),
         source = { binding -> api.detail(binding) }, roomsSource = { account, code -> api.rooms(account, code) },
@@ -60,7 +72,7 @@ internal class PowerViewModel(application: Application) : AndroidViewModel(appli
         saveEntry = { entry, revision -> controller.saveEntry(entry, revision) },
         removeEntry = { id, revision -> controller.removeEntry(id, revision) },
     )
-    override fun onCleared() { controller.close() }
+    override fun onCleared() { controller.close(); diagnosticScope.cancel() }
 }
 
 class MainActivity : ComponentActivity() {
@@ -74,6 +86,8 @@ class MainActivity : ComponentActivity() {
             val appearance by model.appearance.state.collectAsStateWithLifecycle()
             val tab by model.tab.collectAsStateWithLifecycle()
             val schedulingError by PowerScheduling.error.collectAsStateWithLifecycle()
+            val backgroundStatus by model.backgroundStatus.collectAsStateWithLifecycle()
+            val bootQueryEnabled by model.bootQueryEnabled.collectAsStateWithLifecycle()
             var notificationsEnabled by rememberSaveable { mutableStateOf(model.notifications.enabled()) }
             var permissionRequested by rememberSaveable { mutableStateOf(false) }
             var notificationMessage by rememberSaveable { mutableStateOf(model.notifications.access().message) }
@@ -88,6 +102,9 @@ class MainActivity : ComponentActivity() {
                 val observer = LifecycleEventObserver { _, event ->
                     if (event == Lifecycle.Event.ON_RESUME) {
                         model.controller.reload()
+                        model.reloadBackgroundStatus()
+                        model.bootQueryEnabled.value = PowerScheduling.bootQueryEnabled(applicationContext)
+                        PowerScheduling.ensure(applicationContext)
                         val wasEnabled = notificationsEnabled
                         notificationsEnabled = model.notifications.enabled()
                         notificationMessage = model.notifications.access().message
@@ -117,7 +134,8 @@ class MainActivity : ComponentActivity() {
                             else model.notifications.access().message
                     },
                     notificationMessage = notificationMessage, schedulingError = schedulingError,
-                    onRetryScheduling = { PowerScheduling.ensure(this) })
+                    onRetryScheduling = { PowerScheduling.ensure(this) }, backgroundStatus = backgroundStatus,
+                    bootQueryEnabled = bootQueryEnabled, onBootQueryEnabled = model::setBootQueryEnabled)
             }
         }
     }

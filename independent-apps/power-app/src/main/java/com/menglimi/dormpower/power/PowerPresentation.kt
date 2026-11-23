@@ -85,9 +85,12 @@ internal fun schoolCode(text: String): Int? = text.trim()
     .takeIf { it.isNotEmpty() && it.all { char -> char in '0'..'9' } }
     ?.toIntOrNull()?.takeIf { it > 0 }
 
-internal fun trendSamples(samples: List<PowerSample>, days: Int, now: Long): List<PowerSample> = samples
-    .filter { it.time > 0 && it.time in (now - days.coerceIn(1, 30) * 86_400_000L)..now && it.odd.isFinite() }
-    .sortedBy { it.time }.distinctBy { it.time }
+/** 日期范围只影响展示。全部记录也包含时钟回拨前保存的采样。 */
+internal fun trendSamples(samples: List<PowerSample>, days: Int?, now: Long): List<PowerSample> {
+    val range = days?.let { (now - it.coerceIn(1, 30) * 86_400_000L)..now }
+    return samples.filter { it.time > 0 && it.odd.isFinite() && (range == null || it.time in range) }
+        .sortedBy { it.time }.distinctBy { it.time }
+}
 
 internal data class TrendAxis(val min: Double, val max: Double) {
     val ticks: List<Double> get() = listOf(max, (max + min) / 2, min)

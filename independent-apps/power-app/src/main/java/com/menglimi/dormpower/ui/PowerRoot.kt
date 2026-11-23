@@ -14,6 +14,8 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.menglimi.dormpower.power.PowerBackgroundStatus
+import com.menglimi.dormpower.power.PowerLedgerEntry
 import com.menglimi.dormpower.power.PowerUiState
 import com.menglimi.ksu.ui.Appearance
 import com.menglimi.ksu.ui.Glyph
@@ -37,7 +39,7 @@ internal data class PowerActions(
     val thresholds: (Double, Double) -> Unit,
     val unbind: () -> Unit,
     val price: (String, Long) -> Unit = { _, _ -> },
-    val saveEntry: (com.menglimi.dormpower.power.PowerLedgerEntry, Long) -> Unit = { _, _ -> },
+    val saveEntry: (PowerLedgerEntry, Long) -> Unit = { _, _ -> },
     val removeEntry: (String, Long) -> Unit = { _, _ -> },
 )
 
@@ -56,6 +58,9 @@ internal fun PowerRoot(
     schedulingError: String? = null,
     onRetryScheduling: () -> Unit = {},
     preview: Boolean = false,
+    backgroundStatus: PowerBackgroundStatus = PowerBackgroundStatus(),
+    bootQueryEnabled: Boolean = false,
+    onBootQueryEnabled: (Boolean) -> Unit = {},
 ) {
     var clockTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var pullRefreshing by remember { mutableStateOf(false) }
@@ -90,7 +95,8 @@ internal fun PowerRoot(
             1 -> PowerHistoryScreen(state, now, preview)
             3 -> PowerLedgerScreen(state, actions, now, preview)
             else -> PowerSettingsScreen(appearance, onAppearance, state, actions, notificationsEnabled,
-                onNotifications, onTestNotification, notificationMessage, schedulingError, onRetryScheduling, preview)
+                onNotifications, onTestNotification, notificationMessage, schedulingError, onRetryScheduling,
+                preview, backgroundStatus, bootQueryEnabled, onBootQueryEnabled)
         }
     }
 }

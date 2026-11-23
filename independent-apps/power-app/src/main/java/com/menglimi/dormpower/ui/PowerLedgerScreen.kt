@@ -25,6 +25,10 @@ import java.time.YearMonth
 
 @Composable
 internal fun PowerLedgerScreen(state: PowerUiState, actions: PowerActions, now: Long, preview: Boolean) {
+    if (state.localError != null || state.localLoading) {
+        LocalPowerDataNotice(state, actions)
+        return
+    }
     val today = PowerLedger.date(now, state.config.zone)
     var monthText by rememberSaveable { mutableStateOf(YearMonth.from(today).toString()) }
     var selectedText by rememberSaveable { mutableStateOf(today.toString()) }
@@ -34,16 +38,21 @@ internal fun PowerLedgerScreen(state: PowerUiState, actions: PowerActions, now: 
     var editor by remember { mutableStateOf<PowerLedgerEntry?>(null) }
     var adding by rememberSaveable { mutableStateOf(false) }
     var removing by remember { mutableStateOf<PowerLedgerEntry?>(null) }
-    LaunchedEffect(state.bindingRevision) { editor = null; adding = false; removing = null }
+    var priceOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.bindingRevision) { editor = null; adding = false; removing = null; priceOpen = false }
     val month = YearMonth.parse(monthText)
     val selected = LocalDate.parse(selectedText)
-    val entries = state.ledger.entries.filterNot { it.ignored }.filter { YearMonth.from(PowerLedger.date(it.time, state.config.zone)) == month }
-    val days = state.ledger.days.filter { it.date.startsWith(monthText) }
+    val ledger = state.ledger ?: PowerLedgerState()
+    val entries = ledger.entries.filterNot { it.ignored }.filter { YearMonth.from(PowerLedger.date(it.time, state.config.zone)) == month }
+    val days = ledger.days.filter { it.date.startsWith(monthText) }
     val observed = entries.filter { it.detected && it.paidYuan == null }
     val recorded = entries.filterNot { it.detected && it.paidYuan == null }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 124.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { PageHeader("电费账本", if (preview) "合成预览 · 不写入真实账本" else "月历、充值记录与室友记账") }
+        state.recoveryMessage?.let { message -> item {
+            Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } }
         item {
             KCard(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -57,9 +66,10 @@ internal fun PowerLedgerScreen(state: PowerUiState, actions: PowerActions, now: 
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("采样用电约 ¥${PowerLedger.money(days.fold(BigDecimal.ZERO) { sum, d -> sum + d.yuan.toBigDecimal() })}",
                     modifier = Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
-                Text("当前 ${state.ledger.unitPrice} 元/度 · 历史账目保留当时电价",
+                Text("当前 ${ledger.unitPrice} 元/度 · 历史账目保留当时电价",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp))
+                TextButton(onClick = { priceOpen = true }, enabled = !state.ledgerBusy) { Text("修改电价") }
             }
         }
         item {
@@ -127,6 +137,7 @@ internal fun PowerLedgerScreen(state: PowerUiState, actions: PowerActions, now: 
             } }
         }
     }
+    if (priceOpen) LedgerPriceDialog(state, actions) { priceOpen = false }
     if (adding || editor != null) LedgerEntryDialog(editor, selected, state, actions) { adding = false; editor = null }
     removing?.let { entry -> AlertDialog(onDismissRequest = { removing = null }, title = { Text(if (entry.detected) "忽略这笔识别？" else "删除这笔记录？") },
         text = { Text("不会修改电量采样或其他账目。") }, confirmButton = {
@@ -167,6 +178,27 @@ private fun LedgerCalendar(month: YearMonth, selected: LocalDate, today: LocalDa
 }
 
 @Composable
+private fun LedgerPriceDialog(state: PowerUiState, actions: PowerActions, close: () -> Unit) {
+    var price by remember { mutableStateOf(state.ledger?.unitPrice ?: "0.6") }
+    var submitted by remember { mutableStateOf(false) }
+    val initialSavedVersion = remember { state.ledgerSavedVersion }
+    val editorRevision = remember { state.bindingRevision }
+    LaunchedEffect(state.ledgerSavedVersion, state.ledgerError, state.ledgerBusy, submitted) {
+        if (submitted && state.ledgerSavedVersion > initialSavedVersion) close()
+        else if (submitted && state.ledgerError != null && !state.ledgerBusy) submitted = false
+    }
+    PowerDialog("电费单价", close, dismissEnabled = !state.ledgerBusy, confirm = {
+        Button(enabled = PowerLedger.price(price) != null && editorRevision == state.bindingRevision && !state.ledgerBusy && !submitted,
+            onClick = { submitted = true; actions.price(price, editorRevision) }) { Text(if (state.ledgerBusy) "保存中…" else "保存") }
+    }) {
+        OutlinedTextField(price, { price = it }, label = { Text("人民币 / 度") }, singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+        Text("默认 0.6 元/度，支持最多四位小数。新电价用于之后的采样与充值识别，不会重算旧账。")
+        state.ledgerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    }
+}
+
+@Composable
 private fun LedgerEntryDialog(entry: PowerLedgerEntry?, date: LocalDate, state: PowerUiState, actions: PowerActions, close: () -> Unit) {
     var day by remember { mutableStateOf(entry?.let { PowerLedger.date(it.time, state.config.zone).toString() } ?: date.toString()) }
     var kwh by remember { mutableStateOf(entry?.kwh?.let(java.math.BigDecimal::valueOf)?.stripTrailingZeros()?.toPlainString().orEmpty()) }
@@ -175,7 +207,7 @@ private fun LedgerEntryDialog(entry: PowerLedgerEntry?, date: LocalDate, state: 
     var note by remember { mutableStateOf(entry?.note.orEmpty()) }
     var submitted by remember { mutableStateOf(false) }
     val initialSavedVersion = remember { state.ledgerSavedVersion }
-    val price = entry?.unitPrice ?: state.ledger.unitPrice
+    val price = entry?.unitPrice ?: (state.ledger?.unitPrice ?: "0.6")
     val amount = PowerLedger.payment(paid)
     val units = if (entry?.detected == true) entry.kwh else kwh.toDoubleOrNull()?.takeIf { it.isFinite() && it > 0 }
         ?: amount?.takeIf { it > BigDecimal.ZERO }?.divide(PowerLedger.price(price), 8, java.math.RoundingMode.HALF_UP)?.toDouble()
@@ -184,7 +216,7 @@ private fun LedgerEntryDialog(entry: PowerLedgerEntry?, date: LocalDate, state: 
     val valid = units != null && units > 0 && units <= 10_000_000 && parsedDate != null &&
         (kwh.isBlank() || kwh.toDoubleOrNull()?.let { it.isFinite() && it > 0 } == true || entry?.detected == true) &&
         (paid.isBlank() || amount != null) && payer.length <= 40 && note.length <= 500 && editorRevision == state.bindingRevision
-    LaunchedEffect(state.ledgerSavedVersion, state.ledgerError, submitted) {
+    LaunchedEffect(state.ledgerSavedVersion, state.ledgerError, state.ledgerBusy, submitted) {
         if (submitted && state.ledgerSavedVersion > initialSavedVersion) close()
         else if (submitted && state.ledgerError != null && !state.ledgerBusy) submitted = false
     }

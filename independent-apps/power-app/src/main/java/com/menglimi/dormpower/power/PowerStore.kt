@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.menglimi.power.PowerBinding
+import com.menglimi.power.PowerMonitor
 import com.menglimi.power.PowerMonitorConfig
 import com.menglimi.power.PowerMonitorState
 import com.menglimi.power.PowerMonitorStore

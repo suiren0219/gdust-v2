@@ -38,6 +38,7 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
     }
     val bound = state.config.binding?.isValid == true
     val reading = state.reading.takeIf { bound }
+    val ledger = state.ledger ?: com.menglimi.dormpower.power.PowerLedgerState()
     val presentation = readingPresentation(state, now)
     val stale = presentation.cached
     val roomName = state.roomName.ifBlank { "已绑定宿舍" }
@@ -57,7 +58,7 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
                 val foreground = if (presentation.warning) MaterialTheme.colorScheme.onErrorContainer
                     else MaterialTheme.colorScheme.onPrimaryContainer
                 if (bound && reading?.detail?.odd != null) Text(
-                    "折合约 ¥${com.menglimi.dormpower.power.PowerLedger.yuan(reading.detail.odd, state.ledger.unitPrice)} · ${state.ledger.unitPrice} 元/度",
+                    "折合约 ¥${com.menglimi.dormpower.power.PowerLedger.yuan(reading.detail.odd, ledger.unitPrice)} · ${ledger.unitPrice} 元/度",
                     style = MaterialTheme.typography.bodySmall, color = foreground)
             }
         }
@@ -87,8 +88,8 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
         } else {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard(usageValue(reading?.detail?.todayUse), "今日用电 / 度 · ≈¥${com.menglimi.dormpower.power.PowerLedger.yuan(reading?.detail?.todayUse, state.ledger.unitPrice)}")
-                    StatCard(usageValue(reading?.detail?.monthUse), "上月用电 / 度 · ≈¥${com.menglimi.dormpower.power.PowerLedger.yuan(reading?.detail?.monthUse, state.ledger.unitPrice)}")
+                    StatCard(usageValue(reading?.detail?.todayUse), "今日用电 / 度 · ≈¥${com.menglimi.dormpower.power.PowerLedger.yuan(reading?.detail?.todayUse, ledger.unitPrice)}")
+                    StatCard(usageValue(reading?.detail?.monthUse), "上月用电 / 度 · ≈¥${com.menglimi.dormpower.power.PowerLedger.yuan(reading?.detail?.monthUse, ledger.unitPrice)}")
                 }
                 if (stale) Text("以上为上次成功返回的统计，尚未验证最新数据。下拉页面刷新。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -118,7 +119,7 @@ internal fun PowerScreen(state: PowerUiState, actions: PowerActions, now: Long, 
                     week.forEach { (label, use) ->
                         Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(label.ifBlank { "未标注日期" }, Modifier.weight(1f))
-                            Text("${usageValue(use)} 度  ≈¥${com.menglimi.dormpower.power.PowerLedger.yuan(use.takeIf { it >= 0 }, state.ledger.unitPrice)}")
+                            Text("${usageValue(use)} 度  ≈¥${com.menglimi.dormpower.power.PowerLedger.yuan(use.takeIf { it >= 0 }, ledger.unitPrice)}")
                         }
                     }
                     Text("累计购电 ${usageValue(reading?.detail?.sumBuy)} 度", style = MaterialTheme.typography.bodySmall,

@@ -62,14 +62,15 @@ class PowerLedgerTest {
         store.update(binding) { it.copy(reading = reading(now, 10.0), cachedBindingKey = binding.key) }
         store.monitorStore(background = true).update(binding) { it.copy(reading = reading(now + 1000, 20.0)) }
         // 手动模式拒绝后台提交。
-        assertTrue(store.snapshot().ledger.entries.isEmpty())
+        assertTrue(store.snapshot().ledger?.entries.orEmpty().isEmpty())
         store.update(binding) { it.copy(reading = reading(now + 1000, 20.0)) }
-        val entry = store.snapshot().ledger.entries.single().copy(payer = "室友乙", note = "共同电费", paidYuan = "6.00")
+        val entry = requireNotNull(store.snapshot().ledger).entries.single()
+            .copy(payer = "室友乙", note = "共同电费", paidYuan = "6.00")
         store.editLedger(store.snapshot().bindingRevision) { it.copy(entries = listOf(entry)) }
         val reopened = PowerStorage(memory).snapshot()
         assertEquals(store.snapshot(), reopened)
-        assertEquals("共同电费", reopened.ledger.entries.single().note)
-        val previous = store.snapshot().ledger
+        assertEquals("共同电费", requireNotNull(reopened.ledger).entries.single().note)
+        val previous = requireNotNull(store.snapshot().ledger)
         store.bind(binding, "测试宿舍", store.snapshot().bindingRevision)
         assertEquals(previous, store.snapshot().ledger)
         memory.fail = true
@@ -77,7 +78,7 @@ class PowerLedgerTest {
         assertEquals(previous, store.snapshot().ledger)
         memory.fail = false
         store.unbind()
-        assertTrue(store.snapshot().ledger.entries.isEmpty())
+        assertTrue(store.snapshot().ledger?.entries.orEmpty().isEmpty())
     }
 
     @Test fun oldSnapshotsRemainReadableAndWrongRoomRevisionCannotEditLedger() {
@@ -89,6 +90,9 @@ class PowerLedgerTest {
         assertThrows(IllegalStateException::class.java) { store.editLedger(revision) { it.copy(unitPrice = "0.8") } }
         val old = com.google.gson.JsonParser.parseString(PowerPersistenceCodec.encode(store.snapshot())).asJsonObject
         old.remove("ledger")
-        assertEquals("0.6", PowerPersistenceCodec.decode(old.toString()).ledger.unitPrice)
+        val legacy = PowerPersistenceCodec.decode(old.toString())
+        // 缺账本字段的旧快照按 null 保留，界面用默认电价兜底。
+        assertNull(legacy.ledger)
+        assertEquals("0.6", (legacy.ledger ?: PowerLedgerState()).unitPrice)
     }
 }

@@ -2,6 +2,7 @@ package com.menglimi.dormpower.power
 
 import com.menglimi.power.PowerBinding
 import com.menglimi.power.PowerMonitorConfig
+import com.menglimi.power.PowerQueryPolicy
 import com.menglimi.power.PowerQueryPreset
 import java.time.ZoneId
 import org.junit.Assert.assertEquals

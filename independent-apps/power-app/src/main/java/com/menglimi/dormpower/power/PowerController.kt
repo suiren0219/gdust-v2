@@ -286,6 +286,7 @@ internal class PowerController(
         return scope.launch {
             try {
                 synchronized(mutationLock) {
+                    coroutineContext.ensureActive()
                     publish(store.editLedger(revision, transform))
                     mutableState.update { it.copy(message = "账本已保存", ledgerSavedVersion = it.ledgerSavedVersion + 1) }
                     onSchedule()
@@ -335,7 +336,8 @@ internal class PowerController(
             bindingRevision = snapshot.bindingRevision, reading = reading,
             samples = if (binding == null) emptyList() else snapshot.monitor.samples,
             lastAttemptAt = snapshot.monitor.lastAttemptAt, lastSampleAt = snapshot.monitor.lastSampleAt,
-            localError = null, recoveryMessage = snapshot.recoveryMessage, ledger = snapshot.ledger) }
+            localError = null, recoveryMessage = snapshot.recoveryMessage,
+            ledger = snapshot.ledger ?: PowerLedgerState()) }
     }
 
     private class InputFailure(message: String) : IllegalArgumentException(message)

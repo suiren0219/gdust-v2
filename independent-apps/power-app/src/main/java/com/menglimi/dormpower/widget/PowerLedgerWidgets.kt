@@ -39,14 +39,16 @@ class PowerCalendarWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val now = System.currentTimeMillis()
         val snapshot = withContext(Dispatchers.IO) { PowerStore(context).snapshot() }
-        provideContent { LedgerWidgetBody(snapshot.ledger, snapshot.config.zone, true, now) }
+        val ledger = snapshot.ledger ?: PowerLedgerState()
+        provideContent { LedgerWidgetBody(ledger, snapshot.config.zone, true, now) }
     }
 }
 class PowerLedgerWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val now = System.currentTimeMillis()
         val snapshot = withContext(Dispatchers.IO) { PowerStore(context).snapshot() }
-        provideContent { LedgerWidgetBody(snapshot.ledger, snapshot.config.zone, false, now) }
+        val ledger = snapshot.ledger ?: PowerLedgerState()
+        provideContent { LedgerWidgetBody(ledger, snapshot.config.zone, false, now) }
     }
 }
 

@@ -1,5 +1,6 @@
 package com.menglimi.dormpower.power
 
+import com.google.gson.JsonParser
 import com.menglimi.power.PowerBinding
 import com.menglimi.power.PowerDetail
 import com.menglimi.power.PowerMonitorConfig
@@ -196,6 +197,14 @@ class PowerPersistenceCodecTest {
             mutation(root)
             assertThrows(IllegalArgumentException::class.java) { PowerPersistenceCodec.decode(root.toString()) }
         }
+    }
+
+    @Test fun malformedSamplesCollectionRejectsSnapshotInsteadOfErasingHistory() {
+        val snapshot = PowerSnapshot(config = PowerMonitorConfig(binding),
+            monitor = PowerMonitorState(binding.key, samples = listOf(PowerSample(1_000, 42.0))))
+        val json = JsonParser.parseString(PowerPersistenceCodec.encode(snapshot)).asJsonObject
+        json.getAsJsonObject("monitor").addProperty("samples", "broken")
+        assertThrows(IllegalArgumentException::class.java) { PowerPersistenceCodec.decode(json.toString()) }
     }
 
     @Test fun unknownVersionIsRejectedInsteadOfResettingCredentialsSilently() {
