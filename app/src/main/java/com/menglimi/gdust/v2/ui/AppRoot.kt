@@ -50,6 +50,9 @@ import com.menglimi.gdust.v2.data.NoticeFeed
 import com.menglimi.gdust.v2.data.readId
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -118,6 +121,13 @@ fun AppRoot(
     // 免责声明：普通 prefs 不触发重组，用状态控制弹窗，确认后写盘不再出现。
     var disclaimerShown by remember { mutableStateOf(!repo.store.disclaimerAccepted) }
 
+    DisposableEffect(repo) {
+        val stop = repo.store.observeSchedule {
+            calendar = repo.store.loadCalendar()
+            blocks = repo.store.loadBlocks()
+        }
+        onDispose { stop() }
+    }
     DisposableEffect(repo, noticeAccount) {
         val stop = repo.store.observeNoticeReads {
             readNoticeIds = repo.store.readNoticeIds(noticeAccount)
@@ -135,6 +145,15 @@ fun AppRoot(
     }
     // 备份导出：SAF 建文档，写入后提示
     val context = androidx.compose.ui.platform.LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var resumeRevision by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) resumeRevision++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val serviceWeb = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
     ) { webReturnVersion++ }
@@ -183,12 +202,14 @@ fun AppRoot(
     }
 
 
-    fun sync(preferred: SchoolService? = null) {
+    fun sync(preferred: SchoolService? = null, silentIfDue: Boolean = false) {
         if (syncing) return
+        if (silentIfDue && (repo.nextAutomaticSyncAt() ?: Long.MAX_VALUE) > System.currentTimeMillis()) return
         val service = selectScheduleService(
             preferred, repo.serviceConnections.value, repo.store.hasSession, repo.hasTeachingSession(),
         )
         if (service == null) {
+            if (silentIfDue) return
             syncFailureService = preferred ?: SchoolService.TEACHING
             syncNeedsAuthentication = true
             syncNetworkFailure = false
@@ -206,9 +227,16 @@ fun AppRoot(
         syncJob = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
             try {
                 val result = kotlinx.coroutines.withTimeoutOrNull(60_000L) {
-                    if (service == SchoolService.TEACHING) repo.syncTermWithCookies() else repo.syncSchedule()
-                } ?: throw java.net.SocketTimeoutException("读取课表超过 60 秒，已停止等待。")
-                if (repo.isCurrentSession(version)) {
+                    when {
+                        silentIfDue -> repo.syncTermSilentlyIfDue()
+                        service == SchoolService.TEACHING -> repo.syncTermWithCookies()
+                        else -> repo.syncSchedule()
+                    }
+                }
+                if (!silentIfDue && result == null) {
+                    throw java.net.SocketTimeoutException("读取课表超过 60 秒，已停止等待。")
+                }
+                if (repo.isCurrentSession(version) && result != null) {
                     calendar = result.first
                     blocks = result.second
                 }
@@ -219,6 +247,9 @@ fun AppRoot(
                     syncFailureService = service
                     syncNeedsAuthentication = error is AuthFailed
                     syncNetworkFailure = error.isNetworkDown()
+                    if (error is AuthFailed && silentIfDue) {
+                        com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(context)
+                    }
                     val sourcedError = if (service == SchoolService.TEACHING &&
                         error is java.net.SocketTimeoutException) TeachingSyncFailure(error) else error
                     syncError = syncFailureMessage(
@@ -241,6 +272,12 @@ fun AppRoot(
     fun openSchoolLogin() { schoolLogin.launch(null) }
     fun openServiceLogin(service: SchoolService) { schoolLogin.launch(service) }
     fun openLearningLogin() { openServiceLogin(SchoolService.CHX) }
+
+    LaunchedEffect(resumeRevision) {
+        if (resumeRevision > 0 && repo.store.autoSyncEnabled &&
+            repo.nextAutomaticSyncAt()?.let { it <= System.currentTimeMillis() } == true
+        ) sync(silentIfDue = true)
+    }
 
     LaunchedEffect(schoolLogin.result?.requestId) {
         val result = schoolLogin.result ?: return@LaunchedEffect
@@ -334,6 +371,10 @@ fun AppRoot(
             repo.serviceConnections.value.teaching.auth != ServiceAuthStatus.AUTH_REQUIRED
         val stale = System.currentTimeMillis() - repo.store.lastSyncAt > 6L * 60 * 60 * 1000
         if (teachingReady && stale && repo.store.autoSyncEnabled) sync(SchoolService.TEACHING)
+        // 启动时补一次已到期的四小时静默课表维护；Worker 负责后续周期。
+        if (repo.store.autoSyncEnabled && repo.nextAutomaticSyncAt()?.let { it <= System.currentTimeMillis() } == true) {
+            sync(silentIfDue = true)
+        }
     }
 
     Crossfade(

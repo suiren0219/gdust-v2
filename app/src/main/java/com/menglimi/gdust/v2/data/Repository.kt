@@ -53,6 +53,12 @@ class Store(context: Context) {
     }
 
     private val plain = app.getSharedPreferences("gdust_cache", Context.MODE_PRIVATE)
+    internal var automaticSyncNeedsLogin: Boolean
+        get() = plain.getBoolean("auto_sync_needs_login", false)
+        set(value) { plain.edit().putBoolean("auto_sync_needs_login", value).apply() }
+    internal var lastAutoSyncAttemptAt: Long
+        get() = plain.getLong("last_auto_sync_attempt_at", 0L)
+        set(value) { plain.edit().putLong("last_auto_sync_attempt_at", value).apply() }
 
     private var String.s: String
         get() = secure.getString(this, null).orEmpty()
@@ -515,10 +521,24 @@ class Store(context: Context) {
         get() = plain.getLong("last_sync_at", 0L)
         set(v) = plain.edit().putLong("last_sync_at", v).apply()
 
-    /** 登录后是否自动定时同步课表（12 小时一次）。 */
+    fun observeSchedule(listener: () -> Unit): () -> Unit {
+        val observer = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == null || key in setOf("blocks", "calendar", "last_sync_at")) listener()
+        }
+        plain.registerOnSharedPreferenceChangeListener(observer)
+        return { plain.unregisterOnSharedPreferenceChangeListener(observer) }
+    }
+
+    /** 登录后是否自动定时维护会话并同步课表（4 小时一次，与电量任务合并唤醒）。 */
     var autoSyncEnabled: Boolean
         get() = plain.getBoolean("auto_sync", true)
-        set(v) = plain.edit().putBoolean("auto_sync", v).apply()
+        set(v) {
+            val edit = plain.edit().putBoolean("auto_sync", v)
+            if (!v) edit.remove("last_auto_sync_attempt_at").remove("auto_sync_needs_login")
+            edit.apply()
+            if (v) com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(app)
+            else com.menglimi.gdust.v2.work.ScheduleSyncWorker.cancel(app)
+        }
 
     var powerQueryPreset: PowerQueryPreset
         get() = plain.getString("power_query_preset", null)?.let(PowerQueryPreset::fromKey)
@@ -591,6 +611,7 @@ class Store(context: Context) {
         plain.edit().remove("blocks").remove("calendar").remove("schedule_source")
             .remove("web_import_page").remove("chx_cookie_at").remove("last_sync_at")
             .remove("notice_read_at").putBoolean("web_logout_pending", true).apply()
+        plain.edit().remove("last_auto_sync_attempt_at").remove("auto_sync_needs_login").apply()
     }
 
     // ── 备份与恢复：只含课表/校历/待办/采样/偏好；不含登录凭证与密码 ──
@@ -682,6 +703,7 @@ class Repository(context: Context) {
     val chxSessionVersion = mutableChxSessionVersion.asStateFlow()
     @Volatile private var clearingChxSession = false
     private val authenticationMutex = Mutex()
+    private val scheduleSyncMutex = Mutex()
     private val webCleanupMutex = Mutex()
     private val chxSessionMutex = Mutex()
     private val api = GdustApi()
@@ -726,6 +748,7 @@ class Repository(context: Context) {
         sessionGuard.withCurrent(version) {
             if (store.webLogoutPending || !TeachingEndpoints.isLandingPage(pageUrl)) return@withCurrent false
             store.saveWebImport(pageUrl.substringBefore('?').substringBefore('#'))
+            store.automaticSyncNeedsLogin = false
             applyServicePatch(SchoolService.TEACHING, version, null, ServiceAuthStatus.SAVED, null,
                 System.currentTimeMillis(), generation)
             true
@@ -774,6 +797,7 @@ class Repository(context: Context) {
             store.portalToken = token
             store.jobNumber = account
             store.realName = name
+            store.automaticSyncNeedsLogin = false
             mutableAccountLogin.value = AccountLoginState.VALID
             accountCheckedAt = android.os.SystemClock.elapsedRealtime()
             applyServicePatch(SchoolService.PORTAL, version, null, ServiceAuthStatus.VERIFIED, null,
@@ -974,9 +998,94 @@ class Repository(context: Context) {
         return syncTermWithCookies()
     }
 
-    /** 已有持久化 Cookie 时直接拉学期课表；OkHttp 没有则回退到网页登录留下的会话（后台定时任务走这条）。 */
-    suspend fun syncTermWithCookies(): Pair<CalendarInfo, List<CourseBlock>> {
+    /** 四小时维护期限与电量调度共用；失败退避不改变上次成功时间，重开 App 不推迟期限。 */
+    fun nextAutomaticSyncAt(now: Long = System.currentTimeMillis()): Long? {
+        if (!store.autoSyncEnabled || store.webLogoutPending || store.automaticSyncNeedsLogin || store.jobNumber.isBlank()) return null
+        if (!store.hasSession && !TeachingEndpoints.isLandingPage(store.loadWebImportPage())) return null
+        return ScheduleSyncPolicy.nextAt(now, store.lastSyncAt, store.lastAutoSyncAttemptAt)
+    }
+
+    /** 每四小时用学校 SSO 维护会话并拉整学期；与前台/电量请求串行去重。 */
+    suspend fun syncTermSilentlyIfDue(): Pair<CalendarInfo, List<CourseBlock>>? = scheduleSyncMutex.withLock {
         val version = sessionGuard.current()
+        val now = System.currentTimeMillis()
+        val due = nextAutomaticSyncAt(now) ?: return@withLock null
+        if (due > now) return@withLock null
+        checkAutomaticSync(version)
+        sessionGuard.withCurrent(version) { store.lastAutoSyncAttemptAt = now }
+        val renewal = runCatching { renewSchoolSession(version, background = true) }
+        renewal.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+        checkAutomaticSync(version)
+        val (cal, blocks) = try {
+            readTermWithCookies(version)
+        } catch (error: AuthFailed) {
+            // 会话恢复遇到网络/维护异常时，不把它伪装成需要用户重新绑定。
+            val failure = renewal.exceptionOrNull()
+            if (failure != null && failure !is AuthFailed) throw failure
+            sessionGuard.withCurrent(version) {
+                checkAutomaticSync(version)
+                store.automaticSyncNeedsLogin = true
+            }
+            throw error
+        }
+        sessionGuard.withCurrent(version) {
+            checkAutomaticSync(version)
+            store.automaticSyncNeedsLogin = false
+            store.saveCalendar(cal)
+            store.saveBlocks(blocks, "zf_term")
+            store.lastSyncAt = System.currentTimeMillis()
+        }
+        cal to blocks
+    }
+
+    private fun checkAutomaticSync(version: Long) {
+        sessionGuard.withCurrent(version) {
+            if (!store.autoSyncEnabled || store.webLogoutPending) throw CancellationException("自动同步已停止")
+        }
+    }
+
+    private suspend fun renewSchoolSession(version: Long, background: Boolean = false) = authenticationMutex.withLock {
+        val requestJob = currentCoroutineContext()[Job]
+        fun checkSession() {
+            requestJob?.ensureActive()
+            sessionGuard.withCurrent(version) {
+                if (store.webLogoutPending) throw CancellationException("学校登录状态已变更")
+            }
+            if (background) checkAutomaticSync(version)
+        }
+        checkSession()
+        val page = sessionGuard.withCurrent(version) { store.loadWebImportPage() }
+        SchoolSessionRenewal(app, ::checkSession,
+            acceptPortal = { token ->
+                checkSession()
+                acceptPortalWebSession(token, version).also { checkSession() }
+            },
+            verifyTeaching = { url ->
+                checkSession()
+                verifyTeachingWebSession(url, version).also { checkSession() }
+            },
+        ).renew(page)
+    }
+
+    /** 手动同步先复用 Cookie；只有明确认证失效才静默恢复一次，不重放旧 ticket。 */
+    suspend fun syncTermWithCookies(): Pair<CalendarInfo, List<CourseBlock>> = scheduleSyncMutex.withLock {
+        val version = sessionGuard.current()
+        val (cal, blocks) = try {
+            readTermWithCookies(version)
+        } catch (_: AuthFailed) {
+            renewSchoolSession(version)
+            readTermWithCookies(version)
+        }
+        sessionGuard.withCurrent(version) {
+            store.automaticSyncNeedsLogin = false
+            store.saveCalendar(cal)
+            store.saveBlocks(blocks, "zf_term")
+            store.lastSyncAt = System.currentTimeMillis()
+        }
+        cal to blocks
+    }
+
+    private suspend fun readTermWithCookies(version: Long): Pair<CalendarInfo, List<CourseBlock>> {
         val cal = resolveCalendar(version)
         return withServiceProbe(SchoolService.TEACHING, version, null) { generation ->
         val hasDirectCookie = sessionGuard.withCurrent(version) {
@@ -986,7 +1095,6 @@ class Repository(context: Context) {
         val page = sessionGuard.withCurrent(version) { store.loadWebImportPage() }
         val blocks = try {
             if (TeachingEndpoints.isLandingPage(page)) {
-                // 新网页登录优先，避免旧 OkHttp Cookie 遮住刚建立的学校共享会话。
                 fetchWebTerm(cal, page, version)
             } else if (hasDirectCookie) {
                 teachingSso.fetchWithCookies(cal, teachingSessionJar(version))
@@ -999,6 +1107,7 @@ class Repository(context: Context) {
             throw e.asTeachingSyncFailure()
         }
         sessionGuard.withCurrent(version) {
+            store.automaticSyncNeedsLogin = false
             store.saveCalendar(cal)
             store.saveBlocks(blocks, "zf_term")
             store.lastSyncAt = System.currentTimeMillis()

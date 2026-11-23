@@ -47,7 +47,7 @@ class App : Application() {
         // 加密存储初始化较重（读 keystore 100–500ms）：挪到后台线程预热，主线程不再卡
         Thread { repo.store.warmSecure() }.start()
         repo.store.publishPowerWorkerConfig()
-        // 登录过就开启定时同步整学期课表（12 小时一次；会话失效会通知重登）
+        // 四小时学校会话维护与电量采样共用调度；只有明确认证失效才提醒重新扫码。
         if (repo.store.autoSyncEnabled && (repo.store.hasSession || repo.store.casTicket.isNotBlank() || repo.hasTeachingSession())) {
             com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(this)
         } else {
