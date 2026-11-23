@@ -16,6 +16,7 @@ import com.menglimi.gdust.v2.widget.WidgetOpenRequest
 import com.menglimi.gdust.v2.widget.WidgetRefreshScheduler
 import com.menglimi.gdust.v2.ui.AppRoot
 import com.menglimi.gdust.v2.ui.AppTheme
+import com.menglimi.gdust.v2.ui.rememberSchoolLoginHost
 
 class MainActivity : ComponentActivity() {
     private val widgetRequest = mutableStateOf<WidgetOpenRequest?>(null)
@@ -73,6 +74,7 @@ class MainActivity : ComponentActivity() {
             // 定位与 navigationVersion 一起下发，避免旧页面先消费请求后又被导航重建。
             val focusedTodo = rememberSaveable { mutableStateOf<Long?>(null) }
             val navigationVersion = rememberSaveable { mutableIntStateOf(0) }
+            val schoolLogin = rememberSchoolLoginHost(app.repo)
             LaunchedEffect(widgetRequestVersion.intValue) {
                 widgetRequest.value?.let { request ->
                     tab.intValue = request.tab
@@ -87,7 +89,8 @@ class MainActivity : ComponentActivity() {
                 AppTheme {
                     // 热启动从设置的子页面进入时，也清除 AppRoot 内部的临时页面状态。
                     key(navigationVersion.intValue) {
-                        AppRoot(app.repo, tab = tab, showSettings = showSettings, loggedIn = loggedIn, checked = checked)
+                        AppRoot(app.repo, tab = tab, showSettings = showSettings, loggedIn = loggedIn,
+                            checked = checked, schoolLogin = schoolLogin)
                     }
                 }
             }

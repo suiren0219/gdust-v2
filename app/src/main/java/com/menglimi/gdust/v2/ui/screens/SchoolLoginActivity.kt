@@ -86,14 +86,25 @@ class SchoolLoginActivity : ComponentActivity() {
         const val EXTRA_TEACHING_READY = "school_teaching_ready"
         const val EXTRA_CHX_READY = "school_chx_ready"
         const val EXTRA_MESSAGE = "school_login_message"
+        /** 本次 prepareSchoolWebLogin 得到的会话版本；退出/换号后旧版本由结果回调拒绝。 */
+        const val EXTRA_SESSION_VERSION = "school_session_version"
+        /** 调用方发起时生成的请求 ID；finishFlow 原样回传，供结果宿主匹配请求与会话版本。 */
+        const val EXTRA_REQUEST_ID = "school_request_id"
         private const val EXTRA_START_SERVICE = "school_start_service"
+        private const val EXTRA_SINGLE_SERVICE = "school_single_service"
         private const val EXTRA_TEACHING_ONLY = "school_teaching_only"
         private val processInstance = java.util.UUID.randomUUID().toString()
 
         fun intent(context: Context): Intent = Intent(context, SchoolLoginActivity::class.java)
-        fun teachingIntent(context: Context): Intent = intent(context)
-            .putExtra(EXTRA_START_SERVICE, SchoolService.TEACHING.name).putExtra(EXTRA_TEACHING_ONLY, true)
-        fun learningIntent(context: Context): Intent = intent(context).putExtra(EXTRA_START_SERVICE, SchoolService.CHX.name)
+
+        /** 单服务模式：只验证 [service]，成功/跳过后直接结束，失败停在当前服务可重试，不进入其他服务。 */
+        fun serviceIntent(context: Context, service: SchoolService): Intent = intent(context)
+            .putExtra(EXTRA_SINGLE_SERVICE, service.name)
+
+        fun teachingIntent(context: Context): Intent = serviceIntent(context, SchoolService.TEACHING)
+            .putExtra(EXTRA_TEACHING_ONLY, true)
+
+        fun learningIntent(context: Context): Intent = serviceIntent(context, SchoolService.CHX)
     }
 
     private lateinit var repo: Repository
@@ -113,6 +124,7 @@ class SchoolLoginActivity : ComponentActivity() {
     private var pageFailed = false
     private var openedChxHome = false
     private var teachingOnly = false
+    private var singleService: SchoolService? = null
     private var teachingEntry by mutableStateOf(ChxSso.teachingWebUrl)
     private var triedCampus = false
     private var closing = false
@@ -129,6 +141,9 @@ class SchoolLoginActivity : ComponentActivity() {
         val requestedStart = intent.getStringExtra(EXTRA_START_SERVICE)?.let { name ->
             SchoolService.entries.firstOrNull { it.name == name }
         } ?: SchoolService.PORTAL
+        singleService = intent.getStringExtra(EXTRA_SINGLE_SERVICE)?.let { name ->
+            SchoolService.entries.firstOrNull { it.name == name }
+        }
         teachingOnly = intent.getBooleanExtra(EXTRA_TEACHING_ONLY, false)
         teachingEntry = savedInstanceState?.getString("teaching_entry")
             ?.takeIf { it in setOf(ChxSso.teachingWebUrl, ChxSso.campusTeachingWebUrl, ChxSso.TEACHING_VPN_LOGIN) }
@@ -151,9 +166,10 @@ class SchoolLoginActivity : ComponentActivity() {
                     val saved = requireNotNull(savedInstanceState)
                     chxVersion = saved.getLong("chx_version")
                     if (!currentSession()) return@launch finishFlow()
-                    flow = SchoolLoginFlow(saved.getStringArrayList("flow_connections"), requestedStart)
+                    flow = SchoolLoginFlow(saved.getStringArrayList("flow_connections"),
+                        requestedStart, only = singleService)
                 } else {
-                    flow = SchoolLoginFlow(startAt = requestedStart)
+                    flow = SchoolLoginFlow(startAt = requestedStart, only = singleService)
                     val preparedVersion = repo.prepareSchoolWebLogin()
                     currentCoroutineContext().ensureActive()
                     if (closing || preparedVersion != sessionVersion || !repo.isCurrentSession(sessionVersion)) {
@@ -164,7 +180,7 @@ class SchoolLoginActivity : ComponentActivity() {
                 initialized = true
                 summary = flow.summary()
                 // 已保存的 TOKEN 不证明本次网页账号；门户页面仍须完成认证并独立核对身份。
-                if (teachingOnly && flow.isVerified(SchoolService.TEACHING)) finishFlow()
+                if (singleService != null && flow.isVerified(singleService!!)) finishFlow()
                 else startCurrentService()
             } catch (cancelled: CancellationException) {
                 if (!closing && !repo.isCurrentSession(sessionVersion)) finishFlow()
@@ -254,7 +270,8 @@ class SchoolLoginActivity : ComponentActivity() {
                         Button(onClick = ::skipService,
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
                             Text(if (teachingOnly) "返回课表导入"
-                                else if (currentService == SchoolService.CHX) "稍后连接学习通"
+                                else if (singleService != null || currentService == SchoolService.CHX)
+                                    "稍后连接${currentService?.label.orEmpty()}"
                                 else "暂时跳过${currentService?.label.orEmpty()}，继续连接", fontSize = 13.sp)
                         }
                     }
@@ -346,8 +363,11 @@ class SchoolLoginActivity : ComponentActivity() {
         if (!currentSession()) return finishFlow()
         currentService = flow.current
         val service = currentService ?: return finishFlow()
-        message = if (service == SchoolService.PORTAL) "请在学校网页完成认证，随后自动连接教务和学习通。"
-            else "正在复用学校网页会话连接${service.label}，请等待验证。"
+        message = when {
+            singleService != null -> "正在连接${service.label}，验证完成后返回；其他服务保持原状态。"
+            service == SchoolService.PORTAL -> "请在学校网页完成认证，随后自动连接教务和学习通。"
+            else -> "正在复用学校网页会话连接${service.label}，请等待验证。"
+        }
         openedChxHome = false
         replaceWebView()
         navigate(if (service == SchoolService.TEACHING) teachingEntry else SchoolLoginWeb.entry(service))
@@ -367,7 +387,9 @@ class SchoolLoginActivity : ComponentActivity() {
         flow.skip()
         cancelProbe()
         summary = flow.summary()
-        startCurrentService()
+        // 单服务模式：跳过即结束，不进入其他服务，不标记该服务失败（未尝试≠清除其他状态）。
+        if (flow.complete) finishFlow()
+        else startCurrentService()
     }
 
     private fun serviceVerified(probe: SchoolLoginFlow.Probe) {
@@ -377,7 +399,8 @@ class SchoolLoginActivity : ComponentActivity() {
         probing = false
         CookieManager.getInstance().flush()
         summary = flow.summary()
-        if (teachingOnly && probe.service == SchoolService.TEACHING) finishFlow()
+        // 单服务的序列只有它自己，验证后 flow 已 complete；全流程末站同理。
+        if (flow.complete) finishFlow()
         else startCurrentService()
     }
 
@@ -398,7 +421,9 @@ class SchoolLoginActivity : ComponentActivity() {
                 teachingEntry = ChxSso.campusTeachingWebUrl
                 startCurrentService()
             }
-        } else if (!teachingOnly) {
+        } else if (singleService == null) {
+            // 仅全流程在教务失败后自动继续学习通；单服务（含教务 only）停在本服务，
+            // 由用户选择重试或 WebVPN，不自动进入其他服务。
             pageError = "$error 教务暂未连接，正在继续连接学习通。"
             pageJob = lifecycleScope.launch {
                 delay(1_500L)
@@ -408,7 +433,15 @@ class SchoolLoginActivity : ComponentActivity() {
         }
     }
 
-    private fun failed(message: String, probe: SchoolLoginFlow.Probe? = null) {
+    /**
+     * 标记当前服务失败：业务明确拒绝（probe 返回 false / AuthFailed）记认证失败，
+     * 加载失败或未知（null）记不可用。取消（流已关闭或 probe 失效）不进入这里。
+     * [probe] 为空时取当前服务；单服务下两者一致。
+     */
+    private fun failed(
+        message: String, probe: SchoolLoginFlow.Probe? = null,
+        authRequired: Boolean = false, recordConnection: Boolean = true,
+    ) {
         if (closing || !initialized || !flow.unavailable(probe)) return
         cancelProbe()
         cancelPageWatch()
@@ -416,6 +449,11 @@ class SchoolLoginActivity : ComponentActivity() {
         pageProgress = 100
         summary = flow.summary()
         pageError = message
+        val service = probe?.service ?: flow.current
+        if (recordConnection && service != null && currentSession()) {
+            if (authRequired) repo.recordServiceAuthRequired(service, sessionVersion)
+            else repo.recordServiceUnavailable(service, sessionVersion)
+        }
     }
 
     private fun checkPage(url: String) {
@@ -475,19 +513,19 @@ class SchoolLoginActivity : ComponentActivity() {
                                 val accepted = repo.acceptPortalWebSession(token, sessionVersion)
                                 if (!validPage(probe)) return@launch
                                 if (accepted) serviceVerified(probe)
-                                else failed("门户尚未确认学校身份，请重试当前服务。", probe)
+                                else failed("门户尚未确认学校身份，请重试当前服务。", probe, recordConnection = false)
                                 return@launch
                             }
                             delay(500)
                         }
-                        if (validPage(probe)) failed("门户尚未返回已认证会话。可重试，或暂时跳过继续连接教务。", probe)
+                        if (validPage(probe)) failed("门户尚未返回可验证的会话，可重试或暂时跳过。", probe)
                     }
                     SchoolService.TEACHING -> {
                         val alive = repo.verifyTeachingWebSession(url, sessionVersion)
                         if (!validPage(probe)) return@launch
                         if (alive == true) serviceVerified(probe)
                         else failed(if (alive == false) "教务尚未确认登录，请重试学校认证。"
-                            else "教务暂时未返回可验证数据，可重试或继续连接学习通。", probe)
+                            else "教务暂时未返回可验证数据，可重试或稍后连接。", probe, recordConnection = false)
                     }
                     SchoolService.CHX -> {
                         repeat(10) {
@@ -498,7 +536,7 @@ class SchoolLoginActivity : ComponentActivity() {
                                 if (alive == true) serviceVerified(probe)
                                 else if (openedChxHome) {
                                     failed(if (alive == false) "学习通尚未确认登录，请重试学校认证。"
-                                        else "学习通暂时无法验证，已连接的学校服务会保留。", probe)
+                                        else "学习通暂时无法验证，已连接的学校服务会保留。", probe, recordConnection = false)
                                 } else {
                                     openedChxHome = true
                                     navigate(ChxSso.HOME)
@@ -511,7 +549,7 @@ class SchoolLoginActivity : ComponentActivity() {
                         if (!openedChxHome) {
                             openedChxHome = true
                             navigate(ChxSso.HOME)
-                        } else failed("尚未取得学习通会话，请重试学校认证。", probe)
+                        } else failed("尚未取得学习通会话，可重试或稍后连接。", probe)
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -521,7 +559,8 @@ class SchoolLoginActivity : ComponentActivity() {
                 if (validPage(probe)) {
                     failed(if (error is AuthFailed) "${service.label}未接受当前登录，请重试学校认证。"
                         else if (error.message == "学校网页账号与当前账号不同，请先退出当前账号再登录。") error.message.orEmpty()
-                        else "${service.label}暂时无法验证，可重试或继续连接其他服务。", probe)
+                        else "${service.label}暂时无法验证，可重试或继续连接其他服务。",
+                        probe, recordConnection = false)
                 }
             } finally {
                 if (flow.endProbe(probe)) {
@@ -655,11 +694,15 @@ class SchoolLoginActivity : ComponentActivity() {
         if (::web.isInitialized) web.stopLoading()
         CookieManager.getInstance().flush()
         val current = initialized && currentSession()
-        setResult(if (current && (flow.schoolReady || flow.isVerified(SchoolService.CHX))) RESULT_OK else RESULT_CANCELED,
-            Intent().putExtra(EXTRA_PORTAL_READY, current && flow.isVerified(SchoolService.PORTAL))
-                .putExtra(EXTRA_TEACHING_READY, current && flow.isVerified(SchoolService.TEACHING))
-                .putExtra(EXTRA_CHX_READY, current && flow.isVerified(SchoolService.CHX))
-                .putExtra(EXTRA_MESSAGE, if (current) flow.summary() else "学校登录尚未完成"))
+        val requestId = intent.getStringExtra(EXTRA_REQUEST_ID)
+        val result = Intent()
+            .putExtra(EXTRA_PORTAL_READY, current && flow.isVerified(SchoolService.PORTAL))
+            .putExtra(EXTRA_TEACHING_READY, current && flow.isVerified(SchoolService.TEACHING))
+            .putExtra(EXTRA_CHX_READY, current && flow.isVerified(SchoolService.CHX))
+            .putExtra(EXTRA_MESSAGE, if (current) flow.summary() else "学校登录尚未完成")
+            .putExtra(EXTRA_SESSION_VERSION, sessionVersion)
+        if (requestId != null) result.putExtra(EXTRA_REQUEST_ID, requestId)
+        setResult(if (current && flow.anyReady) RESULT_OK else RESULT_CANCELED, result)
         finish()
     }
 

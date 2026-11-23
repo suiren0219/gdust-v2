@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.data.SchoolService
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
@@ -115,6 +116,7 @@ fun SettingsScreen(
     onChxCourses: () -> Unit = {},
     onSchoolNotices: () -> Unit = {},
     onFiveEducation: () -> Unit = {},
+    onReconnectService: (SchoolService) -> Unit = {},
 ) {
     val ds = LocalDs.current
     val secondary = ds.sub
@@ -436,6 +438,9 @@ fun SettingsScreen(
             .takeIf { it.entries.isNotEmpty() }
     }
     val showAccount = accountEntry.matches(search, "账户")
+    // 服务状态卡只在空搜索或查询词命中连接相关词时出现，不挤占具体设置的搜索结果。
+    val showServiceStatus = search.isBlank() ||
+        "服务连接 登录状态 门户 教务 学习通 验证".contains(search, ignoreCase = true)
     val showLogout = loggedIn && (search.isBlank() || "退出登录 清除本机数据 账户".contains(search, ignoreCase = true))
 
     BackHandler {
@@ -474,6 +479,9 @@ fun SettingsScreen(
         if (showAccount) {
             AccountIdentityCard(repo, onOpenProfile = onProfile)
         }
+        if (showServiceStatus) {
+            ServiceStatusCard(repo, onReconnect = onReconnectService)
+        }
         visibleGroups.forEach { group ->
             key(group.title) {
                 SectionHeader(group.title)
@@ -500,7 +508,7 @@ fun SettingsScreen(
                 ))
             }
         }
-        if (!showAccount && visibleGroups.isEmpty() && !showLogout) {
+        if (!showAccount && !showServiceStatus && visibleGroups.isEmpty() && !showLogout) {
             Text("没有找到相关设置", fontSize = 14.sp, color = secondary,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
         }

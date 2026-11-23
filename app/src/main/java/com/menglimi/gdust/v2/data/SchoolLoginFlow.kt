@@ -4,7 +4,7 @@ import com.google.gson.JsonParser
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.net.URLEncoder
 
-internal enum class SchoolService(val label: String) {
+enum class SchoolService(val label: String) {
     PORTAL("门户"), TEACHING("教务"), CHX("学习通"),
 }
 
@@ -12,12 +12,25 @@ internal enum class SchoolConnection {
     PENDING, CONNECTING, AUTH_REQUIRED, VERIFIED, UNAVAILABLE, SKIPPED,
 }
 
-/** 只接收各服务业务接口的验证结果；URL、Cookie 存在与网页加载完成都不是成功事件。 */
-internal class SchoolLoginFlow(saved: List<String>? = null, startAt: SchoolService = SchoolService.PORTAL) {
-    private val connections = SchoolService.entries.associateWith {
-        if (it.ordinal < startAt.ordinal) SchoolConnection.SKIPPED else SchoolConnection.PENDING
+/**
+ * 只接收各服务业务接口的验证结果；URL、Cookie 存在与网页加载完成都不是成功事件。
+ *
+ * @param only 单服务模式：服务序列收敛为 [only]，其余服务不连接；成功/跳过后直接完成，
+ *             失败停在当前服务等待重试。
+ * @param startAt 完整流程的起点；起点之前的服务不连接、也不参与快照恢复。
+ */
+internal class SchoolLoginFlow(
+    saved: List<String>? = null,
+    startAt: SchoolService = SchoolService.PORTAL,
+    only: SchoolService? = null,
+) {
+    private val onlyService: SchoolService? = only
+    private val activeServices: List<SchoolService> =
+        only?.let(::listOf) ?: SchoolService.entries.drop(startAt.ordinal)
+    private val connections = SchoolService.entries.associateWith { service ->
+        if (service in activeServices) SchoolConnection.PENDING else SchoolConnection.SKIPPED
     }.toMutableMap()
-    var current: SchoolService? = startAt
+    var current: SchoolService? = activeServices.firstOrNull()
         private set
     var closed: Boolean = false
         private set
@@ -29,15 +42,19 @@ internal class SchoolLoginFlow(saved: List<String>? = null, startAt: SchoolServi
     private var activeProbe: Probe? = null
 
     // 不含 URL、TOKEN、Cookie 或 ticket；旋转只恢复已经结束的阶段。
+    // 只在 activeServices 内恢复：脏快照、跨入口快照不能为起点之前或序列外的服务发明成功。
     init {
         if (saved?.size == SchoolService.entries.size) {
-            for (service in SchoolService.entries) {
+            for (index in activeServices.indices) {
+                val service = activeServices[index]
                 val state = SchoolConnection.entries.firstOrNull { it.name == saved[service.ordinal] }
                 if (state == null || state !in setOf(SchoolConnection.VERIFIED, SchoolConnection.SKIPPED, SchoolConnection.UNAVAILABLE)) break
-                if (state == SchoolConnection.UNAVAILABLE &&
-                    saved.getOrNull(service.ordinal + 1) in listOf(null, SchoolConnection.PENDING.name)) break
+                if (state == SchoolConnection.UNAVAILABLE) {
+                    val next = activeServices.getOrNull(index + 1)
+                    if (next == null || saved.getOrNull(next.ordinal) in listOf(null, SchoolConnection.PENDING.name)) break
+                }
                 connections[service] = state
-                current = SchoolService.entries.getOrNull(service.ordinal + 1)
+                current = activeServices.getOrNull(index + 1)
             }
         }
     }
@@ -48,6 +65,8 @@ internal class SchoolLoginFlow(saved: List<String>? = null, startAt: SchoolServi
     fun connection(service: SchoolService): SchoolConnection = connections.getValue(service)
     fun isVerified(service: SchoolService): Boolean = connection(service) == SchoolConnection.VERIFIED
     val schoolReady: Boolean get() = isVerified(SchoolService.PORTAL) || isVerified(SchoolService.TEACHING)
+    /** 任一服务验证成功即算登录成功（学习通独立成功也算）；finishFlow 与单测共用，避免判定散落。 */
+    val anyReady: Boolean get() = schoolReady || isVerified(SchoolService.CHX)
     val complete: Boolean get() = current == null
 
     /** 在 loadUrl/stopLoading 前同步调用；旧 Job 即使还未结束，也不能占住新页探活。 */
@@ -140,7 +159,10 @@ internal class SchoolLoginFlow(saved: List<String>? = null, startAt: SchoolServi
 
     private fun advance() {
         invalidatePage()
-        current = current?.ordinal?.plus(1)?.let { SchoolService.entries.getOrNull(it) }
+        current = current?.let { service ->
+            val index = activeServices.indexOf(service)
+            activeServices.getOrNull(index + 1)
+        }
     }
 
     private fun invalidatePage() {
@@ -152,15 +174,19 @@ internal class SchoolLoginFlow(saved: List<String>? = null, startAt: SchoolServi
         activeProbe = null
     }
 
-    fun summary(): String = SchoolService.entries.joinToString(" · ") { service ->
-        service.label + when (connection(service)) {
-            SchoolConnection.PENDING -> "待连接"
-            SchoolConnection.CONNECTING -> "连接中"
-            SchoolConnection.AUTH_REQUIRED -> "待认证"
-            SchoolConnection.VERIFIED -> "已连接"
-            SchoolConnection.UNAVAILABLE -> "未验证"
-            SchoolConnection.SKIPPED -> "未连接"
-        }
+    /** 单服务模式只汇报本次目标（其余未尝试，不描述为"未连接"）；完整流程保持三段摘要。 */
+    fun summary(): String = when (val target = onlyService) {
+        null -> SchoolService.entries.joinToString(" · ") { service -> service.label + describe(service) }
+        else -> target.label + describe(target)
+    }
+
+    private fun describe(service: SchoolService): String = when (connection(service)) {
+        SchoolConnection.PENDING -> "待连接"
+        SchoolConnection.CONNECTING -> "连接中"
+        SchoolConnection.AUTH_REQUIRED -> "待认证"
+        SchoolConnection.VERIFIED -> "已连接"
+        SchoolConnection.UNAVAILABLE -> "未验证"
+        SchoolConnection.SKIPPED -> "未连接"
     }
 }
 
