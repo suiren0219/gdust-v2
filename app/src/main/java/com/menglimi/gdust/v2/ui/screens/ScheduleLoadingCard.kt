@@ -51,6 +51,7 @@ fun ScheduleLoadingCard(
     detail: String,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
+    onContinue: (() -> Unit)? = null,
 ) {
     val ds = LocalDs.current
     val startedAt by rememberSaveable { mutableLongStateOf(SystemClock.elapsedRealtime()) }
@@ -89,6 +90,10 @@ fun ScheduleLoadingCard(
         }
         Text("已等待 $seconds 秒", color = ds.sub, fontSize = 13.sp,
             modifier = Modifier.padding(top = 16.dp))
+        if (onContinue != null) {
+            TextButton("后台继续，先用其他功能", onClick = onContinue,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(top = 8.dp))
+        }
         TextButton("取消读取", onClick = onCancel,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(top = 8.dp))
     }

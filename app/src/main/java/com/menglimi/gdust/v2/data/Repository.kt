@@ -15,6 +15,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -52,6 +53,12 @@ class Store(context: Context) {
     }
 
     private val plain = app.getSharedPreferences("gdust_cache", Context.MODE_PRIVATE)
+    internal var automaticSyncNeedsLogin: Boolean
+        get() = plain.getBoolean("auto_sync_needs_login", false)
+        set(value) { plain.edit().putBoolean("auto_sync_needs_login", value).apply() }
+    internal var lastAutoSyncAttemptAt: Long
+        get() = plain.getLong("last_auto_sync_attempt_at", 0L)
+        set(value) { plain.edit().putLong("last_auto_sync_attempt_at", value).apply() }
 
     private var String.s: String
         get() = secure.getString(this, null).orEmpty()
@@ -514,10 +521,24 @@ class Store(context: Context) {
         get() = plain.getLong("last_sync_at", 0L)
         set(v) = plain.edit().putLong("last_sync_at", v).apply()
 
-    /** 登录后是否自动定时同步课表（12 小时一次）。 */
+    fun observeSchedule(listener: () -> Unit): () -> Unit {
+        val observer = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == null || key in setOf("blocks", "calendar", "last_sync_at")) listener()
+        }
+        plain.registerOnSharedPreferenceChangeListener(observer)
+        return { plain.unregisterOnSharedPreferenceChangeListener(observer) }
+    }
+
+    /** 登录后是否自动定时维护会话并同步课表（4 小时一次，与电量任务合并唤醒）。 */
     var autoSyncEnabled: Boolean
         get() = plain.getBoolean("auto_sync", true)
-        set(v) = plain.edit().putBoolean("auto_sync", v).apply()
+        set(v) {
+            val edit = plain.edit().putBoolean("auto_sync", v)
+            if (!v) edit.remove("last_auto_sync_attempt_at").remove("auto_sync_needs_login")
+            edit.apply()
+            if (v) com.menglimi.gdust.v2.work.ScheduleSyncWorker.schedule(app)
+            else com.menglimi.gdust.v2.work.ScheduleSyncWorker.cancel(app)
+        }
 
     var powerQueryPreset: PowerQueryPreset
         get() = plain.getString("power_query_preset", null)?.let(PowerQueryPreset::fromKey)
@@ -590,6 +611,7 @@ class Store(context: Context) {
         plain.edit().remove("blocks").remove("calendar").remove("schedule_source")
             .remove("web_import_page").remove("chx_cookie_at").remove("last_sync_at")
             .remove("notice_read_at").putBoolean("web_logout_pending", true).apply()
+        plain.edit().remove("last_auto_sync_attempt_at").remove("auto_sync_needs_login").apply()
     }
 
     // ── 备份与恢复：只含课表/校历/待办/采样/偏好；不含登录凭证与密码 ──
@@ -681,12 +703,28 @@ class Repository(context: Context) {
     val chxSessionVersion = mutableChxSessionVersion.asStateFlow()
     @Volatile private var clearingChxSession = false
     private val authenticationMutex = Mutex()
+    private val scheduleSyncMutex = Mutex()
     private val webCleanupMutex = Mutex()
     private val chxSessionMutex = Mutex()
     private val api = GdustApi()
     private val teachingSso = TeachingSsoClient()
     /** 登录后教务会话 Cookie 持久化在这里；后续同步、续租、定时任务共用。 */
     val teachingCookies = PersistentCookieJar(context)
+
+    // ── 三服务连接状态：进程内 StateFlow，模型与转换见 SchoolServicesState.kt ──
+    private val mutableServiceConnections = MutableStateFlow(SchoolServicesState())
+
+    /** 转换器锁内统一发布：StateFlow 只在 tracker 更新点写入，不会回退到旧快照。 */
+    private val servicesTracker = SchoolServicesTracker {
+        mutableServiceConnections.value = it
+    }
+
+    /** UI 订阅：门户/教务/学习通独立认证状态与读取问题；首次访问即完成版本绑定与 store 恢复（SAVED）。 */
+    val serviceConnections: StateFlow<SchoolServicesState>
+        get() {
+            ensureServicesBound()
+            return mutableServiceConnections
+        }
 
     internal fun portalSession(): PortalSession? {
         val version = sessionGuard.current()
@@ -699,15 +737,22 @@ class Repository(context: Context) {
     fun isCurrentSession(version: Long): Boolean = sessionGuard.current() == version
 
     /** WebView 重新认证前使旧课程请求过期，不清除正在复用的网页 Cookie。 */
-    fun invalidateChxRequests() {
+    fun invalidateChxRequests() = synchronized(sessionGuard) {
         mutableChxSessionVersion.value++
+        // 只作废学习通进行中的检查，保留已经验证的连接状态。
+        ensureServicesBound()
+        servicesTracker.bindChx(mutableChxSessionVersion.value)
     }
 
-    internal fun saveWebSession(pageUrl: String, version: Long): Boolean = sessionGuard.withCurrent(version) {
-        if (store.webLogoutPending || !TeachingEndpoints.isLandingPage(pageUrl)) return@withCurrent false
-        store.saveWebImport(pageUrl.substringBefore('?').substringBefore('#'))
-        true
-    }
+    internal fun saveWebSession(pageUrl: String, version: Long, generation: Long? = null): Boolean =
+        sessionGuard.withCurrent(version) {
+            if (store.webLogoutPending || !TeachingEndpoints.isLandingPage(pageUrl)) return@withCurrent false
+            store.saveWebImport(pageUrl.substringBefore('?').substringBefore('#'))
+            store.automaticSyncNeedsLogin = false
+            applyServicePatch(SchoolService.TEACHING, version, null, ServiceAuthStatus.SAVED, null,
+                System.currentTimeMillis(), generation)
+            true
+        }
 
     /** 继续学校网页认证时保留同一 CookieManager；只在尚未完成退出清理时先清理。 */
     internal suspend fun prepareSchoolWebLogin(): Long = authenticationMutex.withLock {
@@ -724,52 +769,101 @@ class Repository(context: Context) {
     }
 
     /** 门户网页自己消费 ticket 后，只桥接最终 TOKEN，并用门户身份接口独立确认。 */
-    internal suspend fun acceptPortalWebSession(token: String, version: Long): Boolean {
+    internal suspend fun acceptPortalWebSession(token: String, version: Long): Boolean =
+        withServiceProbe(SchoolService.PORTAL, version, null) { generation ->
         currentCoroutineContext().ensureActive()
         sessionGuard.withCurrent(version) { check(!store.webLogoutPending) }
-        val (account, name) = api.userInfo(token)
+        val identity = runCatching { api.userInfo(token) }
+        identity.exceptionOrNull()?.let { failure ->
+            if (failure is CancellationException) throw failure
+            recordServiceFailure(SchoolService.PORTAL, version, null, failure, generation)
+        }
+        val (account, name) = identity.getOrThrow()
         currentCoroutineContext().ensureActive()
-        if (account.isBlank() || account.equals("guest", ignoreCase = true)) return false
+        if (account.isBlank() || account.equals("guest", ignoreCase = true)) {
+            // TOKEN 被换出 guest 身份：明确拒绝，不是网络问题。
+            applyServicePatch(SchoolService.PORTAL, version, null, ServiceAuthStatus.AUTH_REQUIRED, null,
+                System.currentTimeMillis(), generation)
+            return@withServiceProbe false
+        }
         sessionGuard.withCurrent(version) {
             check(!store.webLogoutPending)
+            if (!servicesTracker.accepts(SchoolService.PORTAL, version, null, generation)) {
+                throw CancellationException("门户验证状态已变更")
+            }
             check(store.jobNumber.isBlank() || store.jobNumber == account) {
                 "学校网页账号与当前账号不同，请先退出当前账号再登录。"
             }
             store.portalToken = token
             store.jobNumber = account
             store.realName = name
+            store.automaticSyncNeedsLogin = false
             mutableAccountLogin.value = AccountLoginState.VALID
             accountCheckedAt = android.os.SystemClock.elapsedRealtime()
+            applyServicePatch(SchoolService.PORTAL, version, null, ServiceAuthStatus.VERIFIED, null,
+                System.currentTimeMillis(), generation)
         }
-        return true
+        true
     }
 
     /** 用 CookieManager 针对精确课表 URL 取 Cookie，教务自己返回业务 JSON 后才保存入口。 */
-    internal suspend fun verifyTeachingWebSession(pageUrl: String, version: Long): Boolean? =
+    internal suspend fun verifyTeachingWebSession(pageUrl: String, version: Long, generation: Long? = null): Boolean? =
         withContext(Dispatchers.Main.immediate) {
+            if (generation == null) return@withContext withServiceProbe(SchoolService.TEACHING, version, null) {
+                verifyTeachingWebSession(pageUrl, version, it)
+            }
             val probeJob = currentCoroutineContext()[Job]
             fun checkSession() {
                 probeJob?.ensureActive()
                 sessionGuard.withCurrent(version) {
-                    if (store.webLogoutPending) throw CancellationException("网页登录状态已变更")
+                    if (store.webLogoutPending || !servicesTracker.accepts(SchoolService.TEACHING, version, null, generation)) {
+                        throw CancellationException("网页登录状态已变更")
+                    }
                 }
             }
             checkSession()
-            val request = teachingProbeRequest(pageUrl, store.loadCalendar()) ?: return@withContext false
+            val request = teachingProbeRequest(pageUrl, store.loadCalendar()) ?: run {
+                // 连验证请求都构造不出来：无会话材料，不是明确拒绝。
+                applyServicePatch(SchoolService.TEACHING, version, null, ServiceAuthStatus.NOT_CONNECTED, null,
+                    System.currentTimeMillis(), generation)
+                return@withContext false
+            }
             val hasCookie = webCleanupMutex.withLock {
                 checkSession()
                 !android.webkit.CookieManager.getInstance().getCookie(request.url.toString()).isNullOrBlank()
             }
-            if (!hasCookie) return@withContext false
+            if (!hasCookie) {
+                applyServicePatch(SchoolService.TEACHING, version, null, ServiceAuthStatus.NOT_CONNECTED, null,
+                    System.currentTimeMillis(), generation)
+                return@withContext false
+            }
             val client = SessionHttpClient(allowedUrl = { it == request.url }, checkSession = ::checkSession,
                 webCookieMutex = webCleanupMutex)
+            var verificationFailed = false
             val verified = try {
                 teachingSessionEvidence(client.execute(request))
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Exception) { null }
+            } catch (e: Exception) {
+                // 保留失败证据：网络不可达与业务/格式失败分开，不吞成“不确定”。
+                recordServiceFailure(SchoolService.TEACHING, version, null, e, generation)
+                verificationFailed = true
+                null
+            }
             checkSession()
-            if (verified == true) saveWebSession(pageUrl, version)
+            when (verified) {
+                true -> {
+                    saveWebSession(pageUrl, version, generation)
+                    applyServicePatch(SchoolService.TEACHING, version, null, ServiceAuthStatus.VERIFIED, null,
+                        System.currentTimeMillis(), generation)
+                }
+                false -> applyServicePatch(SchoolService.TEACHING, version, null, ServiceAuthStatus.AUTH_REQUIRED,
+                    null, System.currentTimeMillis(), generation)
+                null -> if (!verificationFailed) {
+                    applyServicePatch(SchoolService.TEACHING, version, null, null, ServiceProblem.UNCONFIRMED,
+                        System.currentTimeMillis(), generation)
+                }
+            }
             verified
         }
 
@@ -817,7 +911,7 @@ class Repository(context: Context) {
         }
     }
 
-    private fun resetAccountSession(): Long {
+    private fun resetAccountSession(): Long = synchronized(sessionGuard) {
         val version = sessionGuard.invalidate()
         sessionGuard.withCurrent(version) {
             teachingCookies.clear()
@@ -828,7 +922,11 @@ class Repository(context: Context) {
             invalidateChxRequests()
             mutableSessionVersion.value = version
         }
-        return version
+        // 账号会话重置：三服务全部回到无候选；旧账号版本此后不能再写状态。
+        servicesTracker.bindAccount(version) { SchoolServicesState() }
+        // chx 版本与账号版本同步登记，否则重置后的 CHX 补丁会被版本校验拒绝。
+        servicesTracker.bindChx(mutableChxSessionVersion.value)
+        version
     }
 
     /** 本机退出：立刻隔离旧请求，随后等待 WebView 完成清理。个人偏好与手动待办保留。 */
@@ -892,14 +990,104 @@ class Repository(context: Context) {
     /** 兼容旧调用入口；一次性 ticket 已消费，续租只能复用真实会话或重新走学校 SSO。 */
     suspend fun syncTermWithLogin(): Pair<CalendarInfo, List<CourseBlock>> {
         sessionGuard.withCurrent(sessionGuard.current()) { store.casTicket = "" }
-        if (!hasTeachingSession()) throw AuthFailed(401, "请完成学校统一登录，自动连接教务后再同步。")
+        if (!hasTeachingSession()) {
+            applyServicePatch(SchoolService.TEACHING, sessionGuard.current(), null, ServiceAuthStatus.NOT_CONNECTED,
+                null, System.currentTimeMillis())
+            throw AuthFailed(401, "请完成学校统一登录，自动连接教务后再同步。")
+        }
         return syncTermWithCookies()
     }
 
-    /** 已有持久化 Cookie 时直接拉学期课表；OkHttp 没有则回退到网页登录留下的会话（后台定时任务走这条）。 */
-    suspend fun syncTermWithCookies(): Pair<CalendarInfo, List<CourseBlock>> {
+    /** 四小时维护期限与电量调度共用；失败退避不改变上次成功时间，重开 App 不推迟期限。 */
+    fun nextAutomaticSyncAt(now: Long = System.currentTimeMillis()): Long? {
+        if (!store.autoSyncEnabled || store.webLogoutPending || store.automaticSyncNeedsLogin || store.jobNumber.isBlank()) return null
+        if (!store.hasSession && !TeachingEndpoints.isLandingPage(store.loadWebImportPage())) return null
+        return ScheduleSyncPolicy.nextAt(now, store.lastSyncAt, store.lastAutoSyncAttemptAt)
+    }
+
+    /** 每四小时用学校 SSO 维护会话并拉整学期；与前台/电量请求串行去重。 */
+    suspend fun syncTermSilentlyIfDue(): Pair<CalendarInfo, List<CourseBlock>>? = scheduleSyncMutex.withLock {
         val version = sessionGuard.current()
+        val now = System.currentTimeMillis()
+        val due = nextAutomaticSyncAt(now) ?: return@withLock null
+        if (due > now) return@withLock null
+        checkAutomaticSync(version)
+        sessionGuard.withCurrent(version) { store.lastAutoSyncAttemptAt = now }
+        val renewal = runCatching { renewSchoolSession(version, background = true) }
+        renewal.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+        checkAutomaticSync(version)
+        val (cal, blocks) = try {
+            readTermWithCookies(version)
+        } catch (error: AuthFailed) {
+            // 会话恢复遇到网络/维护异常时，不把它伪装成需要用户重新绑定。
+            val failure = renewal.exceptionOrNull()
+            if (failure != null && failure !is AuthFailed) throw failure
+            sessionGuard.withCurrent(version) {
+                checkAutomaticSync(version)
+                store.automaticSyncNeedsLogin = true
+            }
+            throw error
+        }
+        sessionGuard.withCurrent(version) {
+            checkAutomaticSync(version)
+            store.automaticSyncNeedsLogin = false
+            store.saveCalendar(cal)
+            store.saveBlocks(blocks, "zf_term")
+            store.lastSyncAt = System.currentTimeMillis()
+        }
+        cal to blocks
+    }
+
+    private fun checkAutomaticSync(version: Long) {
+        sessionGuard.withCurrent(version) {
+            if (!store.autoSyncEnabled || store.webLogoutPending) throw CancellationException("自动同步已停止")
+        }
+    }
+
+    private suspend fun renewSchoolSession(version: Long, background: Boolean = false) = authenticationMutex.withLock {
+        val requestJob = currentCoroutineContext()[Job]
+        fun checkSession() {
+            requestJob?.ensureActive()
+            sessionGuard.withCurrent(version) {
+                if (store.webLogoutPending) throw CancellationException("学校登录状态已变更")
+            }
+            if (background) checkAutomaticSync(version)
+        }
+        checkSession()
+        val page = sessionGuard.withCurrent(version) { store.loadWebImportPage() }
+        SchoolSessionRenewal(app, ::checkSession,
+            acceptPortal = { token ->
+                checkSession()
+                acceptPortalWebSession(token, version).also { checkSession() }
+            },
+            verifyTeaching = { url ->
+                checkSession()
+                verifyTeachingWebSession(url, version).also { checkSession() }
+            },
+        ).renew(page)
+    }
+
+    /** 手动同步先复用 Cookie；只有明确认证失效才静默恢复一次，不重放旧 ticket。 */
+    suspend fun syncTermWithCookies(): Pair<CalendarInfo, List<CourseBlock>> = scheduleSyncMutex.withLock {
+        val version = sessionGuard.current()
+        val (cal, blocks) = try {
+            readTermWithCookies(version)
+        } catch (_: AuthFailed) {
+            renewSchoolSession(version)
+            readTermWithCookies(version)
+        }
+        sessionGuard.withCurrent(version) {
+            store.automaticSyncNeedsLogin = false
+            store.saveCalendar(cal)
+            store.saveBlocks(blocks, "zf_term")
+            store.lastSyncAt = System.currentTimeMillis()
+        }
+        cal to blocks
+    }
+
+    private suspend fun readTermWithCookies(version: Long): Pair<CalendarInfo, List<CourseBlock>> {
         val cal = resolveCalendar(version)
+        return withServiceProbe(SchoolService.TEACHING, version, null) { generation ->
         val hasDirectCookie = sessionGuard.withCurrent(version) {
             listOf("172.16.254.1", "gkjx.gdust.edu.cn", "webvpn.gdust.edu.cn")
                 .any(teachingCookies::hasSessionFor)
@@ -907,7 +1095,6 @@ class Repository(context: Context) {
         val page = sessionGuard.withCurrent(version) { store.loadWebImportPage() }
         val blocks = try {
             if (TeachingEndpoints.isLandingPage(page)) {
-                // 新网页登录优先，避免旧 OkHttp Cookie 遮住刚建立的学校共享会话。
                 fetchWebTerm(cal, page, version)
             } else if (hasDirectCookie) {
                 teachingSso.fetchWithCookies(cal, teachingSessionJar(version))
@@ -916,14 +1103,19 @@ class Repository(context: Context) {
             }
         } catch (e: Exception) {
             // 校历门户请求和本机存储不在标记范围内；认证失效与取消原样抛出。
+            recordServiceFailure(SchoolService.TEACHING, version, null, e, generation)
             throw e.asTeachingSyncFailure()
         }
         sessionGuard.withCurrent(version) {
+            store.automaticSyncNeedsLogin = false
             store.saveCalendar(cal)
             store.saveBlocks(blocks, "zf_term")
             store.lastSyncAt = System.currentTimeMillis()
         }
-        return cal to blocks
+        applyServicePatch(SchoolService.TEACHING, version, null, ServiceAuthStatus.VERIFIED, null,
+            System.currentTimeMillis(), generation)
+        cal to blocks
+        }
     }
 
     /**
@@ -933,14 +1125,25 @@ class Repository(context: Context) {
      */
     suspend fun importTermWithWebSession(cal: CalendarInfo): List<CourseBlock> {
         val version = sessionGuard.current()
+        return withServiceProbe(SchoolService.TEACHING, version, null) { generation ->
         val page = sessionGuard.withCurrent(version) { store.loadWebImportPage() }
-        val blocks = fetchWebTerm(cal, page, version)
+        val blocks = try {
+            fetchWebTerm(cal, page, version)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            recordServiceFailure(SchoolService.TEACHING, version, null, e, generation)
+            throw e
+        }
         sessionGuard.withCurrent(version) {
             store.saveCalendar(cal)
             store.saveBlocks(blocks, "zf_term")
             store.lastSyncAt = System.currentTimeMillis()
         }
-        return blocks
+        applyServicePatch(SchoolService.TEACHING, version, null, ServiceAuthStatus.VERIFIED, null,
+            System.currentTimeMillis(), generation)
+        blocks
+        }
     }
 
     /** 请求头由 CookieManager 按接口的 Domain/Path/Secure 匹配，并接回学校轮换的 Set-Cookie。 */
@@ -983,41 +1186,244 @@ class Repository(context: Context) {
         if (TeachingEndpoints.isLandingPage(page)) verifyTeachingWebSession(page, version) == true
         else false // 旧 Cookie 只能说明本机保存过会话，不能证明本次教务认证有效。
     }.onFailure { if (it is CancellationException) throw it }.getOrDefault(false)
+    // ── 三服务连接状态维护：绑定、探活与结果记录 ──
+
+    /**
+     * 绑定当前账号版本并同步学习通版本；版本变化才读 store 恢复（SAVED，不恢复 VERIFIED）。
+     * 幂等：已绑定且版本未变时零开销，不降级既有状态；所有写路径入口都会先走到这里。
+     */
+    private fun ensureServicesBound(): Boolean = synchronized(sessionGuard) {
+        val changed = servicesTracker.bindAccount(sessionGuard.current()) { restoredServiceState() }
+        servicesTracker.bindChx(mutableChxSessionVersion.value)
+        changed
+    }
+
+    /** 进程恢复只认凭据材料：一律 SAVED，等下一次真实验证再升级。 */
+    private fun restoredServiceState(): SchoolServicesState {
+        if (store.webLogoutPending) return SchoolServicesState()
+        val saved = SchoolServiceStatus(auth = ServiceAuthStatus.SAVED)
+        // 恢复只读保存过的入口，不在 Worker 冷启动时初始化 WebView；真实 Cookie 由探活检查。
+        val teachingSaved = TeachingEndpoints.isLandingPage(store.loadWebImportPage()) ||
+            listOf("172.16.254.1", "gkjx.gdust.edu.cn", "webvpn.gdust.edu.cn").any(teachingCookies::hasSessionFor)
+        return SchoolServicesState(
+            portal = if (store.hasSession) saved else SchoolServiceStatus(),
+            teaching = if (teachingSaved) saved else SchoolServiceStatus(),
+            chx = if (store.hasChxSession) saved else SchoolServiceStatus(),
+        )
+    }
+
+    private fun applyServicePatch(
+        service: SchoolService,
+        version: Long,
+        chxVersion: Long?,
+        auth: ServiceAuthStatus?,
+        problem: ServiceProblem?,
+        checkedAt: Long = 0L,
+        generation: Long? = null,
+    ): Boolean = synchronized(sessionGuard) {
+        if (!isCurrentSession(version)) return@synchronized false
+        ensureServicesBound()
+        servicesTracker.patch(service, version, chxVersion, auth, problem, checkedAt, generation) != null
+    }
+
+    /** 每次实际请求均携带服务代数；重新登录、退出或更新的请求都会令旧结果失效。 */
+    private fun beginServiceProbe(service: SchoolService, version: Long, chxVersion: Long?): Long =
+        sessionGuard.withCurrent(version) {
+            ensureServicesBound()
+            servicesTracker.beginProbe(service, version, chxVersion)
+                ?: throw CancellationException("服务连接状态已变更")
+        }
+
+    private suspend fun <T> withServiceProbe(
+        service: SchoolService, version: Long, chxVersion: Long?,
+        block: suspend (Long) -> T,
+    ): T {
+        val generation = beginServiceProbe(service, version, chxVersion)
+        try {
+            return block(generation)
+        } finally {
+            servicesTracker.cancelProbe(service, version, chxVersion, generation)
+        }
+    }
+
+    /** 业务失败统一记录：AuthFailed=明确拒绝；网络不可达=NETWORK；其余业务/格式=READ；取消不落状态。 */
+    private fun recordServiceFailure(
+        service: SchoolService,
+        version: Long,
+        chxVersion: Long?,
+        failure: Throwable,
+        generation: Long? = null,
+    ) {
+        if (failure is CancellationException) return
+        if (failure is AuthFailed) {
+            applyServicePatch(service, version, chxVersion, ServiceAuthStatus.AUTH_REQUIRED, null,
+                System.currentTimeMillis(), generation)
+        } else {
+            applyServicePatch(service, version, chxVersion, null,
+                if (failure.isNetworkDown()) ServiceProblem.NETWORK else ServiceProblem.READ,
+                System.currentTimeMillis(), generation)
+        }
+    }
+
+    /**
+     * 只检查指定服务的连接；结果落 [serviceConnections]，普通异常不冒给 UI（取消照常抛）。
+     * 探活令牌传递给内部记录点：内部带令牌提交不递增代数，外层 finish 仍有效；
+     * 期间任何无令牌补丁（新登录/业务结果）会作废旧令牌，晚到的探活结果被拒。
+     */
+    suspend fun refreshServiceConnection(service: SchoolService) {
+        ensureServicesBound()
+        val version = sessionVersion.value
+        val chxVersion = mutableChxSessionVersion.value
+        val guardedChx = if (service == SchoolService.CHX) chxVersion else null
+        val probe = servicesTracker.beginProbe(service, version, guardedChx)
+        if (probe == null) return
+        try {
+            val outcome = when (service) {
+                SchoolService.PORTAL -> probePortal(probe)
+                SchoolService.TEACHING -> probeTeaching(version, probe)
+                SchoolService.CHX -> probeChx(probe)
+            }
+            if (outcome.skipFinish) {
+                // false/null 的细分（无候选 vs 明确拒绝 vs 分类失败）已由被探方法内部记录，这里只收尾。
+                servicesTracker.cancelProbe(service, version, guardedChx, probe)
+            } else {
+                servicesTracker.finishProbe(service, version, guardedChx, probe, outcome.auth, outcome.problem,
+                    System.currentTimeMillis())
+            }
+        } catch (cancelled: CancellationException) {
+            servicesTracker.cancelProbe(service, version, guardedChx, probe)
+            throw cancelled
+        } catch (failure: Exception) {
+            recordServiceFailure(service, version, guardedChx, failure, probe)
+            servicesTracker.cancelProbe(service, version, guardedChx, probe)
+        }
+    }
+
+    private class ProbeOutcome(val auth: ServiceAuthStatus?, val problem: ServiceProblem?, val skipFinish: Boolean = false)
+
+    private suspend fun probePortal(generation: Long): ProbeOutcome {
+        refreshAccountLogin(force = true, generation = generation)
+        return ProbeOutcome(null, null, skipFinish = true)
+    }
+
+    private suspend fun probeTeaching(version: Long, generation: Long): ProbeOutcome {
+        if (!hasTeachingSession()) return ProbeOutcome(ServiceAuthStatus.NOT_CONNECTED, null)
+        val page = sessionGuard.withCurrent(version) { store.loadWebImportPage() }
+        if (!TeachingEndpoints.isLandingPage(page)) {
+            // 只有直连 Cookie 候选：没有可复用的业务探活入口。从未验证过升级为 SAVED，其余保持原认证。
+            val auth = if (mutableServiceConnections.value[SchoolService.TEACHING].auth ==
+                ServiceAuthStatus.NOT_CONNECTED
+            ) ServiceAuthStatus.SAVED else null
+            return ProbeOutcome(auth, ServiceProblem.UNCONFIRMED)
+        }
+        return when (verifyTeachingWebSession(page, version, generation)) {
+            true -> ProbeOutcome(ServiceAuthStatus.VERIFIED, null)
+            else -> ProbeOutcome(null, null, skipFinish = true)
+        }
+    }
+
+    private suspend fun probeChx(generation: Long): ProbeOutcome {
+        chxSessionAlive(generation)
+        // 分类已由探活写入；只收尾，不能把 NETWORK/READ 再覆盖成 UNCONFIRMED。
+        return ProbeOutcome(null, null, skipFinish = true)
+    }
+
+    /**
+     * 网页加载/验证失败（非明确拒绝）：只补问题标记——已分类的证据（NETWORK/READ）与
+     * 已判定的明确拒绝都不覆盖；供登录 Activity 调用，不抛。
+     */
+    fun recordServiceUnavailable(service: SchoolService, version: Long) {
+        runCatching {
+            ensureServicesBound()
+            val current = mutableServiceConnections.value[service]
+            if (current.auth == ServiceAuthStatus.AUTH_REQUIRED) return
+            servicesTracker.patch(service, version,
+                if (service == SchoolService.CHX) mutableChxSessionVersion.value else null,
+                null, current.problem ?: ServiceProblem.UNCONFIRMED, System.currentTimeMillis())
+        }
+    }
+
+    /** 明确拒绝（认证页出现/业务 401）：标 AUTH_REQUIRED；供登录 Activity 调用，不抛。 */
+    fun recordServiceAuthRequired(service: SchoolService, version: Long) {
+        runCatching {
+            ensureServicesBound()
+            servicesTracker.patch(service, version,
+                if (service == SchoolService.CHX) mutableChxSessionVersion.value else null,
+                ServiceAuthStatus.AUTH_REQUIRED, null, System.currentTimeMillis())
+        }
+    }
     /** 验证身份接口，校历停服不应把可用登录误报为失效；短期复用结果避免重复唤醒。 */
-    suspend fun refreshAccountLogin(force: Boolean = false): AccountLoginState = accountCheckMutex.withLock {
+    suspend fun refreshAccountLogin(force: Boolean = false, generation: Long? = null): AccountLoginState =
+        accountCheckMutex.withLock {
+            if (generation != null) refreshAccountLoginLocked(force, generation)
+            else withServiceProbe(SchoolService.PORTAL, sessionGuard.current(), null) {
+                refreshAccountLoginLocked(force, it)
+            }
+        }
+
+    private suspend fun refreshAccountLoginLocked(force: Boolean, generation: Long): AccountLoginState {
+        val version = sessionGuard.current()
+        if (!servicesTracker.accepts(SchoolService.PORTAL, version, null, generation)) {
+            throw CancellationException("门户验证状态已变更")
+        }
         val session = portalSession()
         if (session == null) {
+            ensureServicesBound()
+            // 明确拒绝（EXPIRED/AUTH_REQUIRED）保持原状，不被无候选覆盖；其余回到无候选。
+            if (mutableAccountLogin.value != AccountLoginState.EXPIRED &&
+                mutableServiceConnections.value[SchoolService.PORTAL].auth != ServiceAuthStatus.AUTH_REQUIRED
+            ) {
+                applyServicePatch(SchoolService.PORTAL, sessionVersion.value, null, ServiceAuthStatus.NOT_CONNECTED,
+                    null, System.currentTimeMillis(), generation)
+            }
             if (mutableAccountLogin.value != AccountLoginState.EXPIRED) mutableAccountLogin.value = AccountLoginState.SIGNED_OUT
-            return@withLock mutableAccountLogin.value
+            return mutableAccountLogin.value
         }
         val now = android.os.SystemClock.elapsedRealtime()
         val retryAfter = if (mutableAccountLogin.value == AccountLoginState.VALID) 5 * 60_000L else 30_000L
         if (!force && accountCheckedAt > 0 && now - accountCheckedAt in 0 until retryAfter) {
-            return@withLock mutableAccountLogin.value
+            return mutableAccountLogin.value
         }
+        ensureServicesBound()
         mutableAccountLogin.value = AccountLoginState.CHECKING
         try {
             val (account, name) = api.userInfo(session.token)
             sessionGuard.withCurrent(session.version) {
-                if (portalSession() != session) throw CancellationException("登录状态已变更")
+                if (portalSession() != session ||
+                    !servicesTracker.accepts(SchoolService.PORTAL, session.version, null, generation)) {
+                    throw CancellationException("登录状态已变更")
+                }
                 val state = accountLoginState(session.account, account, null)
                 if (state == AccountLoginState.VALID && name.isNotBlank()) store.realName = name
                 mutableAccountLogin.value = state
+                if (state == AccountLoginState.VALID) {
+                    applyServicePatch(SchoolService.PORTAL, session.version, null, ServiceAuthStatus.VERIFIED, null,
+                        System.currentTimeMillis(), generation)
+                } else {
+                    // 账号不匹配等不确定情况：保持过去认证，只标记问题。
+                    applyServicePatch(SchoolService.PORTAL, session.version, null, null, ServiceProblem.UNCONFIRMED,
+                        System.currentTimeMillis(), generation)
+                }
             }
         } catch (e: CancellationException) {
-            if (isCurrentSession(session.version) && mutableAccountLogin.value == AccountLoginState.CHECKING) {
+            if (isCurrentSession(session.version) && mutableAccountLogin.value == AccountLoginState.CHECKING &&
+                servicesTracker.accepts(SchoolService.PORTAL, session.version, null, generation)) {
                 mutableAccountLogin.value = AccountLoginState.UNVERIFIED
             }
             throw e
         } catch (e: Exception) {
             sessionGuard.withCurrent(session.version) {
-                if (portalSession() != session) throw CancellationException("登录状态已变更")
+                if (portalSession() != session ||
+                    !servicesTracker.accepts(SchoolService.PORTAL, session.version, null, generation)) {
+                    throw CancellationException("登录状态已变更")
+                }
                 if (e is AuthFailed) store.clearPortalSession()
                 mutableAccountLogin.value = accountLoginState(session.account, null, e)
             }
+            recordServiceFailure(SchoolService.PORTAL, session.version, null, e, generation)
         }
         accountCheckedAt = android.os.SystemClock.elapsedRealtime()
-        mutableAccountLogin.value
+        return mutableAccountLogin.value
     }
 
     suspend fun isSessionAlive(): Boolean {
@@ -1070,6 +1476,9 @@ class Repository(context: Context) {
             store.casTicket = ""
             mutableAccountLogin.value = if (identityVerified) AccountLoginState.VALID else AccountLoginState.UNVERIFIED
             accountCheckedAt = if (identityVerified) android.os.SystemClock.elapsedRealtime() else 0L
+            applyServicePatch(SchoolService.PORTAL, version, null,
+                if (identityVerified) ServiceAuthStatus.VERIFIED else ServiceAuthStatus.SAVED,
+                if (identityVerified) null else ServiceProblem.UNCONFIRMED, System.currentTimeMillis())
         }
     }
 
@@ -1078,8 +1487,20 @@ class Repository(context: Context) {
 
     /** 同步门户实际返回的课程；单周响应不能推断其他周。 */
     suspend fun syncSchedule(): Pair<CalendarInfo, List<CourseBlock>> {
-        val session = portalSession() ?: error("请先登录学校门户")
-        val raw = api.calendar(session.token, session.account)
+        val session = portalSession() ?: run {
+            applyServicePatch(SchoolService.PORTAL, sessionVersion.value, null, ServiceAuthStatus.NOT_CONNECTED, null,
+                System.currentTimeMillis())
+            error("请先登录学校门户")
+        }
+        return withServiceProbe(SchoolService.PORTAL, session.version, null) { generation ->
+        val raw = try {
+            api.calendar(session.token, session.account)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            recordServiceFailure(SchoolService.PORTAL, session.version, null, e, generation)
+            throw e
+        }
         val cal = sessionGuard.withCurrent(session.version) {
             raw.copy(
                 startDate = store.termStartDate.ifBlank { raw.startDate },
@@ -1092,13 +1513,27 @@ class Repository(context: Context) {
             if (store.scheduleSource == "zf_term") requireNotNull(store.loadCalendar()) to store.loadBlocks()
             else null
         }
-        if (imported != null) return imported
-        val blocks = mergeLessons(api.lessons(session.token, session.account))
+        if (imported != null) {
+            applyServicePatch(SchoolService.PORTAL, session.version, null, ServiceAuthStatus.VERIFIED, null,
+                System.currentTimeMillis(), generation)
+            return@withServiceProbe imported
+        }
+        val blocks = try {
+            mergeLessons(api.lessons(session.token, session.account))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            recordServiceFailure(SchoolService.PORTAL, session.version, null, e, generation)
+            throw e
+        }
         sessionGuard.withCurrent(session.version) {
             store.saveCalendar(cal)
             store.saveBlocks(blocks)
         }
-        return cal to blocks
+        applyServicePatch(SchoolService.PORTAL, session.version, null, ServiceAuthStatus.VERIFIED, null,
+            System.currentTimeMillis(), generation)
+        cal to blocks
+        }
     }
 
     suspend fun notices(): List<Notice> = notices(portalSession() ?: error("请先登录学校门户"))
@@ -1115,9 +1550,36 @@ class Repository(context: Context) {
      *
      * @return 结果文案（中文，直接展示）
      */
+    /** 作业同步失败计数：按异常类型统计，不解析文案。 */
+    private class ChxSyncFailureCounts(val authFailures: Int, val readFailures: Int)
+
     suspend fun chxSyncWorkTodos(): String {
         val version = sessionGuard.current()
         val chxVersion = chxSessionVersion.value
+        return withServiceProbe(SchoolService.CHX, version, chxVersion) { generation ->
+        try {
+            val (summary, counts) = chxSyncWorkTodosUnchecked(version, chxVersion)
+            // 正常返回也可能是部分失败：本轮拿到 401 证据 → 明确拒绝；纯读取失败 → 认证有效但标 READ。
+            if (counts.authFailures > 0) {
+                applyServicePatch(SchoolService.CHX, version, chxVersion, ServiceAuthStatus.AUTH_REQUIRED, null,
+                    System.currentTimeMillis(), generation)
+            } else {
+                applyServicePatch(SchoolService.CHX, version, chxVersion, ServiceAuthStatus.VERIFIED,
+                    if (counts.readFailures > 0) ServiceProblem.READ else null, System.currentTimeMillis(), generation)
+            }
+            summary
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            recordServiceFailure(SchoolService.CHX, version, chxVersion, e, generation)
+            throw e
+        }
+        }
+    }
+
+    private suspend fun chxSyncWorkTodosUnchecked(version: Long, chxVersion: Long): Pair<String, ChxSyncFailureCounts> {
+        var authFailures = 0
+        var readFailures = 0
         fun checkSession() = sessionGuard.withCurrent(version) {
             if (store.webLogoutPending || clearingChxSession || chxSessionVersion.value != chxVersion) {
                 throw CancellationException("学习通登录状态已变更")
@@ -1128,7 +1590,7 @@ class Repository(context: Context) {
             webCookieMutex = webCleanupMutex))
         val courses = workApi.courses()
         checkSession()
-        if (courses.isEmpty()) return "已读取课程列表，当前没有课程；本地待办已保留"
+        if (courses.isEmpty()) return "已读取课程列表，当前没有课程；本地待办已保留" to ChxSyncFailureCounts(0, 0)
         var added = 0
         var updated = 0
         var pending = 0
@@ -1176,6 +1638,8 @@ class Repository(context: Context) {
             if (items == null) {
                 failed++
                 val failure = result.exceptionOrNull()
+                // 认证证据与读取失败分开计数，供连接状态结构化记录（不解析文案）。
+                if (failure is AuthFailed) authFailures++ else readFailures++
                 val reason = if (failure is AuthFailed || failure is ChxCourseReadException) failure.message ?: "请求未完成" else "请求未完成"
                 failureCounts[reason] = (failureCounts[reason] ?: 0) + 1
                 continue
@@ -1206,10 +1670,15 @@ class Repository(context: Context) {
             }
         }
         val failures = ChxReadDiagnostics.failures(failureCounts)
-        if (scanned == 0) throw ChxCourseReadException("$failed 门课程未能读取，本地待办已保留。\n$failures")
+        if (scanned == 0) {
+            val message = "$failed 门课程未能读取，本地待办已保留。\n$failures"
+            if (authFailures > 0) throw AuthFailed(401, message)
+            throw ChxCourseReadException(message)
+        }
         if (updates.isEmpty()) {
-            return if (failed == 0) "已检查 $scanned 门课程，未发现作业；本地待办已保留"
+            val summary = if (failed == 0) "已检查 $scanned 门课程，未发现作业；本地待办已保留"
                 else "部分完成：已检查 $scanned 门课程${failSuffix(failed, failures)}；本地待办已保留"
+            return summary to ChxSyncFailureCounts(authFailures, readFailures)
         }
         var merged = 0
         sessionGuard.withCurrent(version) {
@@ -1277,14 +1746,17 @@ class Repository(context: Context) {
         return (if (failed > 0) "部分完成" else "同步完成") + "：检查了 $scanned 门课${failSuffix(failed, failures)}，" +
             "新增 $added 条、更新 $updated 条" +
             (if (merged > 0) "、合并 $merged 条通知重复" else "") +
-            "，未交 $pending 条"
+            "，未交 $pending 条" to ChxSyncFailureCounts(authFailures, readFailures)
     }
 
     private fun failSuffix(failed: Int, details: String): String =
         if (failed == 0) "" else "（$failed 门读取失败：\n$details）"
 
     /** 学习通会话探活与课程读取共用实时网页 Cookie；存储快照不是独立的登录凭证。 */
-    suspend fun chxSessionAlive(): Boolean? = withContext(Dispatchers.Main.immediate) {
+    suspend fun chxSessionAlive(generation: Long? = null): Boolean? = withContext(Dispatchers.Main.immediate) {
+        if (generation == null) return@withContext withServiceProbe(
+            SchoolService.CHX, sessionGuard.current(), chxSessionVersion.value,
+        ) { chxSessionAlive(it) }
         chxSessionMutex.withLock {
             val probeJob = currentCoroutineContext()[Job]
             val version = sessionGuard.current()
@@ -1292,15 +1764,26 @@ class Repository(context: Context) {
             fun checkSession() {
                 probeJob?.ensureActive()
                 sessionGuard.withCurrent(version) {
-                    if (store.webLogoutPending || clearingChxSession || chxSessionVersion.value != chxVersion) {
+                    if (store.webLogoutPending || clearingChxSession || chxSessionVersion.value != chxVersion ||
+                        !servicesTracker.accepts(SchoolService.CHX, version, chxVersion, generation)) {
                         throw CancellationException("学习通登录状态已变更")
                     }
                 }
             }
+            checkSession()
+            if (ChxWebSession.candidateCookie() == null) {
+                store.clearChxCookie()
+                val auth = if (servicesTracker.snapshot().chx.auth == ServiceAuthStatus.AUTH_REQUIRED)
+                    ServiceAuthStatus.AUTH_REQUIRED else ServiceAuthStatus.NOT_CONNECTED
+                applyServicePatch(SchoolService.CHX, version, chxVersion, auth, null,
+                    System.currentTimeMillis(), generation)
+                return@withLock false
+            }
             val home = ChxSso.HOME.toHttpUrl()
             val http = SessionHttpClient(allowedUrl = { it == home }, checkSession = ::checkSession,
                 webCookieMutex = webCleanupMutex)
-            ChxWebSession.verifyCandidate(
+            var failureRecorded = false
+            val result = ChxWebSession.verifyCandidate(
                 readCookie = ChxWebSession::candidateCookie,
                 probe = {
                     try {
@@ -1311,7 +1794,10 @@ class Repository(context: Context) {
                         ChxApi.sessionEvidence(response.status, ChxSso.HOME, response.body, response.location)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        // 保留网络/读取证据，随后不覆盖为“不确定”。
+                        recordServiceFailure(SchoolService.CHX, version, chxVersion, e, generation)
+                        failureRecorded = true
                         null
                     }
                 },
@@ -1319,6 +1805,17 @@ class Repository(context: Context) {
                 saveCandidate = { saveChxCandidate(it, version, chxVersion) },
                 clearCandidate = { store.clearChxCookie() },
             )
+            when (result) {
+                true -> applyServicePatch(SchoolService.CHX, version, chxVersion, ServiceAuthStatus.VERIFIED, null,
+                    System.currentTimeMillis(), generation)
+                false -> applyServicePatch(SchoolService.CHX, version, chxVersion, ServiceAuthStatus.AUTH_REQUIRED,
+                    null, System.currentTimeMillis(), generation)
+                null -> if (!failureRecorded) {
+                    applyServicePatch(SchoolService.CHX, version, chxVersion, null, ServiceProblem.UNCONFIRMED,
+                        System.currentTimeMillis(), generation)
+                }
+            }
+            result
         }
     }
 
@@ -1327,12 +1824,15 @@ class Repository(context: Context) {
         clearingChxSession = true
         invalidateChxRequests()
         store.clearChxCookie()
-        try {
+        val cleared = try {
             webCleanupMutex.withLock { ChxWebSession.clear() }
         } finally {
             clearingChxSession = false
             invalidateChxRequests()
         }
+        applyServicePatch(SchoolService.CHX, sessionVersion.value, mutableChxSessionVersion.value,
+            ServiceAuthStatus.NOT_CONNECTED, null, System.currentTimeMillis())
+        cleared
     }
 
     suspend fun summarize() = api.summarize(
@@ -1357,6 +1857,7 @@ class Repository(context: Context) {
     /** 成绩只读取已建立的教务会话；不重放历史票据，失败可继续尝试同站点的网页会话。 */
     suspend fun grades(year: String, semester: String): GradeReport = withContext(Dispatchers.Main.immediate) {
         val version = sessionGuard.current()
+        withServiceProbe(SchoolService.TEACHING, version, null) { generation ->
         fun checkSession() = sessionGuard.withCurrent(version) {
             if (store.webLogoutPending) throw CancellationException("网页会话正在清理")
         }
@@ -1384,11 +1885,15 @@ class Repository(context: Context) {
                     )
                     val report = TeachingGradeApi(http, base).load(year, semester)
                     checkSession()
-                    return@withContext report
+                    applyServicePatch(SchoolService.TEACHING, version, null, ServiceAuthStatus.VERIFIED, null,
+                        System.currentTimeMillis(), generation)
+                    return@withServiceProbe report
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: GradeLoadException) {
                     // 已读到业务响应，分页/格式异常应明确报告，不换站点悄悄掩盖。
+                    applyServicePatch(SchoolService.TEACHING, version, null, null, ServiceProblem.READ,
+                        System.currentTimeMillis(), generation)
                     throw e
                 } catch (e: Exception) {
                     if (failure == null || e !is AuthFailed) failure = e
@@ -1396,13 +1901,22 @@ class Repository(context: Context) {
             }
         }
         checkSession()
-        throw failure ?: AuthFailed(401, "请先完成教务网页登录")
+        val finalFailure = failure ?: AuthFailed(401, "请先完成教务网页登录")
+        if (failure == null) {
+            applyServicePatch(SchoolService.TEACHING, version, null, ServiceAuthStatus.NOT_CONNECTED, null,
+                System.currentTimeMillis(), generation)
+        } else {
+            recordServiceFailure(SchoolService.TEACHING, version, null, finalFailure, generation)
+        }
+        throw finalFailure
+        }
     }
 
     /** 学习通课程与任务点只用应用内网页会话；快照变化后旧请求不得回填。 */
     suspend fun chxCourses(): ChxCourseOverview = withContext(Dispatchers.Main.immediate) {
         val version = sessionGuard.current()
         val chxVersion = chxSessionVersion.value
+        withServiceProbe(SchoolService.CHX, version, chxVersion) { generation ->
         fun checkSession() = sessionGuard.withCurrent(version) {
             if (store.webLogoutPending || clearingChxSession || chxSessionVersion.value != chxVersion) {
                 throw CancellationException("学习通登录状态已变更")
@@ -1411,13 +1925,36 @@ class Repository(context: Context) {
         webCleanupMutex.withLock {
             checkSession()
             val cookie = android.webkit.CookieManager.getInstance().getCookie(ChxSso.HOME)
-            if (!ChxSso.hasSessionCookie(cookie)) throw AuthFailed(401, "请先登录学习通")
+            if (!ChxSso.hasSessionCookie(cookie)) {
+                val auth = if (servicesTracker.snapshot().chx.auth == ServiceAuthStatus.AUTH_REQUIRED)
+                    ServiceAuthStatus.AUTH_REQUIRED else ServiceAuthStatus.NOT_CONNECTED
+                applyServicePatch(SchoolService.CHX, version, chxVersion, auth, null,
+                    System.currentTimeMillis(), generation)
+                throw AuthFailed(401, "请先登录学习通")
+            }
         }
         val http = SessionHttpClient(ChxCourseApi::isAllowedUrl, ::checkSession,
             webCookieMutex = webCleanupMutex)
-        val overview = ChxCourseApi(http).load()
+        val overview = try {
+            ChxCourseApi(http).load()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            recordServiceFailure(SchoolService.CHX, version, chxVersion, e, generation)
+            throw e
+        }
         checkSession()
+        if (overview.progressAuthRequired) {
+            applyServicePatch(SchoolService.CHX, version, chxVersion, ServiceAuthStatus.AUTH_REQUIRED, null,
+                System.currentTimeMillis(), generation)
+        } else {
+            // 课程列表读取成功即认证有效；进度/任务点的业务失败保留认证并标 READ。
+            applyServicePatch(SchoolService.CHX, version, chxVersion, ServiceAuthStatus.VERIFIED,
+                if (overview.progressError.isNullOrBlank()) null else ServiceProblem.READ,
+                System.currentTimeMillis(), generation)
+        }
         overview
+        }
     }
 
     // 水电（无需登录态）

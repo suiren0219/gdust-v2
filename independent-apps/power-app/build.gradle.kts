@@ -10,12 +10,13 @@ android {
         applicationId = "cn.edu.gdust.suiren.power"
         minSdk = 33
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.1.3"
+        versionCode = 7
+        versionName = "0.1.6"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
     buildTypes {
-        debug { applicationIdSuffix = ".debug" }
+        debug { applicationIdSuffix = providers.gradleProperty("powerTestApplicationSuffix").orElse(".debug").get() }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -48,4 +49,6 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("junit:junit:4.13.2")
 }

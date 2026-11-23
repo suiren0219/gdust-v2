@@ -4,6 +4,10 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.*
+import com.menglimi.dormpower.power.PowerDayCost
+import com.menglimi.dormpower.power.PowerLedger
+import com.menglimi.dormpower.power.PowerLedgerEntry
+import com.menglimi.dormpower.power.PowerLedgerState
 import com.menglimi.dormpower.power.PowerUiState
 import com.menglimi.dormpower.ui.PowerActions
 import com.menglimi.dormpower.ui.PowerRoot
@@ -24,9 +28,13 @@ import kotlinx.coroutines.launch
 class PreviewActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val initialTab = when (intent.getStringExtra("screen")) { "history" -> 1; "settings" -> 2; else -> 0 }
+        val initialTab = when (intent.getStringExtra("screen")) { "history" -> 1; "settings" -> 2; "ledger" -> 3; else -> 0 }
         val scenario = intent.getStringExtra("state").orEmpty()
         val now = System.currentTimeMillis()
+        if (intent.getStringExtra("screen") in listOf("widget-calendar", "widget-ledger")) {
+            setContent { LedgerWidgetPreview(intent.getStringExtra("screen") == "widget-calendar") }
+            return
+        }
         setContent {
             var tab by remember { mutableIntStateOf(initialTab) }
             var appearance by remember { mutableStateOf(Appearance(
@@ -85,6 +93,26 @@ class PreviewActivity : ComponentActivity() {
                 preset = { power = power.copy(config = power.config.copy(preset = it)) },
                 interval = { power = power.copy(config = power.config.copy(customIntervalMinutes = it)) },
                 thresholds = { low, drop -> power = power.copy(config = power.config.copy(lowThreshold = low, dropRateThreshold = drop)) },
+                price = { value, revision ->
+                    if (revision == power.bindingRevision) power = power.copy(
+                        ledger = (power.ledger ?: com.menglimi.dormpower.power.PowerLedgerState()).copy(unitPrice = value),
+                        ledgerError = null, ledgerSavedVersion = power.ledgerSavedVersion + 1)
+                },
+                saveEntry = { entry, revision ->
+                    if (revision == power.bindingRevision) {
+                        val ledger = power.ledger ?: com.menglimi.dormpower.power.PowerLedgerState()
+                        power = power.copy(ledger = ledger.copy(entries = ledger.entries.filterNot { it.id == entry.id } + entry),
+                            ledgerError = null, ledgerSavedVersion = power.ledgerSavedVersion + 1)
+                    }
+                },
+                removeEntry = { id, revision ->
+                    if (revision == power.bindingRevision) {
+                        val ledger = power.ledger ?: com.menglimi.dormpower.power.PowerLedgerState()
+                        power = power.copy(ledger = ledger.copy(entries = ledger.entries.mapNotNull {
+                            if (it.id != id) it else if (it.detected) it.copy(ignored = true) else null
+                        }), ledgerError = null, ledgerSavedVersion = power.ledgerSavedVersion + 1)
+                    }
+                },
                 unbind = {
                     cancelRooms(); refreshJob?.cancel()
                     power = PowerUiState(config = power.config.copy(binding = null), bindingRevision = power.bindingRevision + 1,
@@ -120,6 +148,12 @@ private fun syntheticState(now: Long, scenario: String): PowerUiState {
             if (scenario == "partial") emptyList() else listOf("周一" to 2.7, "周二" to 2.4, "周三" to 3.1,
                 "周四" to 2.8, "周五" to 2.5, "周六" to 3.0, "周日" to 2.3),
             if (scenario == "partial") null else 78.4, 200.0), updated),
+                ledger = PowerLedgerState(entries = listOf(
+            PowerLedgerEntry(id = "synthetic-paid", time = now - 86_400_000L, kwh = 100.0,
+                paidYuan = "60.00", payer = "室友甲", note = "合成预览 · 公共电费"),
+            PowerLedgerEntry(id = "synthetic-detected", time = now, kwh = 49.0, detected = true)),
+            days = listOf(PowerDayCost(PowerLedger.date(now, PowerMonitorConfig().zone).toString(),
+                3.0, "1.8", 3, now - 3600_000L, now))),
         samples = if (scenario == "unknown") emptyList() else samples,
         lastSampleAt = updated, lastAttemptAt = updated,
         busy = scenario == "loading",
