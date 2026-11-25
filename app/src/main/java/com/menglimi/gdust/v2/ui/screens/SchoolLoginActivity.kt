@@ -23,24 +23,34 @@ import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,9 +62,11 @@ import com.menglimi.gdust.v2.data.AuthFailed
 import com.menglimi.gdust.v2.data.ChxSso
 import com.menglimi.gdust.v2.data.ChxWebSession
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.data.SchoolConnection
 import com.menglimi.gdust.v2.data.SchoolLoginFlow
 import com.menglimi.gdust.v2.data.SchoolLoginWeb
 import com.menglimi.gdust.v2.data.SchoolService
+import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppTheme
 import com.menglimi.gdust.v2.ui.LocalDs
 import kotlinx.coroutines.CancellationException
@@ -67,9 +79,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.icon.extended.Refresh
@@ -212,16 +226,20 @@ class SchoolLoginActivity : ComponentActivity() {
                             Icon(MiuixIcons.Close, "关闭登录", Modifier.size(24.dp), tint = ds.text)
                         }
                     }
-                    if (pageProgress < 100 || probing) {
-                        LinearProgressIndicator(color = ds.accent, trackColor = ds.breakBar,
-                            modifier = Modifier.fillMaxWidth())
-                    }
-                    Column(Modifier.fillMaxWidth().heightIn(max = 150.dp).verticalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp, vertical = 10.dp)) {
-                        Text(summary, color = ds.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text(pageError ?: message, color = if (pageError != null) ds.danger else ds.sub,
-                            fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 6.dp))
-                    }
+                    SchoolLoginProgress(
+                        // 沿用现有可观察摘要刷新状态，不以网页加载进度推断认证结果。
+                        connections = remember(summary, initialized) {
+                            SchoolService.entries.associateWith { flow.connection(it) }
+                        },
+                        message = message,
+                        error = pageError,
+                        loading = pageProgress < 100 || probing,
+                        skipLabel = if (teachingOnly) "返回课表导入"
+                            else if (currentService == SchoolService.CHX) "稍后连接"
+                            else "跳过${currentService?.label.orEmpty()}",
+                        onSkip = if (initialized && currentService != null) ::skipService else null,
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                    )
                     if (initialized && currentService == SchoolService.TEACHING) {
                         Button(onClick = {
                             teachingEntry = if (teachingEntry == ChxSso.teachingWebUrl)
@@ -248,14 +266,6 @@ class SchoolLoginActivity : ComponentActivity() {
                             summary = flow.summary()
                         }, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
                             Text("使用学习通账号登录", fontSize = 13.sp)
-                        }
-                    }
-                    if (initialized && currentService != null) {
-                        Button(onClick = ::skipService,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
-                            Text(if (teachingOnly) "返回课表导入"
-                                else if (currentService == SchoolService.CHX) "稍后连接学习通"
-                                else "暂时跳过${currentService?.label.orEmpty()}，继续连接", fontSize = 13.sp)
                         }
                     }
                 }
@@ -696,5 +706,88 @@ class SchoolLoginActivity : ComponentActivity() {
             web.destroy()
         }
         super.onDestroy()
+    }
+}
+
+@Composable
+private fun SchoolLoginProgress(
+    connections: Map<SchoolService, SchoolConnection>,
+    message: String,
+    error: String?,
+    loading: Boolean,
+    skipLabel: String,
+    onSkip: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val ds = LocalDs.current
+    val compactHeight = LocalConfiguration.current.screenHeightDp < 480
+    AppCard(
+        modifier = modifier.padding(horizontal = 16.dp).widthIn(max = 680.dp)
+            .fillMaxWidth().padding(bottom = 8.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().heightIn(max = if (compactHeight) 140.dp else 180.dp)
+                .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                SchoolService.entries.forEach { service ->
+                    val connection = connections.getValue(service)
+                    val status = when (connection) {
+                        SchoolConnection.PENDING -> "待处理"
+                        SchoolConnection.CONNECTING -> "当前连接"
+                        SchoolConnection.AUTH_REQUIRED -> "待认证"
+                        SchoolConnection.VERIFIED -> "已完成"
+                        SchoolConnection.UNAVAILABLE -> "未验证"
+                        SchoolConnection.SKIPPED -> "已跳过"
+                    }
+                    val markerColor = when (connection) {
+                        SchoolConnection.VERIFIED -> ds.successTint
+                        SchoolConnection.CONNECTING, SchoolConnection.AUTH_REQUIRED -> ds.accentSoft
+                        SchoolConnection.UNAVAILABLE -> ds.danger.copy(alpha = 0.12f)
+                        SchoolConnection.PENDING, SchoolConnection.SKIPPED -> ds.bg
+                    }
+                    Column(
+                        Modifier.weight(1f).semantics(mergeDescendants = true) {},
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(Modifier.background(markerColor, CircleShape)
+                                .padding(horizontal = 6.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
+                                Text("${service.ordinal + 1}", color = ds.text, fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium)
+                            }
+                            Text(service.label, color = ds.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        }
+                        Text(status, color = if (connection == SchoolConnection.UNAVAILABLE) ds.danger else ds.sub,
+                            fontSize = 12.sp, lineHeight = 16.sp)
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (loading && error == null) {
+                        CircularProgressIndicator(Modifier.size(14.dp), color = ds.accent, strokeWidth = 2.dp)
+                    }
+                    Text(error ?: message, modifier = Modifier.weight(1f),
+                        color = if (error != null) ds.danger else ds.sub, fontSize = 13.sp, lineHeight = 19.sp)
+                }
+                if (onSkip != null) {
+                    TextButton(
+                        text = skipLabel,
+                        onClick = onSkip,
+                        minWidth = 64.dp,
+                        minHeight = 36.dp,
+                        cornerRadius = 100.dp,
+                        insideMargin = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.textButtonColors(color = ds.text, textColor = ds.sub),
+                        textStyle = TextStyle(fontSize = 13.sp),
+                    )
+                }
+            }
+        }
     }
 }

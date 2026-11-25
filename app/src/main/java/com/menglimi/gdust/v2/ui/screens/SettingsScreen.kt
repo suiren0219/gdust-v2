@@ -47,11 +47,11 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.ui.AiSparkleIcon
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
@@ -110,7 +110,9 @@ fun SettingsScreen(
     loggedIn: Boolean = true,
     chxSessionSaved: Boolean = false,
     openSection: MutableState<String?>,
+    openGroupState: MutableState<String?> = rememberSaveable { mutableStateOf(null) },
     syncing: Boolean = false,
+    onOpenAiService: () -> Unit = {},
     onGrades: () -> Unit = {},
     onChxCourses: () -> Unit = {},
     onSchoolNotices: () -> Unit = {},
@@ -124,11 +126,6 @@ fun SettingsScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     var query by rememberSaveable { mutableStateOf("") }
 
-    var base by remember { mutableStateOf(store.llmBase) }
-    var apiKey by remember { mutableStateOf(store.llmKey) }
-    var model by remember { mutableStateOf(store.llmModel) }
-    var llmConfigured by remember { mutableStateOf(store.hasLlm) }
-    var saved by remember { mutableStateOf(false) }
     var summary by remember { mutableStateOf<String?>(null) }
     var summarizing by remember { mutableStateOf(false) }
     var summaryError by remember { mutableStateOf("") }
@@ -334,35 +331,19 @@ fun SettingsScreen(
                 },
             ),
             SettingsEntry(
-                id = "llm", title = "AI 中转站配置", summary = "OpenAI 兼容服务，密钥仅存本机", icon = MiuixIcons.MindMap,
-                detail = if (llmConfigured) "已配置" else "未配置", onClick = { toggle("llm") },
-                editor = {
-                    InputField(base, { base = it; saved = false }, "API Base")
-                    InputField(apiKey, { apiKey = it; saved = false }, "API Key", visual = PasswordVisualTransformation())
-                    InputField(model, { model = it; saved = false }, "模型名")
-                    Button(
-                        text = if (saved) "已保存" else "保存配置",
-                        enabled = base.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank(),
-                        onClick = {
-                            store.llmBase = base.trim()
-                            store.llmKey = apiKey.trim()
-                            store.llmModel = model.trim()
-                            llmConfigured = store.hasLlm
-                            saved = true
-                        },
-                    )
-                },
+                id = "llm", title = "AI 服务", summary = "模型地址、密钥与模型名", icon = AiSparkleIcon,
+                detail = if (store.hasLlm) "已配置" else "未配置", onClick = onOpenAiService,
             ),
             SettingsEntry(
                 id = "summary", title = "生成公告总结",
-                summary = if (llmConfigured) "用已配置的模型提炼学校公告" else "请先配置 AI 中转站",
+                summary = if (store.hasLlm) "用已配置模型提炼学校公告" else "先配置 AI 服务",
                 keywords = "AI 生成总结", icon = MiuixIcons.Notes,
                 detail = if (summary != null) "查看" else null, onClick = { toggle("summary") },
                 editor = {
                     summary?.let { Text(it, fontSize = 14.sp, lineHeight = 21.sp, color = ds.text) }
                     Button(
                         text = if (summarizing) "正在总结" else if (summary == null) "生成总结" else "重新总结",
-                        enabled = llmConfigured && !summarizing,
+                        enabled = store.hasLlm && !summarizing,
                         onClick = {
                             summarizing = true
                             summaryError = ""
@@ -437,25 +418,48 @@ fun SettingsScreen(
     }
     val showAccount = accountEntry.matches(search, "账户")
     val showLogout = loggedIn && (search.isBlank() || "退出登录 清除本机数据 账户".contains(search, ignoreCase = true))
+    // 二级分类：首页只列分类，具体开关与表单进分组页，避免设置页无限变长。
+    var openGroup by openGroupState
 
     BackHandler {
-        if (query.isNotEmpty()) { query = ""; focusManager.clearFocus() } else onBack()
+        when {
+            openGroup != null -> { openGroup = null; focusManager.clearFocus() }
+            query.isNotEmpty() -> { query = ""; focusManager.clearFocus() }
+            else -> onBack()
+        }
     }
     val density = LocalDensity.current
     val backThreshold = with(density) { 96.dp.toPx() }
     val backEdge = with(density) { 32.dp.toPx() }
     var backPx by remember { mutableStateOf(Float.NaN) }
+    val groupHints = mapOf(
+        "通用" to "启动页 · 桌面入口",
+        "课表" to "学期 · 周末 · 提醒 · 同步",
+        "服务" to "成绩 · 通知 · 学习通 · AI",
+        "数据" to "缓存 · 小部件 · 备份",
+        "关于" to "版本与数据来源",
+    )
+    val groupIcons = mapOf(
+        "通用" to MiuixIcons.Home,
+        "课表" to MiuixIcons.Months,
+        "服务" to MiuixIcons.Messages,
+        "数据" to MiuixIcons.Backup,
+        "关于" to MiuixIcons.Info,
+    )
+    val currentGroup = visibleGroups.firstOrNull { it.title == openGroup }
 
     Box(Modifier.fillMaxSize()) {
     Column(
         Modifier
             .fillMaxSize()
             .background(pageBackground())
-            .pointerInput(onBack, backThreshold, backEdge) {
+            .pointerInput(onBack, openGroup, backThreshold, backEdge) {
                 detectHorizontalDragGestures(
                     onDragStart = { backPx = if (it.x < backEdge) 0f else Float.NaN },
                     onDragEnd = {
-                        if (!backPx.isNaN() && backPx >= backThreshold) onBack()
+                        if (!backPx.isNaN() && backPx >= backThreshold) {
+                            if (openGroup != null) openGroup = null else onBack()
+                        }
                         backPx = Float.NaN
                     },
                     onDragCancel = { backPx = Float.NaN },
@@ -469,30 +473,46 @@ fun SettingsScreen(
             .padding(horizontal = AppUiTokens.PagePadding),
     ) {
         Spacer(Modifier.height(24.dp))
-        PageTitle(title = "设置", onBack = onBack)
-        SettingsSearchField(query = query, onQueryChange = { query = it })
-        if (showAccount) {
-            AccountIdentityCard(repo, onOpenProfile = onProfile)
-        }
-        visibleGroups.forEach { group ->
-            key(group.title) {
-                SectionHeader(group.title)
+        if (currentGroup == null) {
+            PageTitle(title = "设置", onBack = onBack)
+            SettingsSearchField(query = query, onQueryChange = { query = it })
+            if (showAccount) {
+                AccountIdentityCard(repo, onOpenProfile = onProfile)
+            }
+            if (search.isBlank()) {
+                SectionHeader("设置")
                 SettingGroup {
-                    group.entries.forEach { entry ->
-                        key(entry.id) {
-                            SettingsPreference(entry)
-                            if (openSection.value == entry.id && entry.editor != null) {
-                                SettingEditor { entry.editor.invoke() }
-                            }
-                            if (entry.id == "sync" && syncError != null) {
-                                SettingEditor { Text(syncError, fontSize = 13.sp, color = ds.danger) }
-                            }
+                    groups.forEach { group ->
+                        key(group.title) {
+                            SettingsPreference(SettingsEntry(
+                                id = "group-${group.title}",
+                                title = group.title,
+                                summary = groupHints[group.title],
+                                icon = groupIcons.getValue(group.title),
+                                onClick = { openGroup = group.title },
+                            ))
+                        }
+                    }
+                }
+            } else {
+                visibleGroups.forEach { group ->
+                    key(group.title) {
+                        SectionHeader(group.title)
+                        SettingGroup {
+                            group.entries.forEach { entry -> key(entry.id) { EntryWithEditor(entry, openSection, syncError) } }
                         }
                     }
                 }
             }
+        } else {
+            PageTitle(title = currentGroup.title, subtitle = groupHints[currentGroup.title], onBack = { openGroup = null })
+            SettingGroup {
+                currentGroup.entries.forEach { entry ->
+                    key(entry.id) { EntryWithEditor(entry, openSection, syncError) }
+                }
+            }
         }
-        if (showLogout) {
+        if (showLogout && currentGroup == null) {
             SettingGroup {
                 SettingsPreference(SettingsEntry(
                     id = "logout", title = "退出登录", summary = "同时清除本机数据", icon = MiuixIcons.Unlock,
@@ -500,7 +520,7 @@ fun SettingsScreen(
                 ))
             }
         }
-        if (!showAccount && visibleGroups.isEmpty() && !showLogout) {
+        if (currentGroup == null && search.isNotBlank() && visibleGroups.isEmpty() && !showAccount) {
             Text("没有找到相关设置", fontSize = 14.sp, color = secondary,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
         }
@@ -515,6 +535,21 @@ fun SettingsScreen(
     if (showDesktopAppearance) {
         DesktopAppearanceScreen(onBack = { showDesktopAppearance = false })
     }
+    }
+}
+
+@Composable
+private fun EntryWithEditor(
+    entry: SettingsEntry,
+    openSection: MutableState<String?>,
+    syncError: String?,
+) {
+    SettingsPreference(entry)
+    if (openSection.value == entry.id && entry.editor != null) {
+        SettingEditor { entry.editor.invoke() }
+    }
+    if (entry.id == "sync" && syncError != null) {
+        SettingEditor { Text(syncError, fontSize = 13.sp, color = LocalDs.current.danger) }
     }
 }
 

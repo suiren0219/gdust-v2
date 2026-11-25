@@ -19,6 +19,7 @@ class ChxWorkApiTest {
         "https://mooc1.chaoxing.com/visit/stucoursemiddle?courseid=201&clazzid=101&cpi=301&ismooc2=1&v=2")
     private val landing = "https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu?courseid=201&clazzid=101&cpi=301"
     private val tabs = ChxWorkTabs("synthetic-stu", "synthetic-work", "", "1700000000000", "", "https://mooc1.chaoxing.com")
+    private val landingReferer = "https://mooc1.chaoxing.com/visit/stucoursemiddle?courseid=201&clazzid=101&cpi=301&ismooc2=1&v=2"
     private val tabsHtml = """
         <input type='hidden' id='courseId' value='201'>
         <input type='hidden' id='classId' value='101'>
@@ -53,7 +54,8 @@ class ChxWorkApiTest {
             requests += request
             if (requests.size == 1) SessionResponse(302, "", landing) else SessionResponse(200, tabsHtml, null)
         }
-        assertEquals(tabs, api.courseTabs(course))
+        val parsed = api.courseTabs(course)
+        assertEquals(tabs.copy(coursePageUrl = landing), parsed)
         assertEquals(listOf(course.url, landing), requests.map { it.url.toString() })
         assertTrue(requests.all { it.header("Cookie") == null && ChxApi.isAllowedUrl(it.url) })
         assertTrue(requests.all { it.header("User-Agent") == ChxCourseApi.USER_AGENT })
@@ -86,7 +88,8 @@ class ChxWorkApiTest {
                     requests += request
                     if (requests.size == 1) SessionResponse(302, "", target) else SessionResponse(200, tabsHtml, null)
                 }
-                assertEquals(tabs, api.courseTabs(course))
+                val parsed = api.courseTabs(course)
+                assertEquals(tabs.copy(coursePageUrl = target.replace("http:", "https:")), parsed)
                 assertEquals(listOf(course.url, target.replace("http:", "https:")), requests.map { it.url.toString() })
                 assertTrue(requests.all { it.url.scheme == "https" && ChxApi.isAllowedUrl(it.url) })
                 assertTrue(requests.all { it.header("Cookie") == null && it.header("Referer") == ChxSso.HOME })
@@ -129,6 +132,33 @@ class ChxWorkApiTest {
         assertTrue(requests.all { it.header("Cookie") == null })
     }
 
+    @Test fun workListUsesTheActualCourseRefererAndSignedMenuEndpoint() = runBlocking {
+        val endpoint = "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/list.html"
+        val signed = tabs.copy(workListEndpoint = "$endpoint?courseId=201&classId=101&cpi=301&ut=s&t=1700000000000&stuenc=synthetic-stu&enc=synthetic-work",
+            coursePageUrl = landingReferer)
+        val requests = mutableListOf<Request>()
+        val api = ChxApi { request -> requests += request; SessionResponse(200, workHtml, null) }
+        assertEquals("示例作业", api.workList(course, signed).single().title)
+        assertEquals(endpoint, requests.single().url.newBuilder().query(null).build().toString())
+        assertEquals(landingReferer, requests.single().header("Referer"))
+        assertEquals(1, requests.single().url.queryParameterValues("enc").size)
+        assertTrue(ChxApi.isWorkList(requests.single().url))
+    }
+
+    @Test fun conflictingSignedMenuParametersOrCrossCourseRefererAreRejectedBeforeTransport() = runBlocking {
+        val signedConflict = tabs.copy(workListEndpoint = "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/list.html?enc=wrong")
+        var calls = 0
+        assertThrows(ChxCourseReadException::class.java) { runBlocking {
+            ChxApi { calls++; SessionResponse(200, workHtml, null) }.workList(course, signedConflict)
+        } }
+        assertEquals(0, calls)
+        val wrongReferer = tabs.copy(coursePageUrl = landingReferer.replace("courseid=201", "courseid=999"))
+        assertThrows(ChxCourseReadException::class.java) { runBlocking {
+            ChxApi { calls++; SessionResponse(200, workHtml, null) }.workList(course, wrongReferer)
+        } }
+        assertEquals(0, calls)
+    }
+
     @Test fun workListHandlesTheKnownPrefixRedirectAndEncodesSignaturesExactlyOnce() = runBlocking {
         val special = tabs.copy(enc = "test+a/b=&", workEnc = "work+a/b=&")
         val requests = mutableListOf<Request>()
@@ -145,6 +175,18 @@ class ChxWorkApiTest {
             assertEquals(special.workEnc, it.url.queryParameter("enc"))
             assertNull(it.header("Cookie"))
         }
+    }
+
+    @Test fun knownRelativeWorkTaskResolvesFromTheWorkListModuleRoot() {
+        val list = "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/list.html?courseId=201&classId=101&cpi=301"
+        val parsed = ChxApi.workDetailTarget(list.toHttpUrl(),
+            "work/task?courseId=201&classId=101&cpi=301&workId=401&answerId=0&enc=synthetic")
+        assertEquals("/mooc-ans/mooc2/work/task", parsed?.encodedPath)
+        assertEquals("401", parsed?.queryParameter("workId"))
+        assertNull(ChxApi.workDetailTarget(list.toHttpUrl(), "work/task?courseId=201"))
+        assertNull(ChxApi.workDetailTarget(list.toHttpUrl(), "../other/task?workId=401&answerId=1&enc=x"))
+        assertNull(ChxApi.workDetailTarget("https://mooc1.chaoxing.com/other/list".toHttpUrl(),
+            "work/task?workId=401&answerId=1&enc=x"))
     }
 
     @Test fun newListLandingResolvesRelativeDetailsFromTheFinalUrlWithoutTrustingHtmlBase() = runBlocking {

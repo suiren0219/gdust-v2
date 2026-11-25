@@ -47,6 +47,7 @@ data class CourseBlock(
 
 data class Notice(val title: String, val url: String, val type: String, val issuer: String?, val time: Long)
 data class PowerRoom(val name: String, val verify: String)
+data class AiChatMessage(val role: String, val content: String)
 
 /** 水电详情：剩余电量 + 接口自带近 7 日/今日/上月。 */
 data class PowerDetail(
@@ -286,22 +287,28 @@ class GdustApi internal constructor(private val http: OkHttpClient) {
 
     // ── LLM（用户自填配置）──
 
-    suspend fun summarize(base: String, key: String, model: String, notices: List<Notice>): String = io {
-        if (notices.isEmpty()) return@io "最近没有公告可总结。"
+    suspend fun summarize(base: String, key: String, model: String, notices: List<Notice>): String {
+        if (notices.isEmpty()) return "最近没有公告可总结。"
         val items = notices.take(15).joinToString("\n") { "- [${it.type}] ${it.title}" }
         val system = "你是广东科技学院的学生助手。把学校通知公告标题整理成简明中文要点：" +
             "按类别分组，每条一句话，突出停课/考试/缴费/截止等与学生相关事项，250 字以内。"
-        // 用 Gson 构造 JSON：手拼字符串没转义公告标题里的换行/引号时，
-        // 请求体会变成非法 JSON（服务端报「请求体必须是 JSON 对象」）
+        return complete(base, key, model, listOf(AiChatMessage("system", system), AiChatMessage("user", "最近的学校通知公告：\n$items")))
+    }
+
+    suspend fun complete(
+        base: String,
+        key: String,
+        model: String,
+        messages: List<AiChatMessage>,
+    ): String = io {
+        require(base.isNotBlank() && key.isNotBlank() && model.isNotBlank()) { "请先完成 AI 服务配置。" }
+        require(messages.isNotEmpty()) { "对话内容不能为空。" }
         val body = com.google.gson.Gson().toJson(
             mapOf(
                 "model" to model,
-                "messages" to listOf(
-                    mapOf("role" to "system", "content" to system),
-                    mapOf("role" to "user", "content" to "最近的学校通知公告：\n$items"),
-                ),
+                "messages" to messages.map { mapOf("role" to it.role, "content" to it.content) },
                 "max_tokens" to 2048,
-                "temperature" to 0.3,
+                "temperature" to 0.4,
             )
         )
         val root = base.trim().trimEnd('/')

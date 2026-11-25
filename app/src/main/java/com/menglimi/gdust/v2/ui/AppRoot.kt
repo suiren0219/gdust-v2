@@ -3,8 +3,19 @@ package com.menglimi.gdust.v2.ui
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -15,6 +26,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
@@ -40,12 +58,17 @@ import com.menglimi.gdust.v2.ui.screens.ChxEntryScreen
 import com.menglimi.gdust.v2.ui.screens.ChxCoursesScreen
 import com.menglimi.gdust.v2.ui.screens.ChxWebActivity
 import com.menglimi.gdust.v2.ui.screens.GradesScreen
+import com.menglimi.gdust.v2.ui.screens.AiChatLine
+import com.menglimi.gdust.v2.ui.screens.AiChatScreen
+import com.menglimi.gdust.v2.ui.screens.AiServiceSettingsScreen
 import com.menglimi.gdust.v2.data.ChxSso
 import com.menglimi.gdust.v2.data.Notice
 import com.menglimi.gdust.v2.data.NoticeFeed
 import com.menglimi.gdust.v2.data.readId
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.icon.MiuixIcons
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -70,6 +93,7 @@ fun AppRoot(
     showSettings: androidx.compose.runtime.MutableState<Boolean>,
     loggedIn: androidx.compose.runtime.MutableState<Boolean>,
     checked: androidx.compose.runtime.MutableState<Boolean>,
+    aiMessages: androidx.compose.runtime.MutableState<List<AiChatLine>>,
 ) {
     val scope = rememberCoroutineScope()
     // 登录与启动状态由 MainActivity 保存，配置重建后保留。
@@ -92,6 +116,9 @@ fun AppRoot(
     var showGrades by remember { mutableStateOf(false) }
     var showChxCourses by remember { mutableStateOf(false) }
     var showWidgets by remember { mutableStateOf(false) }
+    var showAiSettings by remember { mutableStateOf(false) }
+    var settingsSelected by remember { mutableStateOf(false) }
+    var aiMessagesState by remember { mutableStateOf(aiMessages.value) }
     var webReturnVersion by remember { mutableIntStateOf(0) }
     var schoolLoginMessage by remember { mutableStateOf<String?>(null) }
     val sessionVersion by repo.sessionVersion.collectAsState()
@@ -168,6 +195,7 @@ fun AppRoot(
     var importReport by remember { mutableStateOf<String?>(null) }
     // 设置页当前展开的编辑区（切风格重建时收起即可，不影响页面栈）
     val openSection = remember { mutableStateOf<String?>(null) }
+    val settingsGroup = androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     val hasAccount = repo.store.hasSession || repo.store.casTicket.isNotBlank() || repo.hasTeachingSession()
 
     fun loadNotices() { noticeFeed.refresh(scope) }
@@ -303,6 +331,8 @@ fun AppRoot(
         importReport = null
         showNotices = false
         showWebImport = false
+        aiMessagesState = emptyList()
+        aiMessages.value = emptyList()
         showChxEntry = false
         showGrades = false
         showChxCourses = false
@@ -367,8 +397,10 @@ fun AppRoot(
             showProfile -> "profile"
             showAbout -> "about"
             showWidgets -> "widgets"
+            showAiSettings -> "ai_settings"
             showSettings.value -> "settings"
             showServices -> "services"
+            tab.intValue == 4 -> "main"
             !loggedIn.value -> "login"
             else -> "main"
         },
@@ -448,6 +480,13 @@ fun AppRoot(
                 androidx.activity.compose.BackHandler { showWidgets = false }
                 WidgetPreviewScreen(onBack = { showWidgets = false })
             }
+            "ai_settings" -> {
+                AiServiceSettingsScreen(
+                    repo = repo,
+                    onBack = { showAiSettings = false },
+                    onOpenNotices = { showNotices = true; loadNotices() },
+                )
+            }
             "services" -> CampusServicesScreen(
                 signedIn = hasAccount,
                 accountName = repo.store.realName,
@@ -461,7 +500,7 @@ fun AppRoot(
                     loggedIn.value = true
                     openSchoolLogin()
                 },
-                onOpenSettings = { showSettings.value = true },
+                onOpenSettings = { showSettings.value = true; settingsSelected = true },
                 onPreview = { loggedIn.value = true },
                 onSchoolLogin = ::openSchoolLogin,
             )
@@ -480,6 +519,7 @@ fun AppRoot(
                 onFiveEducation = { openServiceWeb("http://172.16.1.232/index") },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },
+                onOpenAiService = { showAiSettings = true },
                 onExportBackup = exportLauncher,
                 onImportBackup = { uri ->
                     runCatching {
@@ -497,6 +537,7 @@ fun AppRoot(
                 loggedIn = loggedIn.value,
                 chxSessionSaved = chxSessionSaved,
                 openSection = openSection,
+                openGroupState = settingsGroup,
                 syncing = syncing,
                 onBack = { showSettings.value = false },
             )
@@ -504,7 +545,7 @@ fun AppRoot(
                 repo = repo,
                 tab = tab.intValue,
                 onTab = { tab.intValue = it },
-                onSettings = { showSettings.value = true },
+                onSettings = { showSettings.value = true; settingsSelected = true },
                 onOpenServices = { showServices = true },
                 onService = ::openCampusService,
                 onOpenNotices = { showNotices = true; loadNotices() },
@@ -514,6 +555,10 @@ fun AppRoot(
                 calendar = calendar,
                 blocks = blocks,
                 syncError = syncError,
+                aiMessages = aiMessagesState,
+                onAiMessagesChange = { aiMessagesState = it; aiMessages.value = it },
+                onOpenAiService = { showAiSettings = true },
+                settingsSelected = settingsSelected,
                 onSwitchTerm = { sem ->
                     val cal = calendar
                     if (cal != null && sem != cal.semester) {
@@ -619,8 +664,12 @@ fun AppRoot(
 private fun MainScaffold(
     repo: Repository,
     tab: Int,
+    aiMessages: List<AiChatLine>,
+    onAiMessagesChange: (List<AiChatLine>) -> Unit,
     onTab: (Int) -> Unit,
     onSettings: () -> Unit,
+    onOpenAiService: () -> Unit,
+    settingsSelected: Boolean,
     onOpenServices: () -> Unit,
     onService: (CampusService) -> Unit,
     onOpenNotices: () -> Unit = {},
@@ -633,6 +682,7 @@ private fun MainScaffold(
     onImport: () -> Unit = {},
 ) {
     val ds = LocalDs.current
+    var chatInputFocused by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(ds.bg)) {
         Crossfade(
             targetState = tab,
@@ -665,14 +715,48 @@ private fun MainScaffold(
                     onImport = onImport,
                 )
                 2 -> PowerScreen(repo)
-                else -> TodoScreen(repo)
+                3 -> TodoScreen(repo)
+                4 -> AiChatScreen(
+                    repo = repo,
+                    calendar = calendar,
+                    blocks = blocks,
+                    todos = repo.store.loadTodos(),
+                    messages = aiMessages,
+                    onMessagesChange = onAiMessagesChange,
+                    onInputFocusChanged = { chatInputFocused = it },
+                    onBack = { onTab(0) },
+                    onSettings = onOpenAiService,
+                )
             }
         }
-        com.menglimi.gdust.v2.ui.nexio.NexioBottomBar(
+        if (!chatInputFocused) com.menglimi.gdust.v2.ui.nexio.NexioBottomBar(
             selectedTab = tab,
             onTabSelected = onTab,
             onSettings = onSettings,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
+        if (tab != 4) {
+            val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            androidx.compose.foundation.layout.Column(
+                Modifier.align(Alignment.BottomStart)
+                    .padding(start = 0.dp, bottom = bottom + 104.dp)
+                    .width(42.dp)
+                    .clip(RoundedCornerShape(topEnd = 18.dp, bottomEnd = 18.dp))
+                    .background(ds.card)
+                    .clickable(
+                        role = androidx.compose.ui.semantics.Role.Button,
+                        onClick = { onTab(4) },
+                    )
+                    .semantics { contentDescription = "打开 AI 学习助手" }
+                    .padding(vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(AiSparkleIcon, null, Modifier.size(20.dp), tint = ds.accent)
+                top.yukonga.miuix.kmp.basic.Text(
+                    "AI", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = ds.text,
+                )
+            }
+        }
     }
 }

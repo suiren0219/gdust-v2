@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
             // 小部件打开本机内容可走 App 已有的预览模式，不要求教务会话仍然有效。
             val loggedIn = rememberSaveable { mutableStateOf(widgetRequest.value != null) }
             val checked = rememberSaveable { mutableStateOf(false) }
+            val aiMessages = androidx.compose.runtime.remember { mutableStateOf(emptyList<com.menglimi.gdust.v2.ui.screens.AiChatLine>()) }
             // 定位与 navigationVersion 一起下发，避免旧页面先消费请求后又被导航重建。
             val focusedTodo = rememberSaveable { mutableStateOf<Long?>(null) }
             val navigationVersion = rememberSaveable { mutableIntStateOf(0) }
@@ -87,7 +88,7 @@ class MainActivity : ComponentActivity() {
                 AppTheme {
                     // 热启动从设置的子页面进入时，也清除 AppRoot 内部的临时页面状态。
                     key(navigationVersion.intValue) {
-                        AppRoot(app.repo, tab = tab, showSettings = showSettings, loggedIn = loggedIn, checked = checked)
+                        AppRoot(app.repo, tab = tab, showSettings = showSettings, loggedIn = loggedIn, checked = checked, aiMessages = aiMessages)
                     }
                 }
             }
