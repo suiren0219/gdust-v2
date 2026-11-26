@@ -19,7 +19,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
+import androidx.compose.ui.text.TextStyle
+import com.haooz.nexioui.button.ButtonDefaults
+import com.menglimi.gdust.v2.ui.screens.SettingActionText
+import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -105,7 +108,7 @@ fun NoticeScreen(
                 .background(pageBackground())
                 .statusBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = nexioPagePadding()),
         ) {
             Spacer(Modifier.height(24.dp))
             PageTitle(title = "学校通知", subtitle = "学校公告与新闻 · 手动刷新", onBack = onBack)
@@ -167,24 +170,13 @@ fun NoticeScreen(
                         )
                     }
                 }
-                top.yukonga.miuix.kmp.basic.Button(
-                    onClick = onRefresh,
-                    enabled = !loading,
-                    minHeight = 48.dp,
-                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                ) {
-                    top.yukonga.miuix.kmp.basic.Text(
-                        if (loading) "更新中…" else "刷新",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
+                SettingActionText(text = if (loading) "更新中…" else "刷新", enabled = !loading, onClick = onRefresh)
             }
             Spacer(Modifier.height(12.dp))
 
             GlassCard {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("AI 总结", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+                    Text("AI 总结", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
                     Text(
                         if (store.hasLlm) "将当前来源的 ${notices.size} 条公告标题交给你配置的模型"
                         else "先到「设置 → 通知 AI 总结」填好模型配置",
@@ -196,7 +188,7 @@ fun NoticeScreen(
                     if (summaryError.isNotEmpty()) {
                         Text(summaryError, fontSize = 13.sp, lineHeight = 20.sp, color = ds.danger)
                     }
-                    Button(
+                    NexioActionButton(
                         text = if (summarizing) "总结中…" else if (summary == null) "AI 总结当前公告" else "重新总结",
                         enabled = store.hasLlm && !summarizing && !loading && notices.isNotEmpty(),
                     ) {
@@ -270,17 +262,7 @@ fun NoticeScreen(
                     )
                     if (unreadCount > 0) {
                         Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                            top.yukonga.miuix.kmp.basic.Button(
-                                onClick = { onMarkRead(notices) },
-                                minHeight = 48.dp,
-                                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                            ) {
-                                top.yukonga.miuix.kmp.basic.Text(
-                                    "全部标为已读",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                            }
+                            SettingActionText(text = "全部标为已读", onClick = { onMarkRead(notices) })
                         }
                         Spacer(Modifier.height(8.dp))
                     }

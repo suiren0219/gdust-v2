@@ -4,6 +4,8 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,6 +46,9 @@ import com.menglimi.gdust.v2.ui.screens.ChxEntryScreen
 import com.menglimi.gdust.v2.ui.screens.ChxCoursesScreen
 import com.menglimi.gdust.v2.ui.screens.ChxWebActivity
 import com.menglimi.gdust.v2.ui.screens.GradesScreen
+import com.menglimi.gdust.v2.ui.screens.AiChatLine
+import com.menglimi.gdust.v2.ui.screens.AiChatScreen
+import com.menglimi.gdust.v2.ui.screens.AiServiceSettingsScreen
 import com.menglimi.gdust.v2.data.ChxSso
 import com.menglimi.gdust.v2.data.Notice
 import com.menglimi.gdust.v2.data.NoticeFeed
@@ -99,6 +104,9 @@ fun AppRoot(
     var showGrades by remember { mutableStateOf(false) }
     var showChxCourses by remember { mutableStateOf(false) }
     var showWidgets by remember { mutableStateOf(false) }
+    var showAiSettings by remember { mutableStateOf(false) }
+    var aiMessagesState by remember { mutableStateOf(emptyList<com.menglimi.gdust.v2.ui.screens.AiChatLine>()) }
+    val settingsGroup = androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     var webReturnVersion by remember { mutableIntStateOf(0) }
     var schoolLoginMessage by remember { mutableStateOf<String?>(null) }
     val sessionVersion by repo.sessionVersion.collectAsState()
@@ -197,7 +205,8 @@ fun AppRoot(
             CampusService.WIDGETS -> showWidgets = true
             CampusService.CHX_LINK -> showChxEntry = true
             CampusService.CHX_NOTIFICATIONS -> showChxNotifications = true
-            CampusService.SUMMARY, CampusService.SETTINGS -> showSettings.value = true
+            CampusService.SUMMARY -> { showAiSettings = true }
+            CampusService.SETTINGS -> showSettings.value = true
         }
     }
 
@@ -324,6 +333,8 @@ fun AppRoot(
         showGrades = false
         showChxCourses = false
         showProfile = false
+        aiMessagesState = emptyList()
+        showAiSettings = false
         showSettings.value = false
         loggedIn.value = false
         scope.launch {
@@ -391,8 +402,10 @@ fun AppRoot(
             showProfile -> "profile"
             showAbout -> "about"
             showWidgets -> "widgets"
+            showAiSettings -> "ai_settings"
             showSettings.value -> "settings"
             showServices -> "services"
+            tab.intValue == 4 -> "main"
             !loggedIn.value -> "login"
             else -> "main"
         },
@@ -472,6 +485,13 @@ fun AppRoot(
                 androidx.activity.compose.BackHandler { showWidgets = false }
                 WidgetPreviewScreen(onBack = { showWidgets = false })
             }
+            "ai_settings" -> {
+                AiServiceSettingsScreen(
+                    repo = repo,
+                    onBack = { showAiSettings = false },
+                    onOpenNotices = { showNotices = true; loadNotices() },
+                )
+            }
             "services" -> CampusServicesScreen(
                 signedIn = hasAccount,
                 accountName = repo.store.realName,
@@ -502,6 +522,7 @@ fun AppRoot(
                 onChxCourses = { showChxCourses = true },
                 onSchoolNotices = { showNotices = true; loadNotices() },
                 onFiveEducation = { openServiceWeb("http://172.16.1.232/index") },
+                onOpenAiService = { showAiSettings = true },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },
                 onExportBackup = exportLauncher,
@@ -524,6 +545,7 @@ fun AppRoot(
                 },
                 onLogout = { logout() },
                 onReconnectService = ::openServiceLogin,
+                openGroupState = settingsGroup,
                 loggedIn = connections.hasRestorableSession || repo.store.hasSession ||
                     repo.hasTeachingSession() || repo.store.hasChxSession,
                 chxSessionSaved = chxSessionSaved,
@@ -534,12 +556,17 @@ fun AppRoot(
             "main" -> MainScaffold(
                 repo = repo,
                 tab = tab.intValue,
+                aiMessages = aiMessagesState,
+                onAiMessagesChange = { aiMessagesState = it },
                 onTab = { tab.intValue = it },
                 onSettings = { showSettings.value = true },
                 serviceSummary = serviceConnectionSummary(connections) +
                     if (syncing) "\n${activeSyncService?.label.orEmpty()}课表同步中，可继续使用其他服务" else "",
+                onServiceConnections = { settingsGroup.value = "服务"; showSettings.value = true },
                 onOpenServices = { showServices = true },
                 onService = ::openCampusService,
+                onOpenAiService = { showAiSettings = true },
+                settingsSelected = showSettings.value,
                 onOpenNotices = { showNotices = true; loadNotices() },
                 notices = notices,
                 unreadCount = notices.count { it.readId !in readNoticeIds },
@@ -675,11 +702,16 @@ fun AppRoot(
 private fun MainScaffold(
     repo: Repository,
     tab: Int,
+    aiMessages: List<AiChatLine>,
+    onAiMessagesChange: (List<AiChatLine>) -> Unit,
     onTab: (Int) -> Unit,
     onSettings: () -> Unit,
     serviceSummary: String,
     onOpenServices: () -> Unit,
+    onServiceConnections: () -> Unit,
     onService: (CampusService) -> Unit,
+    onOpenAiService: () -> Unit,
+    settingsSelected: Boolean,
     onOpenNotices: () -> Unit = {},
     notices: List<Notice> = emptyList(),
     unreadCount: Int = 0,
@@ -690,6 +722,9 @@ private fun MainScaffold(
     onImport: () -> Unit = {},
 ) {
     val ds = LocalDs.current
+    var chatInputFocused by remember { mutableStateOf(false) }
+    val keyboardVisible = androidx.compose.foundation.layout.WindowInsets.ime
+        .getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
     Box(Modifier.fillMaxSize().background(ds.bg)) {
         Crossfade(
             targetState = tab,
@@ -710,7 +745,7 @@ private fun MainScaffold(
                     onService = onService,
                     hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
                     serviceSummary = serviceSummary,
-                    onServices = onSettings,
+                    onServices = onServiceConnections,
                 )
                 1 -> ScheduleScreen(
                     repo = repo,
@@ -724,13 +759,26 @@ private fun MainScaffold(
                     onImport = onImport,
                 )
                 2 -> PowerScreen(repo)
-                else -> TodoScreen(repo)
+                3 -> TodoScreen(repo)
+                4 -> AiChatScreen(
+                    repo = repo,
+                    calendar = calendar,
+                    blocks = blocks,
+                    todos = repo.store.loadTodos(),
+                    messages = aiMessages,
+                    onMessagesChange = onAiMessagesChange,
+                    onInputFocusChanged = { chatInputFocused = it },
+                    onBack = { onTab(0) },
+                    onSettings = onOpenAiService,
+                )
             }
         }
-        com.menglimi.gdust.v2.ui.nexio.NexioBottomBar(
+        if (!chatInputFocused && !keyboardVisible) com.menglimi.gdust.v2.ui.nexio.NexioBottomBar(
             selectedTab = tab,
             onTabSelected = onTab,
             onSettings = onSettings,
+            settingsSelected = settingsSelected,
+            onAi = if (tab != 4) ({ onTab(4) }) else null,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }

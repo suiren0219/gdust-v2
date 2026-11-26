@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Text
+import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -75,13 +75,13 @@ internal fun DesktopAppearanceScreen(onBack: () -> Unit) {
                         Text("预览", fontSize = 13.sp, color = ds.sub)
                     }
                 }
-                InputField(name, { if (it.codePointCount(0, it.length) <= 30) name = it }, "桌面显示名称")
-                Button(if (busy) "正在读取图片…" else "选择图标图片", enabled = !busy) { picker.launch("image/*") }
-                if (icon != null) Button("使用默认人物图标", enabled = !busy) {
+                NexioField(name, { if (it.codePointCount(0, it.length) <= 30) name = it }, "桌面显示名称")
+                NexioActionButton(if (busy) "正在读取图片…" else "选择图标图片", enabled = !busy) { picker.launch("image/*") }
+                if (icon != null) NexioActionButton("使用默认人物图标", enabled = !busy) {
                     runCatching { DesktopShortcut.useDefaultIcon(context) }.onSuccess { icon = null }
                         .onFailure { failed = true; message = "恢复默认图标失败，请重试" }
                 }
-                Button("添加到桌面", enabled = !busy && name.isNotBlank()) {
+                NexioActionButton("添加到桌面", enabled = !busy && name.isNotBlank()) {
                     runCatching { DesktopShortcut.pin(context, name) }
                         .onSuccess { supported ->
                             failed = !supported

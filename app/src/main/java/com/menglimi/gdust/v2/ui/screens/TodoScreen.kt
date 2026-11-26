@@ -1,4 +1,4 @@
-// Todo grouping and storage are GDUST local logic; presentation follows CZeroX.
+// Todo grouping and storage are GDUST local logic; presentation uses NexioUI.
 package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.background
@@ -63,16 +63,16 @@ import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.widget.LocalWidgetTodoId
+import com.haooz.nexioui.button.Button as NexioButton
+import com.haooz.nexioui.button.ButtonDefaults as NexioButtonDefaults
+import com.haooz.nexioui.text.NexioText as Text
 import kotlinx.coroutines.delay
-import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Checkbox
-import top.yukonga.miuix.kmp.basic.CheckboxDefaults
+import com.haooz.nexioui.checkbox.Checkbox
+import com.haooz.nexioui.checkbox.CheckboxDefaults
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Delete
-import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.haooz.nexioui.theme.NexioTheme
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -156,8 +156,6 @@ fun TodoScreen(repo: Repository) {
         .atZone(java.time.ZoneId.systemDefault())
         .toLocalDate().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val addInteraction = remember { MutableInteractionSource() }
-    val addPressed by addInteraction.collectIsPressedAsState()
 
     fun addDraft() {
         val text = draft.trim()
@@ -178,21 +176,18 @@ fun TodoScreen(repo: Repository) {
         state = listState,
         modifier = Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().imePadding(),
         contentPadding = PaddingValues(
-            start = AppUiTokens.PagePadding,
-            end = AppUiTokens.PagePadding,
-            top = 24.dp,
+            start = nexioPagePadding(),
+            end = nexioPagePadding(),
+            top = 16.dp,
             bottom = 104.dp + bottomInset,
         ),
         verticalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap),
     ) {
         item(key = "todo-heading") {
             Column(Modifier.fillMaxWidth()) {
-                Text("待办", fontSize = AppUiTokens.TitleSize, fontWeight = AppUiTokens.TitleWeight,
-                    color = ds.text, modifier = Modifier.semantics { heading() })
-                Text("考试优先 · 按课程与截止时间整理", fontSize = 13.sp, lineHeight = 20.sp,
-                    color = ds.sub, modifier = Modifier.padding(top = 8.dp))
+                PageTitle("待办", "考试优先 · 按课程与截止时间整理")
                 Row(
-                    Modifier.fillMaxWidth().padding(top = 24.dp),
+                    Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap),
                 ) {
                     TodoMetricCard("待完成", groups.pendingCount, Modifier.weight(1f))
@@ -202,7 +197,7 @@ fun TodoScreen(repo: Repository) {
         }
         item(key = "todo-input") {
             AppCard(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
-                Text("添加待办", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+                Text("添加待办", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
                 Row(
                     Modifier.fillMaxWidth().padding(top = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -214,7 +209,7 @@ fun TodoScreen(repo: Repository) {
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                             .padding(vertical = 12.dp)
                             .semantics { contentDescription = "待办内容" },
-                        textStyle = MiuixTheme.textStyles.body1.copy(fontSize = 16.sp, color = ds.text),
+                        textStyle = NexioTheme.textStyles.body1.copy(fontSize = 16.sp, color = ds.text),
                         singleLine = true,
                         cursorBrush = SolidColor(ds.accent),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -226,21 +221,17 @@ fun TodoScreen(repo: Repository) {
                             }
                         },
                     )
-                    TextButton(
-                        text = "添加",
+                    NexioButton(
                         onClick = { addDraft() },
                         enabled = draft.isNotBlank(),
-                        minHeight = 48.dp,
-                        colors = ButtonDefaults.textButtonColors(
-                            color = if (addPressed) ds.accent.copy(alpha = 0.07f).compositeOver(ds.card) else ds.card,
-                            disabledColor = ds.card,
-                            textColor = ds.accent,
-                            disabledTextColor = ds.sub,
-                            alpha = 1f,
-                        ),
-                        interactionSource = addInteraction,
-                        indication = null,
-                    )
+                        minWidth = 64.dp,
+                        minHeight = 44.dp,
+                        cornerRadius = 100.dp,
+                        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        colors = NexioButtonDefaults.buttonColorsPrimary(),
+                    ) {
+                        Text("添加", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
                 }
             }
         }
@@ -287,7 +278,7 @@ fun TodoScreen(repo: Repository) {
                     onClick = { doneExpanded = !doneExpanded },
                 ) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("已完成  ${groups.completed.size}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+                        Text("已完成  ${groups.completed.size}", fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
                             color = ds.text, modifier = Modifier.weight(1f).semantics { heading() })
                         Text(if (doneExpanded) "收起" else "展开", fontSize = 13.sp,
                             color = ds.accent, modifier = Modifier.padding(start = 12.dp))
@@ -307,7 +298,7 @@ fun TodoScreen(repo: Repository) {
                         insideMargin = PaddingValues(AppUiTokens.CardPadding),
                         onClick = { items = store.updateTodos { c -> c.filterNot { it.done } } },
                     ) {
-                        Text("清理已完成", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+                        Text("清理已完成", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
                         Text("删除 ${groups.completed.size} 项已完成事项", fontSize = 13.sp, lineHeight = 20.sp,
                             color = ds.sub, modifier = Modifier.padding(top = 6.dp))
                     }
@@ -330,15 +321,11 @@ private fun TodoMetricCard(label: String, value: Int, modifier: Modifier = Modif
 @Composable
 private fun TodoGroupHeading(title: String, count: Int, suffix: String = "") {
     val ds = LocalDs.current
-    Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(title, fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold,
-                color = ds.text, modifier = Modifier.weight(1f).semantics { heading() })
-            Text("$count 项", fontSize = 13.sp, lineHeight = 24.sp, color = ds.sub)
-        }
+    Column(Modifier.fillMaxWidth()) {
+        SectionHeader("$title · $count 项")
         if (suffix.isNotBlank()) {
             Text(suffix, fontSize = 13.sp, lineHeight = 20.sp, color = ds.danger,
-                modifier = Modifier.padding(top = 4.dp))
+                modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 4.dp))
         }
     }
 }
@@ -382,7 +369,7 @@ private fun TodoItemCard(item: Todo, onToggle: (Boolean) -> Unit, onDelete: () -
                 lineHeight = 20.sp,
                 color = ds.sub,
             )
-            Text(item.text, fontSize = 18.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold,
+            Text(item.text, fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold,
                 color = ds.text, textDecoration = if (item.done) TextDecoration.LineThrough else null,
                 modifier = Modifier.padding(top = 10.dp))
             Text(
@@ -420,7 +407,7 @@ private fun TodoItemCard(item: Todo, onToggle: (Boolean) -> Unit, onDelete: () -
                     state = if (item.done) ToggleableState.On else ToggleableState.Off,
                     onClick = null,
                     enabled = false,
-                    colors = CheckboxDefaults.checkboxColors(
+                    colors = CheckboxDefaults.colors(
                         disabledCheckedBackgroundColor = ds.accent,
                         disabledCheckedForegroundColor = ds.card,
                         disabledUncheckedBackgroundColor = ds.sub.copy(alpha = 0.18f).compositeOver(cardColor),
@@ -447,7 +434,7 @@ private fun TodoItemCard(item: Todo, onToggle: (Boolean) -> Unit, onDelete: () -
 private fun TodoEmptyCard(title: String, message: String) {
     val ds = LocalDs.current
     AppCard(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
-        Text(title, fontSize = 18.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
-        Text(message, fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp))
+        Text(title, fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+        Text(message, fontSize = 14.sp, lineHeight = 21.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp))
     }
 }

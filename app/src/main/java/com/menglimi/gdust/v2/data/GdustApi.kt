@@ -59,6 +59,8 @@ data class PowerDetail(
 
 data class Captcha(val imageBytes: ByteArray, val uuid: String)
 
+data class AiChatMessage(val role: String, val content: String)
+
 class AuthFailed(val code: Int, msg: String) : Exception(msg)
 
 // ─────────────────────────────── 客户端 ───────────────────────────────
@@ -286,41 +288,54 @@ class GdustApi internal constructor(private val http: OkHttpClient) {
 
     // ── LLM（用户自填配置）──
 
-    suspend fun summarize(base: String, key: String, model: String, notices: List<Notice>): String = io {
-        if (notices.isEmpty()) return@io "最近没有公告可总结。"
-        val items = notices.take(15).joinToString("\n") { "- [${it.type}] ${it.title}" }
-        val system = "你是广东科技学院的学生助手。把学校通知公告标题整理成简明中文要点：" +
-            "按类别分组，每条一句话，突出停课/考试/缴费/截止等与学生相关事项，250 字以内。"
-        // 用 Gson 构造 JSON：手拼字符串没转义公告标题里的换行/引号时，
-        // 请求体会变成非法 JSON（服务端报「请求体必须是 JSON 对象」）
+    suspend fun complete(
+        base: String, key: String, model: String, messages: List<AiChatMessage>,
+    ): String {
+        if (messages.isEmpty()) throw IllegalArgumentException("AI 对话不能为空。")
+        val endpoint = llmEndpoint(base)
         val body = com.google.gson.Gson().toJson(
             mapOf(
                 "model" to model,
-                "messages" to listOf(
-                    mapOf("role" to "system", "content" to system),
-                    mapOf("role" to "user", "content" to "最近的学校通知公告：\n$items"),
-                ),
+                "messages" to messages.map { mapOf("role" to it.role, "content" to it.content) },
                 "max_tokens" to 2048,
                 "temperature" to 0.3,
             )
         )
-        val root = base.trim().trimEnd('/')
-        val endpoint = when {
-            root.endsWith("/chat/completions") -> root
-            root.endsWith("/v1") -> "$root/chat/completions"
-            else -> "$root/v1/chat/completions"
-        }
+        return llmRequest(endpoint, key, body)
+    }
+
+    private suspend fun llmRequest(endpoint: String, key: String, body: String): String = withContext(Dispatchers.IO) {
         val req = Request.Builder()
             .url(endpoint)
             .header("Authorization", "Bearer $key")
             .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
-        http.newCall(req).execute().use { r ->
-            val text = r.body?.string().orEmpty()
-            if (!r.isSuccessful) throw RuntimeException("LLM HTTP ${r.code}: ${text.take(120)}")
+        http.newCall(req).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw RuntimeException("LLM HTTP ${response.code}: ${text.take(120)}")
             jsonObj(text).getAsJsonArray("choices")?.firstOrNull()?.asJsonObject
                 ?.getAsJsonObject("message")?.str("content")
                 ?: throw RuntimeException("LLM 响应缺少 content")
+        }
+    }
+
+    suspend fun summarize(base: String, key: String, model: String, notices: List<Notice>): String {
+        if (notices.isEmpty()) return "最近没有公告可总结。"
+        val items = notices.take(15).joinToString("\n") { "- [${it.type}] ${it.title}" }
+        val system = "你是广东科技学院的学生助手。把学校通知公告标题整理成简明中文要点：" +
+            "按类别分组，每条一句话，突出停课/考试/缴费/截止等与学生相关事项，250 字以内。"
+        return complete(base, key, model, listOf(
+            AiChatMessage("system", system),
+            AiChatMessage("user", "最近的学校通知公告：\n$items"),
+        ))
+    }
+
+    private fun llmEndpoint(base: String): String {
+        val root = base.trim().trimEnd('/')
+        return when {
+            root.endsWith("/chat/completions") -> root
+            root.endsWith("/v1") -> "$root/chat/completions"
+            else -> "$root/v1/chat/completions"
         }
     }
 }

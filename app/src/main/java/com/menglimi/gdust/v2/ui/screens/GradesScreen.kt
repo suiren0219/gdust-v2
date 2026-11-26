@@ -1,6 +1,9 @@
 package com.menglimi.gdust.v2.ui.screens
 
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,7 +13,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
+import com.haooz.nexioui.button.ButtonDefaults
+import com.haooz.nexioui.button.FlatTextButton
+import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -20,11 +25,17 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -58,6 +69,7 @@ private data class GradeSelection(val year: String, val semester: String) {
 @Composable
 private fun GradeContent(repo: Repository, sessionVersion: Long, onBack: () -> Unit, onWebLogin: () -> Unit) {
     val ds = LocalDs.current
+    val haptic = LocalHapticFeedback.current
     val calendar = remember { repo.store.loadCalendar() }
     var year by remember {
         mutableStateOf(calendar?.year?.takeIf { it.matches(Regex("[0-9]{4}")) } ?: LocalDate.now().year.toString())
@@ -114,16 +126,30 @@ private fun GradeContent(repo: Repository, sessionVersion: Long, onBack: () -> U
     }
 
     SettingSubPage("学期成绩", "按学年与学期查询教务成绩", onBack) {
-        SettingGroup {
+        NexioSettingGroup {
             SettingEditor {
-                Text("起始学年", fontSize = 13.sp, color = ds.sub)
-                InputField(
-                    year,
-                    { value -> year = value.filter { it in '0'..'9' }.take(4) },
-                    "例如 2026，表示 2026–2027 学年",
-                    KeyboardType.Number,
-                    modifier = Modifier.semantics { contentDescription = "起始学年" },
-                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("起始学年", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                    BasicTextField(
+                        value = year,
+                        onValueChange = { value -> year = value.filter { it in '0'..'9' }.take(4) },
+                        singleLine = true,
+                        textStyle = TextStyle(color = ds.text, fontSize = 17.sp,
+                            fontWeight = FontWeight.Medium, textAlign = TextAlign.End),
+                        cursorBrush = SolidColor(ds.accent),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f).padding(start = 16.dp)
+                            .padding(vertical = 14.dp).semantics { contentDescription = "起始学年" },
+                        decorationBox = { input ->
+                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                                if (year.isEmpty()) Text("例如 2026，表示 2026–2027 学年", fontSize = 13.sp,
+                                    color = ds.sub, textAlign = TextAlign.End, maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
+                                input()
+                            }
+                        },
+                    )
+                }
                 if (selection.valid) {
                     Text("${year}–${year.toInt() + 1} 学年", fontSize = 13.sp, color = ds.sub)
                 }
@@ -132,10 +158,16 @@ private fun GradeContent(repo: Repository, sessionVersion: Long, onBack: () -> U
                     semester,
                     { semester = it },
                 )
-                Button(
-                    if (loading) "正在读取成绩…" else if (visibleReport == null) "查询成绩" else "刷新成绩",
+                FlatTextButton(
+                    text = if (loading) "正在读取成绩…" else if (visibleReport == null) "查询成绩" else "刷新成绩",
+                    onClick = { haptic.performHapticFeedback(HapticFeedbackType.Confirm); refresh++ },
+                    modifier = Modifier.fillMaxWidth(),
                     enabled = selection.valid && !loading && currentSession,
-                ) { refresh++ }
+                    cornerRadius = 100.dp,
+                    minHeight = 48.dp,
+                    insideMargin = PaddingValues(horizontal = 20.dp, vertical = 0.dp),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
             }
         }
 
@@ -152,10 +184,10 @@ private fun GradeContent(repo: Repository, sessionVersion: Long, onBack: () -> U
             color = if (error != null && currentSession) ds.danger else ds.sub,
             modifier = Modifier.padding(vertical = 8.dp))
 
-        if (currentSession && (needsLogin || (!loading && visibleReport == null))) {
+        CardExpand(visible = currentSession && (needsLogin || (!loading && visibleReport == null))) {
             Spacer(Modifier.height(8.dp))
-            SettingGroup {
-                SettingOption(
+            NexioSettingGroup {
+                NexioSettingOption(
                     title = "教务网页登录",
                     subtitle = "登录完成后返回本页刷新",
                     onClick = onWebLogin,

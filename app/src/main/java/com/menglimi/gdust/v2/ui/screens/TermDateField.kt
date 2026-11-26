@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
+import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,7 +40,6 @@ import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.ui.LocalDs
 import top.yukonga.miuix.kmp.basic.NumberPicker
 import top.yukonga.miuix.kmp.basic.NumberPickerDefaults
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.window.WindowDialog
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -127,16 +126,19 @@ private fun TermDateDialog(
             }
             Text("$date · ${weekday(date)}", color = ds.text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
             Text(if (monday) "已选中周一，可确认开学日期。" else "开学日期须为周一。", color = ds.sub, fontSize = 13.sp)
-            TextButton("改为本周周一 ${DateWheelSelection.monday(date)}", enabled = !monday, onClick = {
-                draft = DateWheelSelection.monday(date).toString()
-            }, modifier = Modifier.fillMaxWidth())
+            SettingActionText(
+                text = "改为本周周一 ${DateWheelSelection.monday(date)}",
+                enabled = !monday,
+                onClick = { draft = DateWheelSelection.monday(date).toString() },
+                modifier = Modifier.fillMaxWidth(),
+            )
             if (allowFollowCalendar) {
-                TextButton("跟随学校校历", onClick = { onConfirm("") }, modifier = Modifier.fillMaxWidth())
+                SettingActionText("跟随学校校历", onClick = { onConfirm("") }, modifier = Modifier.fillMaxWidth())
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton("取消", onClick = onDismiss, modifier = Modifier.weight(1f))
+                SettingActionText("取消", onClick = onDismiss, modifier = Modifier.weight(1f))
                 Box(Modifier.weight(1f)) {
-                    Button("确定", enabled = monday) { onConfirm(date.toString()) }
+                    NexioActionButton("确定", enabled = monday) { onConfirm(date.toString()) }
                 }
             }
         }

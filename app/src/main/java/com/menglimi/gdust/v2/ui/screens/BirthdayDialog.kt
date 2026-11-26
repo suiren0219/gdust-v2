@@ -46,7 +46,7 @@ internal fun BirthdayDialog(onDismiss: () -> Unit) {
                 Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("今天的课程可以照常安排，快乐也记得留给自己。", fontSize = 14.sp,
                         lineHeight = 22.sp, color = ds.sub)
-                    Button("收下祝福", onClick = onDismiss)
+                    NexioActionButton("收下祝福", onClick = onDismiss)
                 }
             }
         }

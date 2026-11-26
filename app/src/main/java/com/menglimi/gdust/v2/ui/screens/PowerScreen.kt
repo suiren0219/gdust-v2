@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,7 +23,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
+import com.haooz.nexioui.button.Button as NexioButton
+import com.haooz.nexioui.button.ButtonDefaults as NexioButtonDefaults
+import com.haooz.nexioui.cardexpand.CardExpand
+import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,7 +36,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -41,7 +44,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,18 +58,17 @@ import com.menglimi.gdust.v2.data.Store
 import com.menglimi.gdust.v2.data.isNetworkDown
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
-import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.ui.pageBackground
 import com.menglimi.gdust.v2.ui.secondaryTextColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
+import com.haooz.nexioui.basiccomponent.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Refresh
-import top.yukonga.miuix.kmp.preference.ArrowPreference
+import com.haooz.nexioui.arrowpreference.ArrowPreference
 
 /**
  * Layout adapted from NexioSchedule, revision 28a99a3:
@@ -153,39 +154,39 @@ fun PowerScreen(repo: Repository) {
             .statusBarsPadding()
             .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = AppUiTokens.PagePadding),
+            .padding(horizontal = nexioPagePadding()),
     ) {
-        Spacer(Modifier.height(24.dp))
-        Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("宿舍电费", fontSize = AppUiTokens.TitleSize, fontWeight = AppUiTokens.TitleWeight, color = ds.text,
-                    modifier = Modifier.weight(1f).semantics { heading() })
-                if (hasBinding && !editingBinding) {
-                    IconButton(onClick = { refresh() }, enabled = !busy, modifier = Modifier.size(48.dp)) {
-                        Icon(MiuixIcons.Refresh, contentDescription = "刷新电量", tint = ds.accent, modifier = Modifier.size(24.dp))
-                    }
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f)) {
+                PageTitle(
+                    "宿舍电费",
+                    if (hasBinding) roomName.ifBlank { "已绑定宿舍" } else "绑定宿舍，查看电量与用电趋势",
+                )
+            }
+            if (hasBinding && !editingBinding) {
+                IconButton(onClick = { refresh() }, enabled = !busy, modifier = Modifier.size(48.dp)) {
+                    Icon(MiuixIcons.Refresh, contentDescription = "刷新电量", tint = ds.accent, modifier = Modifier.size(24.dp))
                 }
             }
-            Text(
-                if (hasBinding) roomName.ifBlank { "已绑定宿舍" } else "绑定宿舍，查看电量与用电趋势",
-                fontSize = 14.sp, lineHeight = 20.sp, color = secondary, modifier = Modifier.padding(top = 6.dp),
-            )
         }
 
-        if (msg.isNotEmpty()) {
-            GlassCard {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("查询未完成", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = ds.danger)
-                    Text(msg, fontSize = 14.sp, color = secondary)
-                    if (hasBinding && !editingBinding) Button("重新查询", enabled = !busy) { refresh() }
+        CardExpand(visible = msg.isNotEmpty()) {
+            Column {
+                AppCard(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("查询未完成", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.danger)
+                        Text(msg, fontSize = 14.sp, lineHeight = 21.sp, color = secondary)
+                        if (hasBinding && !editingBinding) PowerActionButton("重新查询", enabled = !busy) { refresh() }
+                    }
                 }
+                Spacer(Modifier.height(12.dp))
             }
-            Spacer(Modifier.height(12.dp))
         }
 
         if (hasBinding && !editingBinding) {
             val daysLeft = estimate.daysLeft
-            GlassCard {
+            AppCard(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("剩余电量", fontSize = 14.sp, color = secondary)
                     Row(verticalAlignment = Alignment.Bottom) {
@@ -212,10 +213,10 @@ fun PowerScreen(repo: Repository) {
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap)) {
-                AppCard(Modifier.weight(1f), insideMargin = androidx.compose.foundation.layout.PaddingValues(AppUiTokens.CardPadding)) {
+                AppCard(Modifier.weight(1f), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
                     PowerMetric("今日用电", detail?.todayUse?.let { "%.1f".format(it) } ?: "—", unit = "度")
                 }
-                AppCard(Modifier.weight(1f), insideMargin = androidx.compose.foundation.layout.PaddingValues(AppUiTokens.CardPadding)) {
+                AppCard(Modifier.weight(1f), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
                     PowerMetric("粗估可用", daysLeft?.let { "约 %.1f".format(it) } ?: "—", unit = "天",
                         warn = daysLeft?.let { it < 3 } == true)
                 }
@@ -227,9 +228,9 @@ fun PowerScreen(repo: Repository) {
             )
 
             // 最近几小时折线（App 自采样序列）
-            GlassCard {
+            AppCard(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("电量走势", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                    Text("电量走势", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
                     SegmentedChoice(
                         options = listOf(1 to "1 天", 3 to "3 天", 7 to "7 天", 30 to "30 天"),
                         selected = chartDays,
@@ -288,10 +289,10 @@ fun PowerScreen(repo: Repository) {
                     }.getOrNull() ?: return Triple(d, "", false)
                     return Triple(dowNames[date.dayOfWeek.value - 1], "${date.monthValue}/${date.dayOfMonth}", date == today)
                 }
-                GlassCard {
+                AppCard(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("近 7 日用电", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = ds.text, modifier = Modifier.weight(1f))
+                            Text("近 7 日用电", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text, modifier = Modifier.weight(1f))
                             Text("峰值 %.1f 度".format(maxUse), fontSize = 13.sp, color = secondary)
                         }
                         Text(
@@ -379,9 +380,9 @@ fun PowerScreen(repo: Repository) {
                     onClick = { editingBinding = true; rooms = emptyList(); msg = "" },
                 )
             }
-            GlassCard {
+            AppCard(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("查询预设", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                    Text("查询预设", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
                     SegmentedChoice(
                         options = PowerQueryPreset.entries.map { it to it.title },
                         selected = queryPreset,
@@ -392,16 +393,18 @@ fun PowerScreen(repo: Repository) {
                         },
                     )
                     Text(queryPreset.description, fontSize = 14.sp, lineHeight = 20.sp, color = secondary)
-                    if (queryPreset == PowerQueryPreset.CUSTOM) {
-                        SegmentedChoice(
-                            options = listOf(15, 30, 60, 120).map { it to "${it}分" },
-                            selected = sampleIntervalLocal,
-                            onSelect = {
-                                sampleIntervalLocal = it
-                                store.sampleIntervalMinutes = it
-                                intervalSaved = true
-                            },
-                        )
+                    CardExpand(visible = queryPreset == PowerQueryPreset.CUSTOM) {
+                        Column {
+                            SegmentedChoice(
+                                options = listOf(15, 30, 60, 120).map { it to "${it}分" },
+                                selected = sampleIntervalLocal,
+                                onSelect = {
+                                    sampleIntervalLocal = it
+                                    store.sampleIntervalMinutes = it
+                                    intervalSaved = true
+                                },
+                            )
+                        }
                     }
                     Text(
                         queryPlan.intervalMinutes?.let { "当前节奏约 $it 分钟 · ${queryPlan.reason}" } ?: queryPlan.reason,
@@ -416,19 +419,16 @@ fun PowerScreen(repo: Repository) {
                 }
             }
         } else {
-            GlassCard {
+            AppCard(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text(if (hasBinding) "重新绑定宿舍" else "绑定宿舍", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                    Text(if (hasBinding) "重新绑定宿舍" else "绑定宿舍", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
                     Text("使用完美校园水电账号查询，选定房间后保存到本机。", fontSize = 14.sp, color = secondary)
-                    InputField(account, { account = it; rooms = emptyList() }, "水电账号（完美校园 outid）")
-                    InputField(code, { code = it; rooms = emptyList() }, "学校代码（广科 1000145）", KeyboardType.Number)
-                    Button(
-                        if (busy) "正在查询房间" else "查询我的房间",
-                        enabled = !busy && account.isNotBlank() && (code.toIntOrNull() ?: 0) > 0,
-                    ) {
+                    NexioField(account, { account = it; rooms = emptyList() }, "水电账号（完美校园 outid）")
+                    NexioField(code, { code = it; rooms = emptyList() }, "学校代码（广科 1000145）", KeyboardType.Number)
+                    PowerActionButton(if (busy) "正在查询房间" else "查询我的房间", enabled = !busy && account.isNotBlank() && (code.toIntOrNull() ?: 0) > 0) {
                         // 保留本次查询参数，避免输入变更后把房间绑定到另一个账号。
                         val requestedAccount = account.trim()
-                        val requestedCode = code.toIntOrNull() ?: return@Button
+                        val requestedCode = code.toIntOrNull() ?: return@PowerActionButton
                         busy = true
                         rooms = emptyList()
                         msg = ""
@@ -453,7 +453,7 @@ fun PowerScreen(repo: Repository) {
                         }
                     }
                     if (hasBinding) {
-                        Button("保留当前绑定", enabled = !busy) {
+                        PowerActionButton("保留当前绑定", enabled = !busy) {
                             editingBinding = false
                             account = store.powerAccount
                             code = store.powerCode.toString()
@@ -489,11 +489,11 @@ fun PowerScreen(repo: Repository) {
 
         Spacer(Modifier.height(12.dp))
         // 历史记录入口放在绑定分支之外：本机采样历史不依赖是否已绑定房间。
-        GlassCard {
+        AppCard(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("查询历史记录", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = ds.text)
-                Text("按日历查看每天的电量与采样明细，保留最近 30 天。", fontSize = 13.sp, color = secondary)
-                Button("打开历史记录", onClick = { showHistory = true })
+                Text("查询历史记录", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                Text("按日历查看每天的电量与采样明细，保留最近 30 天。", fontSize = 14.sp, lineHeight = 21.sp, color = secondary)
+                PowerActionButton("打开历史记录") { showHistory = true }
             }
         }
 
@@ -502,6 +502,21 @@ fun PowerScreen(repo: Repository) {
     } // PullToRefreshBox
 
     NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
+}
+
+@Composable
+private fun PowerActionButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
+    NexioButton(
+        onClick = onClick,
+        enabled = enabled,
+        cornerRadius = 100.dp,
+        minWidth = 76.dp,
+        minHeight = 44.dp,
+        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+        colors = NexioButtonDefaults.buttonColorsPrimary(),
+    ) {
+        Text(text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+    }
 }
 
 /**

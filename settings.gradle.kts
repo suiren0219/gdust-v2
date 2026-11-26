@@ -19,3 +19,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "gdust-v2"
 include(":app")
+include(":nexio-ui")

@@ -13,7 +13,7 @@
         <activity
             android:name=".debug.CZeroPreviewActivity"
             android:exported="true"
-            android:label="CZeroX 视觉预览"
+            android:label="Nexio UI 视觉预览"
             android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>

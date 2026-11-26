@@ -7,20 +7,24 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -36,17 +40,31 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.data.isNetworkDown
+import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
-import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.ui.pageBackground
+import com.haooz.nexioui.button.Button as NexioButton
+import com.haooz.nexioui.button.ButtonDefaults
+import com.haooz.nexioui.button.FlatTextButton
+import com.haooz.nexioui.text.NexioText as Text
 
 @Composable
 fun LoginScreen(
@@ -58,6 +76,8 @@ fun LoginScreen(
 ) {
     val ds = LocalDs.current
     val scope = rememberCoroutineScope()
+    val isTablet = LocalConfiguration.current.screenWidthDp >= 600
+    val pagePadding = if (isTablet) 20.dp else AppUiTokens.PagePadding
 
     var account by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -84,100 +104,123 @@ fun LoginScreen(
             .fillMaxSize()
             .background(pageBackground())
             .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = AppUiTokens.PagePadding),
+            .padding(horizontal = pagePadding),
     ) {
-        Spacer(Modifier.height(52.dp))
+        Spacer(Modifier.height(if (isTablet) 24.dp else 12.dp))
         PageTitle(title = "广科课程表", subtitle = "课表 · 电费 · 待办 · 通知总结")
 
-        GlassCard {
+        AppCard(
+            modifier = Modifier.fillMaxWidth(),
+            cornerRadius = 20.dp,
+            insideMargin = PaddingValues(AppUiTokens.CardPadding),
+        ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("一次学校登录", fontSize = 20.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = ds.text)
+                Text("一次学校登录", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
                 Text("在学校页面完成认证后，自动连接教务与学习通，分别确认可用状态。", fontSize = 14.sp, lineHeight = 21.sp, color = ds.sub)
-                Button("学校统一登录", onClick = onSchoolLogin)
+                LoginActionButton(text = "学校统一登录", onClick = onSchoolLogin)
             }
         }
         Spacer(Modifier.height(12.dp))
-        top.yukonga.miuix.kmp.basic.TextButton(if (showLegacy) "收起其他登录方式" else "其他登录方式", onClick = { showLegacy = !showLegacy })
-        if (showLegacy) {
-        Text("兼容入口登录后会继续学校网页登录，补全其他服务的认证。", fontSize = 13.sp, color = ds.sub,
-            modifier = Modifier.padding(vertical = 10.dp))
-        GlassCard {
+        AppCard(
+            modifier = Modifier.fillMaxWidth(),
+            cornerRadius = 20.dp,
+            insideMargin = PaddingValues(AppUiTokens.CardPadding),
+        ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("账号登录（兼容）", fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = ds.text)
-                InputField(account, { account = it }, "学号", KeyboardType.Number, enabled = !loginState.submitting)
-                InputField(password, { password = it }, "密码", visual = PasswordVisualTransformation(), enabled = !loginState.submitting)
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    InputField(loginState.code, login::changeCode, "验证码", modifier = Modifier.weight(1f),
-                        enabled = !loginState.submitting && !loginState.loadingCaptcha && captcha != null)
-                    Box(
-                        Modifier
-                            .width(112.dp)
-                            .height(46.dp)
-                            .background(ds.bg, androidx.compose.foundation.shape.RoundedCornerShape(AppUiTokens.ItemCorner))
-                            .clickable(enabled = !loginState.submitting && !loginState.loadingCaptcha) { login.refreshCaptcha() },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        captcha?.let {
-                            Image(it, "验证码", contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize())
-                        } ?: Text(if (loginState.loadingCaptcha) "加载中…" else "点击重试", fontSize = 13.sp, color = ds.sub)
+                Text("其他登录方式", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                Text("兼容入口登录后会继续学校网页登录，补全其他服务的认证。", fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub)
+                FlatTextButton(
+                    text = if (showLegacy) "收起兼容登录" else "展开兼容登录",
+                    onClick = { showLegacy = !showLegacy },
+                    minHeight = 48.dp,
+                    insideMargin = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                    cornerRadius = 100.dp,
+                    textStyle = TextStyle(fontSize = 14.sp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                CardExpand(visible = showLegacy) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("账号登录（兼容）", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                        LoginLegacyInputField(account, { account = it }, "学号", KeyboardType.Number, enabled = !loginState.submitting)
+                        LoginLegacyInputField(password, { password = it }, "密码", visual = PasswordVisualTransformation(), enabled = !loginState.submitting)
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            LoginLegacyInputField(loginState.code, login::changeCode, "验证码", modifier = Modifier.weight(1f),
+                                enabled = !loginState.submitting && !loginState.loadingCaptcha && captcha != null)
+                            Box(
+                                Modifier
+                                    .width(112.dp)
+                                    .height(48.dp)
+                                    .background(ds.bg, androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
+                                    .clickable(enabled = !loginState.submitting && !loginState.loadingCaptcha,
+                                        role = Role.Button, onClickLabel = "刷新验证码") { login.refreshCaptcha() },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                captcha?.let {
+                                    Image(it, "验证码", contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize())
+                                } ?: Text(if (loginState.loadingCaptcha) "加载中…" else "点击重试", fontSize = 13.sp, color = ds.sub)
+                            }
+                        }
+                        loginState.loginError?.let {
+                            Text(it, fontSize = 13.sp, lineHeight = 20.sp, color = ds.danger)
+                        }
+                        loginState.captchaError?.let {
+                            Text(it, fontSize = 13.sp, lineHeight = 20.sp, color = ds.danger)
+                        }
+                        LoginActionButton(
+                            text = if (loginState.submitting) "正在登录…" else "登录并同步",
+                            enabled = captcha != null && loginState.canSubmit(account, password),
+                        ) {
+                            error = ""
+                            login.submit(account, password, onLoggedIn)
+                        }
                     }
                 }
-                loginState.loginError?.let {
-                    Text(it, fontSize = 13.sp, lineHeight = 20.sp, color = ds.danger)
-                }
-                loginState.captchaError?.let {
-                    Text(it, fontSize = 13.sp, lineHeight = 20.sp, color = ds.danger)
-                }
-                Button(if (loginState.submitting) "正在登录…" else "登录并同步",
-                    enabled = captcha != null && loginState.canSubmit(account, password)) {
-                    error = ""
-                    login.submit(account, password, onLoggedIn)
-                }
             }
         }
-
-        Spacer(Modifier.height(12.dp))
-        DingTalkSection(repo = repo, onLoggedIn = onLoggedIn, onError = { error = it })
+        if (showLegacy) {
+            Spacer(Modifier.height(12.dp))
+            DingTalkSection(repo = repo, onLoggedIn = onLoggedIn, onError = { error = it })
         }
 
         if (error.isNotEmpty()) {
-            Text(error, fontSize = 13.sp, color = ds.danger, modifier = Modifier.padding(top = 12.dp))
+            Text(error, fontSize = 13.sp, lineHeight = 20.sp, color = ds.danger, modifier = Modifier.padding(top = 12.dp))
         }
 
         Text(
             "认证直接在学校和学习通页面完成，密码不落盘。\n" +
                 "已连接的服务保留在本机；部分服务暂不可用时，可以稍后继续连接。",
             fontSize = 13.sp,
+            lineHeight = 20.sp,
             color = ds.sub,
             modifier = Modifier.padding(top = 20.dp),
         )
         // 免登录预览：不接触网络数据，只看界面
-        Text(
-            text = "先看看界面（不登录）›",
-            fontSize = 13.sp,
-            color = ds.accent,
-            modifier = Modifier
-                .padding(top = 10.dp)
-                .clickable { onPreview() },
-        )
+        Box(
+            Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 48.dp)
+                .clickable(role = Role.Button, onClick = onPreview),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Text("先看看界面（不登录）›", fontSize = 13.sp, color = ds.accent)
+        }
 
         // 未登录也能进入设置和关于页。
-        Text(
-            text = "设置 ›",
-            fontSize = 13.sp,
-            color = ds.accent,
-            modifier = Modifier
-                .padding(top = 10.dp)
-                .clickable { onOpenSettings() },
-        )
+        Box(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .clickable(role = Role.Button, onClick = onOpenSettings),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Text("设置 ›", fontSize = 13.sp, color = ds.accent)
+        }
         Spacer(Modifier.height(40.dp))
     }
 
 }
 
 @Composable
-fun InputField(
+private fun LoginLegacyInputField(
     value: String,
     onChange: (String) -> Unit,
     placeholder: String,
@@ -185,43 +228,52 @@ fun InputField(
     modifier: Modifier = Modifier,
     visual: VisualTransformation = VisualTransformation.None,
     enabled: Boolean = true,
+    hint: String = "请输入",
 ) {
     val ds = LocalDs.current
-    BasicTextField(
-        value = value,
-        onValueChange = onChange,
-        enabled = enabled,
-        modifier = modifier
-            .fillMaxWidth()
-            .background(ds.bg, androidx.compose.foundation.shape.RoundedCornerShape(AppUiTokens.ItemCorner))
-            .padding(horizontal = 14.dp, vertical = 13.dp),
-        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, color = ds.text),
-        singleLine = true,
-        cursorBrush = SolidColor(ds.accent),
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-        visualTransformation = visual,
-        decorationBox = { inner ->
-            Box {
-                if (value.isEmpty()) Text(placeholder, fontSize = 15.sp, color = ds.sub)
-                inner()
-            }
-        },
-    )
+    Row(
+        modifier = modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(placeholder, modifier = Modifier.weight(1f), fontSize = 17.sp,
+            fontWeight = FontWeight.Medium, color = if (enabled) ds.text else ds.sub,
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
+        BasicTextField(
+            value = value,
+            onValueChange = onChange,
+            enabled = enabled,
+            modifier = Modifier.weight(1f).heightIn(min = 44.dp)
+                .semantics { contentDescription = placeholder },
+            textStyle = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Medium,
+                color = if (enabled) ds.text else ds.sub, textAlign = TextAlign.End),
+            singleLine = true,
+            cursorBrush = SolidColor(ds.accent),
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            visualTransformation = visual,
+            decorationBox = { inner ->
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                    if (value.isEmpty()) Text(hint, fontSize = 14.sp, color = ds.sub, textAlign = TextAlign.End)
+                    inner()
+                }
+            },
+        )
+    }
 }
 
+/** 账号登录中的操作使用共享 Nexio 按钮封装。 */
 @Composable
-fun Button(text: String, enabled: Boolean = true, onClick: () -> Unit) {
-    top.yukonga.miuix.kmp.basic.Button(
+private fun LoginActionButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
+    NexioButton(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
         enabled = enabled,
-        colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 100.dp,
+        minHeight = 48.dp,
+        colors = ButtonDefaults.buttonColorsPrimary(),
+        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 0.dp),
     ) {
-        top.yukonga.miuix.kmp.basic.Text(
-            text,
-            fontSize = 16.sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-        )
+        Text(text, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = LocalContentColor.current)
     }
 }
 
@@ -295,13 +347,17 @@ private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (
         }
     }
 
-    GlassCard {
+    AppCard(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 20.dp,
+        insideMargin = PaddingValues(AppUiTokens.CardPadding),
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("钉钉扫码登录", fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = ds.text)
+            Text("钉钉扫码登录", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
             val cid = clientId
             if (cid == null) {
                 Text("点下方按钮生成二维码，用钉钉扫一扫即可授权", fontSize = 13.sp, color = ds.sub)
-                Button(text = if (active) "连接中…" else "生成登录二维码", enabled = !active) {
+                LoginActionButton(text = if (active) "连接中…" else "生成登录二维码", enabled = !active) {
                     autoRetry = 0
                     active = true
                 }
@@ -317,7 +373,7 @@ private fun DingTalkSection(repo: Repository, onLoggedIn: () -> Unit, onError: (
                 Text(status.ifEmpty { "用钉钉扫一扫上面的二维码" }, fontSize = 13.sp, color = ds.sub)
                 // 手动刷新：换一张新的 clientId/票据；二维码过期或怀疑被占用时用。
                 // 等待扫码期间 SSE 仍在挂起，刷新会重启会话序号取消旧连接。
-                Button(text = "刷新二维码") {
+                LoginActionButton(text = "刷新二维码") {
                     autoRetry = 0
                     clientId = null
                     status = ""

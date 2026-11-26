@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Text
+import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -91,8 +91,8 @@ fun PowerHistoryScreen(repo: Repository, onBack: () -> Unit) {
                 MonthArrow("上个月") { month = month.minusMonths(1) }
                 Text(
                     month.format(monthTitle),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Medium,
                     color = ds.text,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.weight(1f),

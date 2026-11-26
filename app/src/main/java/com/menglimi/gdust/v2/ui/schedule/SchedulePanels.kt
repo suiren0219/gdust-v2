@@ -1,4 +1,4 @@
-// CZeroX schedule controls using Miuix windows and solid AppCard surfaces.
+// Nexio schedule controls share the application theme and continuous surfaces.
 // Week selection, course aggregation and GDUST display preferences stay local to the schedule.
 package com.menglimi.gdust.v2.ui.schedule
 
@@ -52,11 +52,13 @@ import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
 import java.time.LocalDate
-import top.yukonga.miuix.kmp.basic.Button
+import com.menglimi.gdust.v2.ui.screens.nexioPagePadding
+import com.haooz.nexioui.button.Button
+import com.haooz.nexioui.button.ButtonDefaults as NexioButtonDefaults
+import com.haooz.nexioui.text.NexioText as Text
+import com.haooz.nexioui.switch.Switch
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Switch
-import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.basic.ArrowUpDown
@@ -83,7 +85,7 @@ internal fun ScheduleHeader(
 ) {
     val ds = LocalDs.current
     var showMenu by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(horizontal = AppUiTokens.PagePadding).padding(top = 12.dp, bottom = 12.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = nexioPagePadding()).padding(top = 12.dp, bottom = 12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 "课表",
@@ -280,7 +282,7 @@ internal fun WeekPickerDialog(
                 Button(
                     onClick = { onPick(currentWeek) },
                     enabled = currentWeek in 1..totalWeeks,
-                    colors = ButtonDefaults.buttonColorsPrimary(),
+                    colors = NexioButtonDefaults.buttonColorsPrimary(), cornerRadius = 100.dp,
                     modifier = Modifier.weight(1f),
                 ) { Text("回本周") }
             }
@@ -338,7 +340,7 @@ internal fun ScheduleLessonSheet(
                     if (lesson.teacher.isNotBlank()) Text(lesson.teacher, fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(top = 3.dp))
                 }
             }
-            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColorsPrimary()) { Text("知道了") }
+            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), colors = NexioButtonDefaults.buttonColorsPrimary(), cornerRadius = 100.dp) { Text("知道了") }
         }
     }
 }
@@ -390,7 +392,7 @@ internal fun ScheduleDisplayDialog(
             ScheduleToggle("显示地点", showClassroom, onClassroom)
             ScheduleToggle("显示教师", showTeacher, onTeacher)
             ScheduleToggle("智能隐藏无课周末", smartWeekend, onSmartWeekend)
-            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColorsPrimary()) { Text("完成") }
+            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), colors = NexioButtonDefaults.buttonColorsPrimary(), cornerRadius = 100.dp) { Text("完成") }
         }
     }
 }

@@ -28,6 +28,15 @@ android {
         versionName = vName
     }
 
+    // 独立安装的离线预览 flavor：复用 debug build type（Compose、assets 与 test）。
+    flavorDimensions += "previewTarget"
+    productFlavors {
+        create("preview") {
+            dimension = "previewTarget"
+            applicationIdSuffix = ".preview"
+        }
+    }
+
     signingConfigs {
         if (hasReleaseKey) {
             create("release") {
@@ -36,6 +45,12 @@ android {
                 keyAlias = keystoreProps.getProperty("keyAlias")
                 keyPassword = keystoreProps.getProperty("keyPassword")
             }
+        }
+    }
+
+    androidComponents {
+        beforeVariants(selector().withFlavor("previewTarget" to "preview").withBuildType("release")) { variant ->
+            variant.enable = false
         }
     }
 
@@ -80,7 +95,8 @@ fun ExternalModuleDependency.excludeMiuixUi() {
 }
 
 dependencies {
-    // 单模块：Compose 原生实现（不引 Miuix fork、不引 KMP、不引 SQLDelight）
+    // NexioUI 固定源码库（Android-only KMP）；应用页面保留现有 Android 模块。
+    implementation(project(":nexio-ui"))
     implementation(platform("androidx.compose:compose-bom:2026.05.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")

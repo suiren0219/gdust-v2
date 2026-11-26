@@ -27,7 +27,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
+import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
@@ -47,20 +47,19 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
-import com.menglimi.gdust.v2.data.SchoolService
+import com.menglimi.gdust.v2.ui.AiSparkleIcon
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.ui.pageBackground
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.BasicComponent
-import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
+import com.haooz.nexioui.basiccomponent.BasicComponent
+import com.haooz.nexioui.basiccomponent.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -83,8 +82,9 @@ import top.yukonga.miuix.kmp.icon.extended.Search
 import top.yukonga.miuix.kmp.icon.extended.Timer
 import top.yukonga.miuix.kmp.icon.extended.Unlock
 import top.yukonga.miuix.kmp.icon.extended.Weeks
-import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.SwitchPreference
+import com.haooz.nexioui.button.FlatIconButton
+import com.haooz.nexioui.arrowpreference.ArrowPreference
+import com.haooz.nexioui.switchpreference.SwitchPreference
 
 /**
  * Adapted from NexioSchedule, revision 28a99a3:
@@ -111,12 +111,15 @@ fun SettingsScreen(
     loggedIn: Boolean = true,
     chxSessionSaved: Boolean = false,
     openSection: MutableState<String?>,
+    openGroupState: MutableState<String?> = rememberSaveable { mutableStateOf(null) },
     syncing: Boolean = false,
+    onOpenAiService: () -> Unit = {},
     onGrades: () -> Unit = {},
     onChxCourses: () -> Unit = {},
     onSchoolNotices: () -> Unit = {},
     onFiveEducation: () -> Unit = {},
-    onReconnectService: (SchoolService) -> Unit = {},
+    onReconnectService: ((com.menglimi.gdust.v2.data.SchoolService) -> Unit)? = null,
+    offlinePreview: Boolean = false,
 ) {
     val ds = LocalDs.current
     val secondary = ds.sub
@@ -126,11 +129,6 @@ fun SettingsScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     var query by rememberSaveable { mutableStateOf("") }
 
-    var base by remember { mutableStateOf(store.llmBase) }
-    var apiKey by remember { mutableStateOf(store.llmKey) }
-    var model by remember { mutableStateOf(store.llmModel) }
-    var llmConfigured by remember { mutableStateOf(store.hasLlm) }
-    var saved by remember { mutableStateOf(false) }
     var summary by remember { mutableStateOf<String?>(null) }
     var summarizing by remember { mutableStateOf(false) }
     var summaryError by remember { mutableStateOf("") }
@@ -204,9 +202,9 @@ fun SettingsScreen(
                         fallback = store.loadCalendar()?.startDate.orEmpty(),
                         allowFollowCalendar = true,
                     )
-                    InputField(termWeeksText, { termWeeksText = it; termSaved = false; termError = null }, "学期总周数", KeyboardType.Number)
-                    InputField(termWeekText, { termWeekText = it; termSaved = false; termError = null }, "当前第几周", KeyboardType.Number)
-                    Button(if (termSaved) "已保存，重新同步生效" else "保存学期设置") {
+                    NexioField(termWeeksText, { termWeeksText = it; termSaved = false; termError = null }, "学期总周数", KeyboardType.Number)
+                    NexioField(termWeekText, { termWeekText = it; termSaved = false; termError = null }, "当前第几周", KeyboardType.Number)
+                    NexioActionButton(if (termSaved) "已保存，重新同步生效" else "保存学期设置") {
                         val total = if (termWeeksText.isBlank()) 0 else termWeeksText.toIntOrNull()
                         val current = if (termWeekText.isBlank()) 0 else termWeekText.toIntOrNull()
                         termError = when {
@@ -280,9 +278,9 @@ fun SettingsScreen(
                 else "关闭",
                 onClick = { toggle("maintenance") },
                 editor = {
-                    InputField(maintStartText, { maintStartText = it; maintSaved = false }, "开始时间（HH:mm，如 23:00）")
-                    InputField(maintEndText, { maintEndText = it; maintSaved = false }, "结束时间（如 06:30，可跨午夜）")
-                    Button(if (maintSaved) "已保存" else "保存时段") {
+                    NexioField(maintStartText, { maintStartText = it; maintSaved = false }, "开始时间（HH:mm，如 23:00）")
+                    NexioField(maintEndText, { maintEndText = it; maintSaved = false }, "结束时间（如 06:30，可跨午夜）")
+                    NexioActionButton(if (maintSaved) "已保存" else "保存时段") {
                         val start = com.menglimi.gdust.v2.data.MaintenanceWindow.parse(maintStartText)
                         val end = com.menglimi.gdust.v2.data.MaintenanceWindow.parse(maintEndText)
                         if (start != null && end != null && start != end) {
@@ -302,9 +300,9 @@ fun SettingsScreen(
                 id = "warn", title = "低电量预警", summary = "剩余电量阈值与掉电速率", icon = MiuixIcons.BankCards,
                 detail = "${warnThresholdLocal.toInt()} 度", onClick = { toggle("warn") },
                 editor = {
-                    InputField(thresholdText, { thresholdText = it; thresholdSaved = false }, "低电量阈值（度）", KeyboardType.Decimal)
-                    InputField(dropText, { dropText = it; thresholdSaved = false }, "掉电速率（度/小时）", KeyboardType.Decimal)
-                    Button(if (thresholdSaved) "已保存" else "保存阈值") {
+                    NexioField(thresholdText, { thresholdText = it; thresholdSaved = false }, "低电量阈值（度）", KeyboardType.Decimal)
+                    NexioField(dropText, { dropText = it; thresholdSaved = false }, "掉电速率（度/小时）", KeyboardType.Decimal)
+                    NexioActionButton(if (thresholdSaved) "已保存" else "保存阈值") {
                         thresholdText.toFloatOrNull()?.let { store.warnThreshold = it; warnThresholdLocal = it }
                         dropText.toFloatOrNull()?.let { store.warnDropRate = it }
                         thresholdSaved = true
@@ -336,35 +334,21 @@ fun SettingsScreen(
                 },
             ),
             SettingsEntry(
-                id = "llm", title = "AI 中转站配置", summary = "OpenAI 兼容服务，密钥仅存本机", icon = MiuixIcons.MindMap,
-                detail = if (llmConfigured) "已配置" else "未配置", onClick = { toggle("llm") },
-                editor = {
-                    InputField(base, { base = it; saved = false }, "API Base")
-                    InputField(apiKey, { apiKey = it; saved = false }, "API Key", visual = PasswordVisualTransformation())
-                    InputField(model, { model = it; saved = false }, "模型名")
-                    Button(
-                        text = if (saved) "已保存" else "保存配置",
-                        enabled = base.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank(),
-                        onClick = {
-                            store.llmBase = base.trim()
-                            store.llmKey = apiKey.trim()
-                            store.llmModel = model.trim()
-                            llmConfigured = store.hasLlm
-                            saved = true
-                        },
-                    )
-                },
+                id = "llm", title = "AI 服务", summary = "模型地址、密钥与模型名",
+                keywords = "AI 中转站配置 OpenAI API endpoint 兼容服务 仅存本机 密钥",
+                icon = AiSparkleIcon,
+                detail = if (store.hasLlm) "已配置" else "未配置", onClick = onOpenAiService,
             ),
             SettingsEntry(
                 id = "summary", title = "生成公告总结",
-                summary = if (llmConfigured) "用已配置的模型提炼学校公告" else "请先配置 AI 中转站",
+                summary = if (store.hasLlm) "用已配置模型提炼学校公告" else "先配置 AI 服务",
                 keywords = "AI 生成总结", icon = MiuixIcons.Notes,
                 detail = if (summary != null) "查看" else null, onClick = { toggle("summary") },
                 editor = {
                     summary?.let { Text(it, fontSize = 14.sp, lineHeight = 21.sp, color = ds.text) }
-                    Button(
+                    NexioActionButton(
                         text = if (summarizing) "正在总结" else if (summary == null) "生成总结" else "重新总结",
-                        enabled = llmConfigured && !summarizing,
+                        enabled = store.hasLlm && !summarizing,
                         onClick = {
                             summarizing = true
                             summaryError = ""
@@ -438,29 +422,51 @@ fun SettingsScreen(
             .takeIf { it.entries.isNotEmpty() }
     }
     val showAccount = accountEntry.matches(search, "账户")
-    // 服务状态卡只在空搜索或查询词命中连接相关词时出现，不挤占具体设置的搜索结果。
     val showServiceStatus = search.isBlank() ||
         "服务连接 登录状态 门户 教务 学习通 验证".contains(search, ignoreCase = true)
     val showLogout = loggedIn && (search.isBlank() || "退出登录 清除本机数据 账户".contains(search, ignoreCase = true))
+    // 二级分类：首页只列分类，具体开关与表单进分组页，避免设置页无限变长。
+    var openGroup by openGroupState
 
     BackHandler {
-        if (query.isNotEmpty()) { query = ""; focusManager.clearFocus() } else onBack()
+        when {
+            openGroup != null -> { openGroup = null; focusManager.clearFocus() }
+            query.isNotEmpty() -> { query = ""; focusManager.clearFocus() }
+            else -> onBack()
+        }
     }
     val density = LocalDensity.current
     val backThreshold = with(density) { 96.dp.toPx() }
     val backEdge = with(density) { 32.dp.toPx() }
     var backPx by remember { mutableStateOf(Float.NaN) }
+    val groupHints = mapOf(
+        "通用" to "启动页 · 桌面入口",
+        "课表" to "学期 · 周末 · 提醒 · 同步",
+        "服务" to "成绩 · 通知 · 学习通 · AI",
+        "数据" to "缓存 · 小部件 · 备份",
+        "关于" to "版本与数据来源",
+    )
+    val groupIcons = mapOf(
+        "通用" to MiuixIcons.Home,
+        "课表" to MiuixIcons.Months,
+        "服务" to MiuixIcons.Messages,
+        "数据" to MiuixIcons.Backup,
+        "关于" to MiuixIcons.Info,
+    )
+    val currentGroup = visibleGroups.firstOrNull { it.title == openGroup }
 
     Box(Modifier.fillMaxSize()) {
     Column(
         Modifier
             .fillMaxSize()
             .background(pageBackground())
-            .pointerInput(onBack, backThreshold, backEdge) {
+            .pointerInput(onBack, openGroup, backThreshold, backEdge) {
                 detectHorizontalDragGestures(
                     onDragStart = { backPx = if (it.x < backEdge) 0f else Float.NaN },
                     onDragEnd = {
-                        if (!backPx.isNaN() && backPx >= backThreshold) onBack()
+                        if (!backPx.isNaN() && backPx >= backThreshold) {
+                            if (openGroup != null) openGroup = null else onBack()
+                        }
                         backPx = Float.NaN
                     },
                     onDragCancel = { backPx = Float.NaN },
@@ -471,36 +477,80 @@ fun SettingsScreen(
             .statusBarsPadding()
             .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = AppUiTokens.PagePadding),
+            .padding(horizontal = nexioPagePadding()),
     ) {
         Spacer(Modifier.height(24.dp))
-        PageTitle(title = "设置", onBack = onBack)
-        SettingsSearchField(query = query, onQueryChange = { query = it })
-        if (showAccount) {
-            AccountIdentityCard(repo, onOpenProfile = onProfile)
-        }
-        if (showServiceStatus) {
-            ServiceStatusCard(repo, onReconnect = onReconnectService)
-        }
-        visibleGroups.forEach { group ->
-            key(group.title) {
-                SectionHeader(group.title)
+        if (currentGroup == null) {
+            PageTitle(title = "设置", onBack = onBack)
+            SettingsSearchField(query = query, onQueryChange = { query = it })
+            if (showAccount) {
+                AccountIdentityCard(repo, onOpenProfile = onProfile)
+            }
+            if (search.isBlank()) {
+                ServiceStatusCard(
+                    repo,
+                    onReconnect = { service -> onReconnectService?.invoke(service) },
+                    actionsEnabled = !offlinePreview,
+                    offlinePreview = offlinePreview,
+                )
+                SectionHeader("设置")
                 SettingGroup {
-                    group.entries.forEach { entry ->
-                        key(entry.id) {
-                            SettingsPreference(entry)
-                            if (openSection.value == entry.id && entry.editor != null) {
-                                SettingEditor { entry.editor.invoke() }
-                            }
-                            if (entry.id == "sync" && syncError != null) {
-                                SettingEditor { Text(syncError, fontSize = 13.sp, color = ds.danger) }
+                    groups.forEachIndexed { index, group ->
+                        if (index > 0) SettingDivider()
+                        key(group.title) {
+                            SettingsPreference(SettingsEntry(
+                                id = "group-${group.title}",
+                                title = group.title,
+                                summary = groupHints[group.title],
+                                icon = groupIcons.getValue(group.title),
+                                onClick = { openGroup = group.title },
+                            ))
+                        }
+                    }
+                }
+            } else {
+                if (showServiceStatus) {
+                    SectionHeader("服务连接")
+                    ServiceStatusCard(
+                        repo,
+                        onReconnect = { service -> onReconnectService?.invoke(service) },
+                        actionsEnabled = !offlinePreview,
+                        offlinePreview = offlinePreview,
+                    )
+                }
+                visibleGroups.forEach { group ->
+                    key(group.title) {
+                        SectionHeader(group.title)
+                        SettingGroup {
+                            group.entries.forEachIndexed { index, entry ->
+                                if (index > 0) SettingDivider()
+                                key(entry.id) { SettingsGroupEntryWithEditor(entry, openSection, syncError) }
                             }
                         }
                     }
                 }
             }
+        } else {
+            PageTitle(title = currentGroup.title, subtitle = groupHints[currentGroup.title], onBack = { openGroup = null })
+            if (offlinePreview && currentGroup.title == "服务") {
+                Text("离线演示 · 状态为虚构数据，连接操作已禁用。", fontSize = 13.sp, color = secondary)
+            }
+            if (currentGroup.title == "服务") {
+                ServiceStatusCard(
+                    repo,
+                    onReconnect = { service -> onReconnectService?.invoke(service) },
+                    actionsEnabled = !offlinePreview,
+                    offlinePreview = offlinePreview,
+                )
+            }
+            SettingGroup {
+                currentGroup.entries.forEachIndexed { index, entry ->
+                    if (index > 0) SettingDivider()
+                    key(entry.id) { SettingsGroupEntryWithEditor(entry, openSection, syncError) }
+                }
+            }
         }
-        if (showLogout) {
+        if (showLogout && currentGroup == null) {
             SettingGroup {
                 SettingsPreference(SettingsEntry(
                     id = "logout", title = "退出登录", summary = "同时清除本机数据", icon = MiuixIcons.Unlock,
@@ -508,13 +558,15 @@ fun SettingsScreen(
                 ))
             }
         }
-        if (!showAccount && !showServiceStatus && visibleGroups.isEmpty() && !showLogout) {
+        val showProjectStar = search.isBlank() ||
+            "GitHub 项目主页 star 支持 开源".contains(search, ignoreCase = true)
+        if (currentGroup == null && search.isNotBlank() && visibleGroups.isEmpty() &&
+            !showAccount && !showServiceStatus && !showLogout && !showProjectStar
+        ) {
             Text("没有找到相关设置", fontSize = 14.sp, color = secondary,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
         }
-        if (search.isBlank() || "GitHub 项目主页 star 支持 开源".contains(search, ignoreCase = true)) {
-            ProjectStarEntry()
-        }
+        if (currentGroup == null && showProjectStar) ProjectStarEntry()
         Spacer(Modifier.navigationBarsPadding().height(110.dp))
     }
     if (showWidgetPicker) {
@@ -523,6 +575,21 @@ fun SettingsScreen(
     if (showDesktopAppearance) {
         DesktopAppearanceScreen(onBack = { showDesktopAppearance = false })
     }
+    }
+}
+
+@Composable
+private fun SettingsGroupEntryWithEditor(
+    entry: SettingsEntry,
+    openSection: MutableState<String?>,
+    syncError: String?,
+) {
+    SettingsPreference(entry)
+    CardExpand(visible = openSection.value == entry.id && entry.editor != null) {
+        SettingEditor { entry.editor?.invoke() }
+    }
+    CardExpand(visible = entry.id == "sync" && syncError != null) {
+        SettingEditor { Text(syncError.orEmpty(), fontSize = 13.sp, color = LocalDs.current.danger) }
     }
 }
 
@@ -558,7 +625,7 @@ private fun SettingsPreference(entry: SettingsEntry) {
     }
     val titleColors = BasicComponentDefaults.titleColor(color = if (entry.danger) ds.danger else ds.text)
     val summaryColors = BasicComponentDefaults.summaryColor(color = ds.sub)
-    val margins = PaddingValues(horizontal = AppUiTokens.CardPadding, vertical = 16.dp)
+    val margins = PaddingValues(horizontal = 16.dp, vertical = 14.dp)
     when {
         entry.checked != null && entry.onCheckedChange != null -> SwitchPreference(
             title = entry.title, summary = entry.summary, titleColor = titleColors, summaryColor = summaryColors,
@@ -612,7 +679,7 @@ private fun SettingsSearchField(query: String, onQueryChange: (String) -> Unit) 
                 },
             )
             if (query.isNotEmpty()) {
-                IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(40.dp)) {
+                FlatIconButton(onClick = { onQueryChange("") }, minWidth = 40.dp, minHeight = 40.dp) {
                     Icon(MiuixIcons.Close, contentDescription = "清除搜索", modifier = Modifier.size(18.dp), tint = ds.sub)
                 }
             }

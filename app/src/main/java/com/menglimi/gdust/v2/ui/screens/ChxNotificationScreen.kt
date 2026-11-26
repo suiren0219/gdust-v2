@@ -5,7 +5,7 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.Text
+import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,14 +46,14 @@ fun ChxNotificationScreen(repo: Repository, onBack: () -> Unit) {
 
     SettingSubPage("学习通通知待办", "本机通知 · 手动授权", onBack) {
         SectionHeader("同步")
-        SettingGroup {
-            SettingOption(
+        NexioSettingGroup {
+            NexioSettingOption(
                 title = "将通知加入待办",
                 subtitle = "只接收学习通明确提示的新作业、待提交任务或考试；不读取账号密码",
                 switch = enabled,
                 onSwitch = { enabled = it; repo.store.chxNotificationsEnabled = it },
             )
-            SettingOption(
+            NexioSettingOption(
                 title = "通知使用权",
                 subtitle = "Android 授权会允许本应用接收设备通知；本功能只处理学习通通知",
                 detail = if (granted) "已授权" else "未授权",
@@ -64,7 +64,9 @@ fun ChxNotificationScreen(repo: Repository, onBack: () -> Unit) {
                 },
             )
         }
-        if (error) Text("无法打开系统设置，请在设置中手动开启通知使用权。", fontSize = 13.sp, color = ds.danger)
+        CardExpand(visible = error) {
+            Text("无法打开系统设置，请在设置中手动开启通知使用权。", fontSize = 13.sp, color = ds.danger)
+        }
         Spacer(Modifier.height(8.dp))
         Text(
             "仅新收到的通知会加入待办。学习通未推送或通知未包含具体事项时不会生成待办；截止时间以原通知为准。关闭开关后不再采集，已有待办可手动删除。",

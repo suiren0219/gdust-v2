@@ -3,7 +3,7 @@ package com.menglimi.gdust.v2.ui.screens
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
-import androidx.compose.material3.Text
+import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -67,8 +67,8 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
         androidx.compose.runtime.key(revision.intValue) {
         // ── 精确定时诊断 ──
         SectionHeader("精确定时")
-        SettingGroup {
-            SettingOption(
+        NexioSettingGroup {
+            NexioSettingOption(
                 title = "闹钟和提醒权限",
                 subtitle = com.menglimi.gdust.v2.work.LessonReminderAlarms.status(ctx, store),
                 detail = if (com.menglimi.gdust.v2.work.LessonReminderAlarms.canScheduleExact(ctx)) "已授权" else "去授权",
@@ -77,8 +77,8 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
         }
 
         // ── 总开关 ──
-        SettingGroup {
-            SettingOption(
+        NexioSettingGroup {
+            NexioSettingOption(
                 title = "开启提醒",
                 subtitle = "总开关；关闭后所有课程提醒都不发",
                 switch = store.reminderEnabled,
@@ -93,8 +93,8 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
 
         // ── 下节课提醒 ──
         SectionHeader("下节课提醒")
-        SettingGroup {
-            SettingOption(
+        NexioSettingGroup {
+            NexioSettingOption(
                 title = "下节课提醒",
                 subtitle = "距上课还有一段时间时提醒时间、地点",
                 switch = store.reminderEnabled && store.reminderLead > 0,
@@ -111,7 +111,7 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                     }
                 },
             )
-            SettingOption(
+            NexioSettingOption(
                 title = "提前提醒时间",
                 detail = "${store.reminderLead} 分钟",
                 onClick = { },
@@ -127,8 +127,8 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
 
         // ── 次日课程提醒 ──
         SectionHeader("次日课程提醒")
-        SettingGroup {
-            SettingOption(
+        NexioSettingGroup {
+            NexioSettingOption(
                 title = "次日课程提醒",
                 subtitle = "每晚汇总明天的课程、节次、地点",
                 switch = store.nextDayReminder,
@@ -142,7 +142,7 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                     }
                 },
             )
-            SettingOption(title = "提醒时间", detail = "${store.nextDayHour}:00", onClick = { })
+            NexioSettingOption(title = "提醒时间", detail = "${store.nextDayHour}:00", onClick = { })
             SettingEditor {
                 SegmentedChoice(
                     options = listOf(20 to "20:00", 21 to "21:00", 22 to "22:00", 23 to "23:00"),
@@ -154,8 +154,8 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
 
         // ── 课中提醒 ──
         SectionHeader("课中提醒")
-        SettingGroup {
-            SettingOption(
+        NexioSettingGroup {
+            NexioSettingOption(
                 title = "课中提醒",
                 subtitle = "快下课时提示剩余时间",
                 switch = store.inClassReminder,
@@ -169,7 +169,7 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                     }
                 },
             )
-            SettingOption(title = "提醒时机", detail = "距下课 ${store.inClassLead} 分钟", onClick = { })
+            NexioSettingOption(title = "提醒时机", detail = "距下课 ${store.inClassLead} 分钟", onClick = { })
             SettingEditor {
                 SegmentedChoice(
                     options = listOf(5 to "5 分", 10 to "10 分", 15 to "15 分"),
@@ -181,8 +181,8 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
 
         // ── 系统上课模式（独立于通知总开关） ──
         SectionHeader("上课模式")
-        SettingGroup {
-            SettingOption(
+        NexioSettingGroup {
+            NexioSettingOption(
                 title = "上课自动模式",
                 subtitle = "按本机课表上课开启、下课退出，不受提醒总开关影响。勿扰：仅允许闹钟；静音：静音来电与通知，允许闹钟、媒体和系统声音，保留视觉通知。",
                 detail = ClassDndAlarms.mode(ctx).label,
@@ -200,20 +200,20 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                     },
                 )
             }
-            SettingOption(
+            NexioSettingOption(
                 title = "勿扰权限",
                 subtitle = "勿扰和静音均需此授权；结束或关闭仅释放本应用规则，手动勿扰与其他应用规则由系统保留",
                 detail = if (ClassDndAlarms.hasPolicyAccess(ctx)) "已授权" else "去授权",
                 onClick = { ClassDndAlarms.openPolicySettings(ctx) },
             )
-            SettingOption(
+            NexioSettingOption(
                 title = "课时模式状态",
                 subtitle = ClassDndAlarms.status(ctx) +
                     if (com.menglimi.gdust.v2.work.LessonReminderAlarms.canScheduleExact(ctx)) "" else " · 未获精确闹钟权限，开启和退出可能延迟",
                 detail = "刷新",
                 onClick = { ClassDndAlarms.reschedule(ctx, store); revision.intValue++ },
             )
-            SettingOption(
+            NexioSettingOption(
                 title = "取消本次上课模式",
                 subtitle = "退出当前课时或取消单次安排，保留后续自动计划；选择「关闭」可全部取消",
                 detail = "取消本次",
@@ -233,14 +233,14 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                     .invoke(null, "persist.sys.feature.island", "") as String
             }.getOrDefault("")
         }
-        SettingGroup {
-            SettingOption(
+        NexioSettingGroup {
+            NexioSettingOption(
                 title = "超级岛样式提醒",
                 subtitle = "课程结束自动撤销通知；是否上岛取决于 HyperOS 版本与白名单，关闭会清除现有岛通知",
                 switch = store.islandEnabled,
                 onSwitch = { on -> save { store.islandEnabled = on } },
             )
-            SettingOption(
+            NexioSettingOption(
                 title = "系统支持",
                 subtitle = buildString {
                     append("焦点协议 v$focusProtocol")
@@ -249,26 +249,26 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                 },
                 detail = "诊断",
             )
-            SettingOption(
+            NexioSettingOption(
                 title = "白名单",
                 subtitle = "HyperOS 只允许白名单 App 上岛；用 HyperCeiler 等模块加白时，注意其若进入安全模式会整组失效",
                 detail = "说明",
             )
             // 岛显示选项（Nexio 课程提醒同款）：改动写 prefs 后由下一条提醒生效
             val islandModes = listOf(0 to "课程名称", 1 to "上课地点", 2 to "倒计时")
-            SettingOption(title = "超级岛左侧", detail = islandModes.first { it.first == store.islandLeftMode }.second, onClick = { })
+            NexioSettingOption(title = "超级岛左侧", detail = islandModes.first { it.first == store.islandLeftMode }.second, onClick = { })
             SettingEditor {
                 SegmentedChoice(islandModes, store.islandLeftMode, onSelect = { save { store.islandLeftMode = it } })
             }
-            SettingOption(title = "超级岛右侧", detail = islandModes.first { it.first == store.islandRightMode }.second, onClick = { })
+            NexioSettingOption(title = "超级岛右侧", detail = islandModes.first { it.first == store.islandRightMode }.second, onClick = { })
             SettingEditor {
                 SegmentedChoice(islandModes, store.islandRightMode, onSelect = { save { store.islandRightMode = it } })
             }
-            SettingOption(title = "课中岛右侧", detail = islandModes.first { it.first == store.islandInClassRightMode }.second, onClick = { })
+            NexioSettingOption(title = "课中岛右侧", detail = islandModes.first { it.first == store.islandInClassRightMode }.second, onClick = { })
             SettingEditor {
                 SegmentedChoice(islandModes, store.islandInClassRightMode, onSelect = { save { store.islandInClassRightMode = it } })
             }
-            SettingOption(
+            NexioSettingOption(
                 title = "息屏显示",
                 detail = if (store.islandAodMode == 1) "上课地点" else "课程名称",
                 onClick = { },
@@ -280,7 +280,7 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                     onSelect = { save { store.islandAodMode = it } },
                 )
             }
-            SettingOption(
+            NexioSettingOption(
                 title = "测试提醒",
                 subtitle = "发一条示例通知，看看能不能上岛",
                 detail = testMsg,
@@ -317,8 +317,8 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
 
         // ── 权限 ──
         SectionHeader("权限")
-        SettingGroup {
-            SettingOption(
+        NexioSettingGroup {
+            NexioSettingOption(
                 title = "通知权限",
                 subtitle = "用于接收课程提醒",
                 detail = "去设置",
@@ -329,13 +329,13 @@ fun ReminderScreen(repo: Repository, onBack: () -> Unit) {
                     )
                 },
             )
-            SettingOption(
+            NexioSettingOption(
                 title = "电池优化",
                 subtitle = "关闭电池优化可让提醒更准时",
                 detail = "去设置",
                 onClick = { openSystem(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS) },
             )
-            SettingOption(
+            NexioSettingOption(
                 title = "自启动 / 后台运行",
                 subtitle = "HyperOS 可能需允许自启动与后台运行；系统「强制停止」会阻止定时任务，重新打开应用后恢复",
                 detail = "应用详情",

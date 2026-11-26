@@ -1,4 +1,4 @@
-// Course timing and grouping are GDUST local logic; presentation follows CZeroX.
+// Course timing and grouping are GDUST local logic; presentation uses NexioUI.
 package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.background
@@ -34,12 +34,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -54,14 +52,15 @@ import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.secondaryTextColor
 import com.menglimi.gdust.v2.ui.schedule.ScheduleTimes
+import com.haooz.nexioui.button.Button
+import com.haooz.nexioui.button.ButtonDefaults
+import com.haooz.nexioui.cardexpand.CardExpand
+import com.haooz.nexioui.text.NexioText as Text
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
 import java.time.Duration
@@ -82,8 +81,8 @@ fun TodayScreen(
     onOpenServices: () -> Unit = {},
     onService: (CampusService) -> Unit = {},
     hasImportedSchedule: Boolean = blocks.isNotEmpty(),
-    serviceSummary: String? = null,
-    onServices: () -> Unit = {},
+    serviceSummary: String = "",
+    onServices: (() -> Unit)? = null,
 ) {
     val now by rememberTodayMinuteClock()
     var shortcutTarget by remember { mutableStateOf<CampusService?>(null) }
@@ -130,52 +129,55 @@ fun TodayScreen(
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(ds.bg).statusBarsPadding(),
         contentPadding = PaddingValues(
-            start = AppUiTokens.PagePadding,
-            end = AppUiTokens.PagePadding,
-            top = 24.dp,
+            start = nexioPagePadding(),
+            end = nexioPagePadding(),
+            top = 16.dp,
             bottom = 104.dp + bottomInset,
         ),
         verticalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap),
     ) {
         item(key = "today-header") {
-            Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "今日",
-                        fontSize = AppUiTokens.TitleSize,
-                        fontWeight = AppUiTokens.TitleWeight,
-                        color = ds.text,
-                        modifier = Modifier.weight(1f).semantics { heading() },
-                    )
-                    TodayNoticeButton(unreadCount, onOpenNotices)
-                    TextButton(text = "服务", onClick = onOpenServices, minHeight = 48.dp)
-                }
-                Text(
-                    text = "${today.year}年${today.monthValue}月${today.dayOfMonth}日 · ${ScheduleTimes.dayNames[today.dayOfWeek.value - 1]}",
-                    fontSize = 13.sp,
-                    lineHeight = 20.sp,
-                    color = ds.sub,
-                    modifier = Modifier.padding(top = 8.dp),
+            Column(Modifier.fillMaxWidth()) {
+                PageTitle(
+                    "今日",
+                    "${today.year}年${today.monthValue}月${today.dayOfMonth}日 · ${ScheduleTimes.dayNames[today.dayOfWeek.value - 1]} · $weekText",
                 )
-                Text(weekText, fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    TodayNoticeButton(unreadCount, onOpenNotices)
+                    Button(
+                        onClick = onOpenServices,
+                        modifier = Modifier.weight(1f),
+                        cornerRadius = 100.dp,
+                        minHeight = 44.dp,
+                        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.buttonColors(),
+                    ) {
+                        Text("全部校园服务", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                    }
+                }
             }
         }
-        if (serviceSummary != null) item(key = "service-connections") {
-            AppCard(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding),
-                onClick = onServices) {
-                Text("服务连接", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
-                Text(serviceSummary, fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
-                    modifier = Modifier.padding(top = 6.dp))
-                Text("查看状态或单独补连", fontSize = 13.sp, color = ds.accent,
-                    modifier = Modifier.padding(top = 8.dp))
+        if (serviceSummary.isNotBlank() && onServices != null) {
+            item(key = "service-connections") {
+                AppCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    insideMargin = PaddingValues(AppUiTokens.CardPadding),
+                    onClick = onServices,
+                ) {
+                    Text("服务连接", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+                    Text(serviceSummary, fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
+                        modifier = Modifier.padding(top = 6.dp))
+                    Text("查看状态或单独补连", fontSize = 13.sp, color = ds.accent,
+                        modifier = Modifier.padding(top = 8.dp))
+                }
             }
         }
         item(key = "today-shortcuts-title") {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("校园服务", fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-                    color = ds.text, modifier = Modifier.weight(1f).semantics { heading() })
-                TextButton(text = "全部", onClick = onOpenServices, minHeight = 48.dp)
-            }
+            SectionHeader("校园概览")
         }
         item(key = "today-shortcuts") {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap)) {
@@ -240,7 +242,7 @@ fun TodayScreen(
             listOf("上午" to 1..4, "下午" to 5..8, "晚上" to 9..Int.MAX_VALUE).forEach { (label, sections) ->
                 val courses = todayCourses.filter { it.block.startSection in sections }
                 if (courses.isNotEmpty()) {
-                    item(key = "today-period-$label") { TodayPeriodTitle(label) }
+                    item(key = "today-period-$label") { SectionHeader(label) }
                     courses.forEachIndexed { index, course ->
                         item(key = "today-$label-$index") {
                             TodayTimelineCard(course, now.toLocalTime(), onOpenSchedule)
@@ -250,7 +252,7 @@ fun TodayScreen(
             }
             val unspecified = todayCourses.filter { it.block.startSection < 1 }
             if (unspecified.isNotEmpty()) {
-                item(key = "today-period-unknown") { TodayPeriodTitle("节次待确认") }
+                item(key = "today-period-unknown") { SectionHeader("节次待确认") }
                 unspecified.forEachIndexed { index, course ->
                     item(key = "today-unknown-$index") { TodayTimelineCard(course, now.toLocalTime(), onOpenSchedule) }
                 }
@@ -261,7 +263,7 @@ fun TodayScreen(
                     insideMargin = PaddingValues(AppUiTokens.CardPadding),
                     onClick = onOpenSchedule,
                 ) {
-                    Text("查看完整课表", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+                    Text("查看完整课表", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
                     Text("查看本周及其他日期的课程安排", fontSize = 13.sp, lineHeight = 20.sp,
                         color = ds.sub, modifier = Modifier.padding(top = 6.dp))
                 }
@@ -333,8 +335,7 @@ private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, miss
     val next = courses.firstOrNull { it.statusAt(now) == TodayCourseStatus.NotStarted }
     val active = current ?: next
     val unknown = courses.count { it.statusAt(now) == TodayCourseStatus.Unknown }
-    val success = Color(0xFF36D267)
-    val statusColor = if (ds.isDark) success.copy(alpha = 0.16f).compositeOver(ds.card) else Color(0xFFDEFAE4)
+    val statusColor = ds.accent.copy(alpha = 0.10f).compositeOver(ds.card)
     AppCard(
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(AppUiTokens.CardPadding),
@@ -352,37 +353,45 @@ private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, miss
             fontWeight = FontWeight.SemiBold,
             color = ds.text,
         )
-        if (active != null) {
-            val boundary = if (current != null) active.end else active.start
-            Text(
-                text = boundary?.let { remainingTime(now, it, current != null) }.orEmpty(),
-                fontSize = 13.sp,
-                lineHeight = 20.sp,
-                color = ds.sub,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            Text(active.block.name, fontSize = 18.sp, lineHeight = 26.sp,
-                fontWeight = FontWeight.SemiBold, color = ds.text, modifier = Modifier.padding(top = 16.dp))
-            Text(active.block.metadata(), fontSize = 14.sp, lineHeight = 21.sp,
-                color = ds.sub, modifier = Modifier.padding(top = 4.dp))
+        CardExpand(visible = active != null) {
+            active?.let { activeCourse ->
+                Column {
+                    val boundary = if (current != null) activeCourse.end else activeCourse.start
+                    Text(
+                        text = boundary?.let { remainingTime(now, it, current != null) }.orEmpty(),
+                        fontSize = 13.sp,
+                        lineHeight = 20.sp,
+                        color = ds.sub,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    Text(activeCourse.block.name, fontSize = 17.sp, lineHeight = 24.sp,
+                        fontWeight = FontWeight.SemiBold, color = ds.text, modifier = Modifier.padding(top = 12.dp))
+                    Text(activeCourse.block.metadata(), fontSize = 14.sp, lineHeight = 21.sp,
+                        color = ds.sub, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
         }
         val progress = current?.let { course ->
             val start = course.start ?: return@let null
             val end = course.end ?: return@let null
             (Duration.between(start, now).toMillis().toFloat() / Duration.between(start, end).toMillis()).coerceIn(0f, 1f)
         }
-        if (progress != null) {
-            Spacer(Modifier.height(16.dp))
-            Box(
-                Modifier.fillMaxWidth().height(5.dp).clip(CircleShape)
-                    .background(success.copy(alpha = 0.12f).compositeOver(statusColor))
-                    .semantics {
-                        contentDescription = "本节课程进度"
-                        progressBarRangeInfo = ProgressBarRangeInfo(progress, 0f..1f)
-                    },
-            ) {
-                if (progress > 0f) {
-                    Box(Modifier.fillMaxHeight().fillMaxWidth(progress).background(success))
+        CardExpand(visible = progress != null) {
+            progress?.let { progressValue ->
+                Column {
+                    Spacer(Modifier.height(16.dp))
+                    Box(
+                        Modifier.fillMaxWidth().height(5.dp).clip(CircleShape)
+                            .background(ds.accent.copy(alpha = 0.12f).compositeOver(statusColor))
+                            .semantics {
+                                contentDescription = "本节课程进度"
+                                progressBarRangeInfo = ProgressBarRangeInfo(progressValue, 0f..1f)
+                            },
+                    ) {
+                        if (progressValue > 0f) {
+                            Box(Modifier.fillMaxHeight().fillMaxWidth(progressValue).background(ds.accent))
+                        }
+                    }
                 }
             }
         }
@@ -394,23 +403,18 @@ private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, miss
             next != null -> null
             else -> "今日 ${courses.size} 门课已全部结束，接下来安排自己的时间。"
         }
-        if (hint != null) {
-            Text(
-                text = hint,
-                fontSize = 13.sp,
-                lineHeight = 20.sp,
-                color = ds.sub,
-                modifier = Modifier.padding(top = 12.dp),
-            )
+        CardExpand(visible = hint != null) {
+            hint?.let {
+                Text(
+                    text = it,
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp,
+                    color = ds.sub,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+            }
         }
     }
-}
-
-@Composable
-private fun TodayPeriodTitle(title: String) {
-    val ds = LocalDs.current
-    Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text,
-        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp).semantics { heading() })
 }
 
 @Composable
@@ -419,7 +423,6 @@ private fun TodayTimelineCard(course: TodayCourse, now: LocalTime, onOpenSchedul
     val status = course.statusAt(now)
     AppCard(
         modifier = Modifier.fillMaxWidth(),
-        cornerRadius = AppUiTokens.CardCorner,
         insideMargin = PaddingValues(AppUiTokens.CardPadding),
         onClick = onOpenSchedule,
     ) {
@@ -429,13 +432,13 @@ private fun TodayTimelineCard(course: TodayCourse, now: LocalTime, onOpenSchedul
             Text(status.label, fontSize = 13.sp, lineHeight = 20.sp,
                 color = if (status == TodayCourseStatus.Ongoing) ds.accent else ds.sub)
         }
-        Text(course.block.name, fontSize = 18.sp, lineHeight = 26.sp,
+        Text(course.block.name, fontSize = 17.sp, lineHeight = 24.sp,
             fontWeight = FontWeight.SemiBold, color = ds.text, modifier = Modifier.padding(top = 10.dp))
-        Text(course.timeRange, fontSize = 15.sp, lineHeight = 22.sp,
+        Text(course.timeRange, fontSize = 14.sp, lineHeight = 21.sp,
             fontWeight = FontWeight.Medium, color = ds.text, modifier = Modifier.padding(top = 12.dp))
         Text(course.block.room.ifBlank { "教室待定" }, fontSize = 14.sp, lineHeight = 21.sp,
             color = ds.text, modifier = Modifier.padding(top = 4.dp))
-        if (course.block.teacher.isNotBlank()) {
+        CardExpand(visible = course.block.teacher.isNotBlank()) {
             Text(course.block.teacher, fontSize = 13.sp, lineHeight = 20.sp,
                 color = ds.sub, modifier = Modifier.padding(top = 4.dp))
         }
@@ -450,8 +453,8 @@ private fun TodayEmptyCard(title: String, message: String, action: String, onAct
         insideMargin = PaddingValues(AppUiTokens.CardPadding),
         onClick = onAction,
     ) {
-        Text(title, fontSize = 18.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
-        Text(message, fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp))
+        Text(title, fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+        Text(message, fontSize = 14.sp, lineHeight = 21.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp))
         Text(action, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = ds.accent,
             modifier = Modifier.padding(top = 16.dp))
     }
