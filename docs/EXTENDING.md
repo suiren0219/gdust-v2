@@ -27,6 +27,7 @@ gradle :app:testDebugUnitTest :app:assembleDebug
 ## 贡献与验收
 
 - 功能改动从目标基线开分支。PR 说明包含行为变化、验证结果和仍需设备确认的事项。当前排期以 GitHub Issues 和 PR 为准。[开放 PR](https://github.com/suiren0219/gdust-v2/pulls)
+- 每次更新都要核对并同步维护[功能与接口清单](FEATURES_AND_APIS.md)，与代码放在同一提交或 PR。同步更新功能状态、未完成项、计划、接口及源码依据；无内容影响时，在清单维护记录中说明已核对及原因。具体要求见[仓库规则](../AGENTS.md)，提交 PR 时完成清单检查项。
 - 登录、系统授权与桌面小部件等交互需要设备验证。并行工作时先核对工作树、设备分配与前台应用包名。[协作约定](../COORDINATION.md)
 - 测试用例使用脱敏样本。签名、账号、Cookie、HAR 和本地配置留在本机。[忽略规则](../.gitignore)
 
