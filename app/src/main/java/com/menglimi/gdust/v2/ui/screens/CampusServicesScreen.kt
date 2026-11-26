@@ -2,12 +2,8 @@ package com.menglimi.gdust.v2.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,43 +11,44 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.menglimi.gdust.v2.ui.AppUiTokens
+import com.haooz.nexioui.basiccomponent.BasicComponent
+import com.haooz.nexioui.switch.Switch
+import com.haooz.nexioui.text.NexioText as Text
+import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.LocalDs
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 import top.yukonga.miuix.kmp.icon.extended.Close
@@ -86,6 +83,7 @@ fun CampusServicesScreen(
 ) {
     val ds = LocalDs.current
     val focus = LocalFocusManager.current
+    val topPadding = if (LocalConfiguration.current.screenWidthDp >= 600) 24.dp else 12.dp
     var query by rememberSaveable { mutableStateOf("") }
     val search = query.trim()
     val services = CampusService.entries.filter {
@@ -96,32 +94,36 @@ fun CampusServicesScreen(
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().imePadding(),
-        contentPadding = PaddingValues(horizontal = AppUiTokens.PagePadding, vertical = 24.dp),
+        contentPadding = PaddingValues(
+            start = nexioPagePadding(), end = nexioPagePadding(), top = topPadding, bottom = 12.dp,
+        ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { PageTitle("校园服务", "学习、生活与提醒，都在这里", onBack) }
         item {
-            Row(
-                Modifier.fillMaxWidth().background(ds.card, RoundedCornerShape(20.dp)).padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(MiuixIcons.Search, null, Modifier.size(22.dp), tint = ds.sub)
-                BasicTextField(
-                    value = query, onValueChange = { query = it }, singleLine = true,
-                    textStyle = androidx.compose.ui.text.TextStyle(color = ds.text, fontSize = 16.sp),
-                    cursorBrush = SolidColor(ds.accent),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
-                    modifier = Modifier.weight(1f).padding(14.dp).semantics { contentDescription = "搜索校园服务" },
-                    decorationBox = { input ->
-                        Box {
-                            if (query.isEmpty()) Text("搜索服务、成绩、提醒…", fontSize = 15.sp, color = ds.sub)
-                            input()
-                        }
-                    },
-                )
-                if (query.isNotEmpty()) IconButton(onClick = { query = "" }, modifier = Modifier.size(48.dp)) {
-                    Icon(MiuixIcons.Close, "清除搜索", Modifier.size(20.dp), tint = ds.sub)
+            AppCard(insideMargin = PaddingValues(0.dp), cornerRadius = 20.dp) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(MiuixIcons.Search, null, Modifier.size(22.dp), tint = ds.sub)
+                    BasicTextField(
+                        value = query, onValueChange = { query = it }, singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(color = ds.text, fontSize = 16.sp),
+                        cursorBrush = SolidColor(ds.accent),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
+                        modifier = Modifier.weight(1f).padding(14.dp).semantics { contentDescription = "搜索校园服务" },
+                        decorationBox = { input ->
+                            Box {
+                                if (query.isEmpty()) Text("搜索服务、成绩、提醒…", fontSize = 14.sp, color = ds.sub)
+                                input()
+                            }
+                        },
+                    )
+                    if (query.isNotEmpty()) IconButton(onClick = { query = "" }, modifier = Modifier.size(48.dp)) {
+                        Icon(MiuixIcons.Close, "清除搜索", Modifier.size(20.dp), tint = ds.sub)
+                    }
                 }
             }
         }
@@ -136,8 +138,7 @@ fun CampusServicesScreen(
         }
         services.groupBy { it.group }.forEach { (group, entries) ->
             item(key = "heading-$group") {
-                Text(group, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = ds.sub,
-                    modifier = Modifier.padding(start = 4.dp, top = 8.dp).semantics { heading() })
+                SectionHeader(group, modifier = Modifier.padding(top = 4.dp))
             }
             item(key = group) {
                 DashboardCard {
@@ -158,7 +159,49 @@ fun CampusServicesScreen(
     }
 }
 
-/** 实底数据卡：按下只加轻微 tint，字号与留白负责分层。 */
+/** 20dp 实底卡与 12dp 分组间距，适用于 Nexio 二级设置页。 */
+@Composable
+internal fun NexioSettingGroup(content: @Composable ColumnScope.() -> Unit) {
+    DashboardCard(content = content)
+    Spacer(Modifier.height(12.dp))
+}
+
+@Composable
+internal fun NexioSettingOption(
+    title: String,
+    subtitle: String? = null,
+    detail: String? = null,
+    danger: Boolean = false,
+    switch: Boolean? = null,
+    onSwitch: ((Boolean) -> Unit)? = null,
+    onClick: (() -> Unit)? = null,
+) {
+    val ds = LocalDs.current
+    val haptic = LocalHapticFeedback.current
+    val click = onClick ?: if (switch != null && onSwitch != null) ({
+        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+        onSwitch(!switch)
+    }) else null
+    BasicComponent(
+        onClick = click,
+        role = if (switch != null && onSwitch != null) Role.Switch else if (click != null) Role.Button else null,
+        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+        endActions = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (detail != null) Text(detail, fontSize = 13.sp, color = ds.sub,
+                    textAlign = TextAlign.End, modifier = Modifier.widthIn(max = 128.dp))
+                if (switch != null && onSwitch != null) Switch(switch, onSwitch)
+                else if (click != null) Icon(MiuixIcons.ChevronForward, null, Modifier.size(18.dp), tint = ds.sub)
+            }
+        },
+    ) {
+        Text(title, fontSize = 17.sp, fontWeight = FontWeight.Medium, color = if (danger) ds.danger else ds.text)
+        if (!subtitle.isNullOrBlank()) Text(subtitle, fontSize = 14.sp, lineHeight = 20.sp,
+            color = ds.sub, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+/** 通过共享 AppCard 使用 NexioUI 连续圆角与统一按压反馈。 */
 @Composable
 internal fun DashboardCard(
     modifier: Modifier = Modifier,
@@ -167,21 +210,14 @@ internal fun DashboardCard(
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val ds = LocalDs.current
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    Card(
-        modifier = modifier.fillMaxWidth().then(
-            if (onClick != null) Modifier.clickable(interactionSource = interaction, indication = null,
-                role = Role.Button, onClick = onClick) else Modifier,
-        ),
-        cornerRadius = AppUiTokens.CardCorner,
-        colors = CardDefaults.defaultColors(color = color, contentColor = ds.text),
-    ) {
-        Column(Modifier.fillMaxWidth()
-            .background(if (pressed) ds.accent.copy(alpha = 0.07f) else Color.Transparent)
-            .padding(insideMargin), content = content)
-    }
+    AppCard(
+        modifier = modifier.fillMaxWidth(),
+        cornerRadius = 20.dp,
+        insideMargin = insideMargin,
+        color = color,
+        onClick = onClick,
+        content = content,
+    )
 }
 
 @Composable
@@ -192,21 +228,18 @@ internal fun ServiceActionRow(
     detail: String? = null,
 ) {
     val ds = LocalDs.current
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 76.dp)
-            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
-            .background(if (pressed) ds.accent.copy(alpha = 0.07f) else Color.Transparent)
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    BasicComponent(
+        onClick = onClick,
+        role = Role.Button,
+        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+        endActions = {
+            Icon(MiuixIcons.ChevronForward, null, Modifier.size(18.dp), tint = ds.sub)
+        },
     ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
-            Text(description, fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub)
-            if (detail != null) Text(detail, fontSize = 12.sp, color = ds.accent)
-        }
-        Icon(MiuixIcons.ChevronForward, null, Modifier.size(18.dp), tint = ds.sub)
+        Text(title, fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
+        Text(description, fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub,
+            modifier = Modifier.padding(top = 4.dp))
+        if (detail != null) Text(detail, fontSize = 13.sp, color = ds.accent,
+            modifier = Modifier.padding(top = 4.dp))
     }
 }

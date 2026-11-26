@@ -25,11 +25,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.haooz.nexioui.button.ButtonDefaults
+import com.haooz.nexioui.button.TextButtonColors
+import com.haooz.nexioui.text.NexioText as Text
+import com.haooz.nexioui.theme.NexioTheme
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.data.SchoolService
 import com.menglimi.gdust.v2.data.SchoolServiceStatus
@@ -39,8 +45,6 @@ import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -51,9 +55,18 @@ fun ServiceStatusCard(
     repo: Repository,
     onReconnect: (SchoolService) -> Unit,
     modifier: Modifier = Modifier,
+    actionsEnabled: Boolean = true,
+    offlinePreview: Boolean = false,
 ) {
     val ds = LocalDs.current
     val state by repo.serviceConnections.collectAsState()
+    val actionColors = ButtonDefaults.textButtonColors(
+        disabledColor = (if (NexioTheme.colorScheme.background.luminance() < 0.5f) {
+            Color.White
+        } else {
+            Color.Black
+        }).copy(alpha = 0.06f),
+    )
     AppCard(
         modifier = modifier.fillMaxWidth(),
         insideMargin = PaddingValues(AppUiTokens.CardPadding),
@@ -61,7 +74,8 @@ fun ServiceStatusCard(
         Column {
             Text("服务连接", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
             Text(
-                "门户、教务与学习通各自连接；验证或补连一项，不影响其他项。",
+                if (offlinePreview) "离线演示 · 状态为虚构数据，连接操作已禁用。"
+                else "门户、教务与学习通各自连接；验证或补连一项，不影响其他项。",
                 fontSize = 13.sp,
                 lineHeight = 20.sp,
                 color = ds.sub,
@@ -70,7 +84,7 @@ fun ServiceStatusCard(
             Spacer(Modifier.height(12.dp))
             SchoolService.entries.forEachIndexed { index, service ->
                 if (index > 0) Spacer(Modifier.height(14.dp))
-                ServiceStatusRow(repo, service, state[service], onReconnect)
+                ServiceStatusRow(repo, service, state[service], onReconnect, actionColors, actionsEnabled)
             }
         }
     }
@@ -83,6 +97,8 @@ private fun ServiceStatusRow(
     service: SchoolService,
     status: SchoolServiceStatus,
     onReconnect: (SchoolService) -> Unit,
+    actionColors: TextButtonColors,
+    actionsEnabled: Boolean,
 ) {
     val ds = LocalDs.current
     val scope = rememberCoroutineScope()
@@ -138,9 +154,9 @@ private fun ServiceStatusRow(
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.weight(1f))
-            TextButton(
-                presentation.actionLabel,
-                enabled = presentation.actionEnabled,
+            SettingActionText(
+                text = presentation.actionLabel,
+                enabled = presentation.actionEnabled && actionsEnabled,
                 onClick = if (presentation.actionReconnects) {
                     { onReconnect(service) }
                 } else {
@@ -155,6 +171,8 @@ private fun ServiceStatusRow(
                         }
                     }
                 },
+                minHeight = 44.dp,
+                colors = actionColors,
             )
         }
     }

@@ -17,8 +17,15 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -33,24 +40,47 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.compose
 import com.google.gson.Gson
 import com.menglimi.gdust.v2.data.CalendarInfo
+import com.menglimi.gdust.v2.data.ChxCourse
+import com.menglimi.gdust.v2.data.ChxCourseOverview
+import com.menglimi.gdust.v2.data.ChxCourseProgress
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.data.Store
 import com.menglimi.gdust.v2.data.Todo
 import com.menglimi.gdust.v2.data.TodoKind
-import com.menglimi.gdust.v2.ui.CZeroTheme
+import com.menglimi.gdust.v2.ui.NexioAppTheme
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.ui.nexio.NexioBottomBar
 import com.menglimi.gdust.v2.ui.schedule.ScheduleScreen
 import com.menglimi.gdust.v2.ui.screens.AboutScreen
+import com.menglimi.gdust.v2.ui.AppCard
+import com.haooz.nexioui.text.NexioText as Text
+import com.menglimi.gdust.v2.ui.screens.ChxCoursesScreen
+import com.menglimi.gdust.v2.ui.screens.ChxEntryScreen
+import com.menglimi.gdust.v2.ui.screens.chxCoursesDemoOverview
+import com.menglimi.gdust.v2.ui.screens.PageTitle
+import com.menglimi.gdust.v2.ui.screens.SectionHeader
+import com.menglimi.gdust.v2.ui.screens.nexioPagePadding
+import com.menglimi.gdust.v2.ui.screens.AiChatLine
+import com.menglimi.gdust.v2.ui.screens.AiChatScreen
+import com.menglimi.gdust.v2.ui.screens.AiServiceSettingsScreen
+import com.menglimi.gdust.v2.ui.screens.CampusService
+import com.menglimi.gdust.v2.ui.screens.CampusServicesScreen
+import com.menglimi.gdust.v2.ui.screens.ChxCoursesScreen
+import com.menglimi.gdust.v2.ui.screens.ChxEntryScreen
+import com.menglimi.gdust.v2.ui.screens.LoginScreen
+import com.menglimi.gdust.v2.ui.screens.NoticeScreen
+import com.menglimi.gdust.v2.data.Notice
+import com.menglimi.gdust.v2.data.NoticeSource
+import com.menglimi.gdust.v2.data.readId
 import com.menglimi.gdust.v2.ui.screens.PowerHistoryScreen
-import com.menglimi.gdust.v2.ui.screens.PowerScreen
 import com.menglimi.gdust.v2.ui.screens.ProfileScreen
 import com.menglimi.gdust.v2.ui.screens.SettingsScreen
 import com.menglimi.gdust.v2.ui.screens.TodayScreen
@@ -66,6 +96,7 @@ import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
+import java.util.UUID
 
 /** 仅 debug 的本机视觉入口；不借用 App.repo，不启动登录、同步或后台任务。 */
 class CZeroPreviewActivity : ComponentActivity() {
@@ -82,7 +113,7 @@ class CZeroPreviewActivity : ComponentActivity() {
         request = PreviewRequest.from(intent)
         setContent {
             CompositionLocalProvider(LocalContext provides previewContext) {
-                CZeroTheme {
+                NexioAppTheme {
                     key(request) { PreviewPages(repo, request) }
                 }
             }
@@ -108,7 +139,7 @@ private class PreviewContext(base: Context) : ContextWrapper(base) {
 }
 
 private val mainPages = listOf("today", "schedule", "power", "todo")
-private val previewPages = mainPages + listOf("history", "widgets", "settings", "profile", "about", "widget_render", "term_import", "identity", "identity_pending", "birthday", "desktop", "learning_result", "schedule_loading")
+private val previewPages = mainPages + listOf("history", "widgets", "settings", "profile", "about", "widget_render", "term_import", "identity", "identity_pending", "birthday", "desktop", "learning_result", "schedule_loading", "services", "service_status", "chx_entry", "chx_courses", "notices", "ai", "ai_settings", "login")
 
 private data class PreviewRequest(
     val screen: String = "today",
@@ -138,9 +169,26 @@ private data class PreviewRequest(
 private fun PreviewPages(repo: Repository, request: PreviewRequest) {
     val context = LocalContext.current
     val store = repo.store
-    var screen by rememberSaveable { mutableStateOf(request.screen) }
-    var tab by rememberSaveable { mutableStateOf(mainPages.indexOf(request.screen).coerceAtLeast(0)) }
+    var screen by remember(request.revision, request.screen) { mutableStateOf(request.screen) }
+    var tab by remember(request.revision, request.screen) {
+        mutableStateOf(mainPages.indexOf(request.screen).coerceAtLeast(0))
+    }
     val openSection = rememberSaveable { mutableStateOf(request.section) }
+    var aiMessages by remember { mutableStateOf<List<AiChatLine>>(emptyList()) }
+    var chatInputFocused by remember { mutableStateOf(false) }
+    var noticeSource by remember { mutableStateOf(NoticeSource.ACADEMIC) }
+    var noticeReadIds by remember { mutableStateOf(emptySet<String>()) }
+    val previewNotices = remember {
+        val now = System.currentTimeMillis()
+        listOf(
+            Notice("关于期末考试安排的通知（示例）", "https://example.invalid/exams",
+                "考试通知", "教务处（示例）", now),
+            Notice("下学期选课与课程安排说明（示例）", "https://example.invalid/courses",
+                "教务通知", "教务处（示例）", now - 86_400_000L),
+            Notice("校园学习空间开放时间调整（示例）", "https://example.invalid/campus",
+                "校园通知", "图书馆（示例）", now - 172_800_000L),
+        )
+    }
     val calendar = remember(repo) { store.loadCalendar() }
     val blocks = remember(repo) { store.loadBlocks() }
     val offlineAction: () -> Unit = {
@@ -149,6 +197,7 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
     val back: () -> Unit = {
         screen = when (screen) {
             "history" -> "power"
+            "service_status", "chx_entry", "chx_courses", "services" -> "settings"
             "settings" -> mainPages[tab]
             else -> "settings"
         }
@@ -177,9 +226,17 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
                     onOpenNotices = offlineAction,
                     onOpenSchedule = { tab = 1; screen = "schedule" },
                     onImport = offlineAction,
-                    onOpenServices = offlineAction,
-                    onService = { offlineAction() },
+                    onOpenServices = { screen = "services" },
+                    onService = { service ->
+                        when (service) {
+                            CampusService.TODO -> { tab = 3; screen = "todo" }
+                            CampusService.POWER -> { tab = 2; screen = "power" }
+                            else -> offlineAction()
+                        }
+                    },
                     hasImportedSchedule = true,
+                    serviceSummary = "离线演示 · 门户、教务与学习通状态均为本机假数据",
+                    onServices = { screen = "service_status" },
                 )
                 "schedule" -> ScheduleScreen(
                     repo = repo,
@@ -191,8 +248,64 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
                     onSwitchTerm = { offlineAction() },
                     onImport = offlineAction,
                 )
-                "power" -> PowerScreen(repo)
+                "power" -> OfflinePowerPreview(onBack = { tab = 0; screen = "today" }, onAction = offlineAction)
                 "todo" -> TodoScreen(repo)
+                "service_status" -> {
+                    openSection.value = null
+                    SettingsScreen(
+                        repo = repo,
+                        syncError = null,
+                        onSync = offlineAction,
+                        onWebImport = offlineAction,
+                        onReminder = offlineAction,
+                        onChxNotifications = offlineAction,
+                        onChxEntry = { screen = "chx_entry" },
+                        onProfile = offlineAction,
+                        onAbout = offlineAction,
+                        onExportBackup = exportLauncher,
+                        onImportBackup = { offlineAction() },
+                        onLogout = offlineAction,
+                        onBack = back,
+                        loggedIn = false,
+                        chxSessionSaved = false,
+                        openSection = openSection,
+                        openGroupState = remember { mutableStateOf("服务") },
+                        onReconnectService = { offlineAction() },
+                        offlinePreview = true,
+                        onGrades = offlineAction,
+                        onChxCourses = { screen = "chx_courses" },
+                        onSchoolNotices = offlineAction,
+                        onFiveEducation = offlineAction,
+                    )
+                }
+                "chx_entry" -> ChxEntryScreen(
+                    repo = repo,
+                    onBack = back,
+                    onCourses = { screen = "chx_courses" },
+                    onConnect = { offlineAction() },
+                    onNotifications = { offlineAction() },
+                    offlinePreview = true,
+                )
+                "chx_courses" -> ChxCoursesScreen(
+                    repo = repo,
+                    onBack = back,
+                    onLogin = { offlineAction() },
+                    onOpenCourse = { offlineAction() },
+                    offlineOverview = remember { chxCoursesDemoOverview() },
+                )
+                "services" -> CampusServicesScreen(false, "", { screen = "login" }, { offlineAction() }, back)
+                "login" -> LoginScreen(repo, offlineAction, { screen = "settings" }, { screen = "today" }, offlineAction)
+                "notices" -> NoticeScreen(
+                    repo, previewNotices, false, null, noticeReadIds, previewNotices.first().time,
+                    { selected -> noticeReadIds = noticeReadIds + selected.map { it.readId } },
+                    back, offlineAction, noticeSource, { noticeSource = it },
+                )
+                "ai" -> AiChatScreen(
+                    repo, calendar, blocks, store.loadTodos(), aiMessages, { aiMessages = it }, { chatInputFocused = it }, back,
+                    { screen = "ai_settings" },
+                    offlinePreview = true,
+                )
+                "ai_settings" -> AiServiceSettingsScreen(repo, back, { screen = "notices" })
                 "history" -> PowerHistoryScreen(repo, onBack = back)
                 "widgets" -> WidgetPreviewScreen(onBack = back)
                 "identity", "identity_pending" -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -226,6 +339,7 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
                     onTodoReminder = offlineAction,
                     onChxNotifications = offlineAction,
                     onChxEntry = offlineAction,
+                    onReconnectService = { offlineAction() },
                     onProfile = { screen = "profile" },
                     onAbout = { screen = "about" },
                     onExportBackup = exportLauncher,
@@ -238,18 +352,46 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
                     openSection = openSection,
                     onGrades = offlineAction,
                     onChxCourses = offlineAction,
-                    onSchoolNotices = offlineAction,
+                    onSchoolNotices = { screen = "notices" },
+                    onOpenAiService = { screen = "ai_settings" },
                     onFiveEducation = offlineAction,
                 )
             }
         }
-        if (screen in mainPages) {
+        if ((screen in mainPages || screen == "ai") && !chatInputFocused) {
             NexioBottomBar(
-                selectedTab = tab,
+                selectedTab = if (screen == "ai") 4 else tab,
                 onTabSelected = { tab = it; screen = mainPages[it] },
                 onSettings = { screen = "settings" },
+                onAi = if (screen == "ai") null else ({ screen = "ai" }),
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+        }
+    }
+}
+
+@Composable
+private fun OfflinePowerPreview(onBack: () -> Unit, onAction: () -> Unit) {
+    val ds = LocalDs.current
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(ds.bg)
+            .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = nexioPagePadding(), vertical = 24.dp),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+    ) {
+        PageTitle(title = "宿舍电量预览", onBack = onBack)
+        AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(16.dp)) {
+            Text("离线安全预览，不读取真实宿舍绑定、电量数据或网络服务。", fontSize = 13.sp, color = ds.sub)
+            Text("示例余量", fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(top = 16.dp))
+            Text("-- 度", fontSize = 34.sp, color = ds.text)
+            Text("这是纯本机占位页面。", fontSize = 13.sp, color = ds.sub)
+        }
+        SectionHeader("离线操作")
+        AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(16.dp), onClick = onAction) {
+            Text("本地预览操作", fontSize = 15.sp, color = ds.text)
         }
     }
 }

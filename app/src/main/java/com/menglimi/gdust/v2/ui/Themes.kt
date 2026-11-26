@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import com.haooz.nexioui.theme.NexioTheme
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -16,13 +17,13 @@ import top.yukonga.miuix.kmp.theme.darkColorScheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
 
 @Composable
-fun CZeroTheme(content: @Composable () -> Unit) {
+fun NexioAppTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
     val ds = dsFor(dark)
     val colors = remember(ds) {
         (if (dark) darkColorScheme() else lightColorScheme()).copy(
             primary = ds.accent,
-            onPrimary = Color.Black,
+            onPrimary = Color.White,
             primaryVariant = ds.accentSoft,
             onPrimaryVariant = ds.text,
             primaryContainer = ds.accentSoft,
@@ -62,7 +63,7 @@ fun CZeroTheme(content: @Composable () -> Unit) {
             disabledOnPrimaryButton = ds.sub,
             disabledOnSurface = ds.sub,
             outline = ds.sub,
-            dividerLine = Color.Transparent,
+            dividerLine = ds.sub.copy(alpha = 0.1f),
             sliderKeyPointForeground = ds.accent,
         )
     }
@@ -77,7 +78,9 @@ fun CZeroTheme(content: @Composable () -> Unit) {
             top.yukonga.miuix.kmp.material.LocalGlassDialogBlurDp provides 0f,
         ) {
             WithTypography(ds) {
-                Box(Modifier.fillMaxSize().background(ds.bg)) { content() }
+                NexioTheme(isDark = dark, colorScheme = nexioColors(dark)) {
+                    Box(Modifier.fillMaxSize().background(ds.bg)) { content() }
+                }
             }
         }
     }

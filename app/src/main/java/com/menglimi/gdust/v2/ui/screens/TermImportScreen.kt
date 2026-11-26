@@ -13,11 +13,14 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -30,6 +33,8 @@ import com.menglimi.gdust.v2.data.TeachingEndpoints
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.haooz.nexioui.button.ButtonDefaults
+import com.haooz.nexioui.text.NexioText as Text
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
@@ -37,8 +42,6 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import java.io.IOException
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -110,6 +113,8 @@ fun TermImportScreen(
     val ds = LocalDs.current
     val context = LocalContext.current
     val focus = LocalFocusManager.current
+    val isTablet = LocalConfiguration.current.screenWidthDp >= 600
+    val pagePadding = if (isTablet) 20.dp else AppUiTokens.PagePadding
     val sessionVersion by repo.sessionVersion.collectAsState()
     val latestOnImported by rememberUpdatedState(onImported)
     val cached = remember(repo, sessionVersion) { repo.store.loadCalendar() }
@@ -299,9 +304,9 @@ fun TermImportScreen(
 
     Column(
         Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().navigationBarsPadding().imePadding()
-            .verticalScroll(rememberScrollState()).padding(horizontal = AppUiTokens.PagePadding),
+            .verticalScroll(rememberScrollState()).padding(horizontal = pagePadding),
     ) {
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(if (isTablet) 24.dp else 12.dp))
         PageTitle("教务学期导入", "选择学期与开学日期，读取成功后更新当前课表。", ::leaveScreen)
         val request = pending
         if (request != null) {
@@ -317,7 +322,7 @@ fun TermImportScreen(
             Spacer(Modifier.height(AppUiTokens.CardGap))
             AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
                 Text("本次导入", color = ds.sub, fontSize = 13.sp)
-                Text(request.target.termLabel(), color = ds.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                Text(request.target.termLabel(), color = ds.text, fontSize = 17.sp, fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(top = 8.dp))
                 Text("第一周周一 ${request.target.startDate} · 共 ${request.target.allWeek} 周",
                     color = ds.sub, fontSize = 13.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 8.dp))
@@ -326,12 +331,10 @@ fun TermImportScreen(
             SectionHeader("学期设置")
             SettingGroup {
                 SettingEditor {
-                    Text("起始学年", color = ds.sub, fontSize = 13.sp)
-                    InputField(year, { year = it }, "起始学年，如 2026", KeyboardType.Number)
+                    NexioField(year, { year = it }, "起始学年", KeyboardType.Number, hint = "如 2026")
                     SegmentedChoice(listOf("3" to "第一学期", "12" to "第二学期"), semester, { semester = it })
                     TermDateField(value = start, onValueChange = { start = it })
-                    Text("学期总周数", color = ds.sub, fontSize = 13.sp)
-                    InputField(weeks, { weeks = it }, "学期总周数", KeyboardType.Number)
+                    NexioField(weeks, { weeks = it }, "学期总周数", KeyboardType.Number)
                 }
             }
             if (candidate && !needsLogin) {
@@ -339,13 +342,17 @@ fun TermImportScreen(
                     color = ds.sub, fontSize = 13.sp, lineHeight = 20.sp,
                     modifier = Modifier.padding(bottom = 16.dp))
             }
-            Button(
+            NexioActionButton(
                 if (awaitingLoginResult) "等待登录页返回"
                 else if (candidate && !needsLogin) "读取学期课表" else "登录教务并导入",
                 enabled = !busy,
             ) { beginImport(forceLogin = false) }
-            TextButton("重新登录教务", enabled = !busy, onClick = { beginImport(forceLogin = true) },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(top = 8.dp))
+            SettingActionText(
+                text = "重新登录教务",
+                enabled = !busy,
+                onClick = { beginImport(forceLogin = true) },
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            )
             if (awaitingLoginResult) {
                 Text("关闭学校登录页后，即可重新开始导入。", color = ds.sub, fontSize = 13.sp, lineHeight = 20.sp)
             }

@@ -1,11 +1,15 @@
 package com.menglimi.gdust.v2.ui.screens
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -14,14 +18,19 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.haooz.nexioui.progressindicator.LinearProgressIndicator as NexioLinearProgressIndicator
+import com.haooz.nexioui.progressindicator.ProgressIndicatorDefaults as NexioProgressIndicatorDefaults
+import com.haooz.nexioui.text.NexioText as Text
 import com.menglimi.gdust.v2.data.AuthFailed
 import com.menglimi.gdust.v2.data.ChxCourse
 import com.menglimi.gdust.v2.data.ChxCourseOverview
 import com.menglimi.gdust.v2.data.ChxCourseReadException
+import com.menglimi.gdust.v2.data.ChxCourseProgress
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
@@ -35,11 +44,6 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
-import top.yukonga.miuix.kmp.basic.Text
 import java.math.BigDecimal
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -51,39 +55,52 @@ fun ChxCoursesScreen(
     onBack: () -> Unit,
     onLogin: () -> Unit,
     onOpenCourse: (String) -> Unit,
+    offlineOverview: ChxCourseOverview? = null,
 ) {
     val ds = LocalDs.current
     val scope = rememberCoroutineScope()
+    val offlineMode = offlineOverview != null
     val sessionVersion by repo.sessionVersion.collectAsState()
     val chxVersion by repo.chxSessionVersion.collectAsState()
-    val controller = remember(repo, scope, chxVersion) {
-        ChxCoursesController(scope, repo::chxCourses) { version -> repo.sessionVersion.value == version }
+    val controller = remember(repo, scope, chxVersion, offlineOverview) {
+        ChxCoursesController(
+            scope = scope,
+            load = {
+                if (offlineMode) checkNotNull(offlineOverview) { "离线课程演示数据缺失" }
+                else repo.chxCourses()
+            },
+            isCurrentSession = { version -> offlineMode || repo.sessionVersion.value == version },
+        )
     }
     val loadedState by controller.state.collectAsState()
     // 新会话的首帧也不展示上一账号的数据，不等待 LaunchedEffect 才隐藏。
-    val state = if (loadedState.sessionVersion == sessionVersion) loadedState else ChxCoursesUiState(sessionVersion)
+    val state = if (offlineMode || loadedState.sessionVersion == sessionVersion) loadedState
+        else ChxCoursesUiState(sessionVersion)
     LaunchedEffect(controller, sessionVersion) {
         controller.changeSession(sessionVersion)
         controller.refresh()
     }
     DisposableEffect(controller) { onDispose { controller.cancel() } }
 
-    SettingSubPage("课程与任务进度", "学习通 · 当前课程页", onBack) {
+    SettingSubPage("课程与任务进度", if (offlineOverview != null) "离线演示 · 虚构课程数据" else "学习通 · 当前课程页", onBack) {
+        if (offlineOverview != null) {
+            Text("离线演示 · 不访问学校账户、Cookie 或网络服务。", fontSize = 13.sp, color = ds.sub)
+            Spacer(Modifier.height(8.dp))
+        }
         Text(
             "任务点进度与作业待办分别统计。",
             fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
         )
         Spacer(Modifier.height(16.dp))
-        Button(
-            onClick = controller::refresh,
-            modifier = Modifier.fillMaxWidth(), minHeight = 48.dp,
-            colors = ButtonDefaults.buttonColorsPrimary(),
-        ) {
-            Text(if (state.loading) "重新刷新" else "刷新课程", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            NexioActionButton(
+                text = if (state.loading) "重新刷新" else "刷新课程",
+                onClick = controller::refresh,
+            )
         }
         if (state.loading) {
             Spacer(Modifier.height(12.dp))
-            LinearProgressIndicator(colors = ProgressIndicatorDefaults.progressIndicatorColors(
+            NexioLinearProgressIndicator(colors = NexioProgressIndicatorDefaults.progressIndicatorColors(
                 foregroundColor = ds.accent, backgroundColor = ds.breakBar,
             ))
             Text("正在读取课程与任务点进度…", fontSize = 13.sp, color = ds.sub,
@@ -91,8 +108,12 @@ fun ChxCoursesScreen(
         }
         if (state.authRequired) {
             Spacer(Modifier.height(8.dp))
-            Button(onClick = onLogin, modifier = Modifier.fillMaxWidth(), minHeight = 48.dp) {
-                Text("重新连接学习通", fontSize = 16.sp)
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                NexioActionButton(
+                    "重新连接学习通",
+                    enabled = offlineOverview == null,
+                    onClick = onLogin,
+                )
             }
         }
         state.error?.let { message ->
@@ -161,16 +182,37 @@ private fun ChxCourseItem(course: ChxCourse, onOpenCourse: (String) -> Unit) {
                         fontWeight = FontWeight.Bold, color = ds.text)
                     Text("任务点 ${progress.jobFinishCount} / ${progress.jobCount}", fontSize = 13.sp, color = ds.sub)
                 }
-                LinearProgressIndicator(progress = (progress.jobRate / 100.0).toFloat(),
+                NexioLinearProgressIndicator(
+                    progress = (progress.jobRate / 100.0).toFloat(),
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                    colors = NexioProgressIndicatorDefaults.progressIndicatorColors(
                         foregroundColor = ds.accent, backgroundColor = ds.breakBar,
-                    ))
+                    ),
+                )
             }
-            Text("点按课程进入学习通网页", fontSize = 13.sp, color = ds.sub)
+            Text(
+                if (course.url.startsWith("https://example.invalid/")) "离线演示 · 不打开网页"
+                else "点按课程进入学习通网页",
+                fontSize = 13.sp,
+                color = ds.sub,
+            )
         }
     }
 }
+
+internal fun chxCoursesDemoOverview(): ChxCourseOverview = ChxCourseOverview(
+    courses = listOf(
+        ChxCourse(
+            clazzId = "offline-class-1",
+            courseId = "offline-course-1",
+            curPersonId = "offline-user-1",
+            name = "离线演示：数据结构",
+            description = "仅用于本机界面验收的虚构课程",
+            url = "https://example.invalid/course",
+            progress = ChxCourseProgress(10, 8, 80.0),
+        ),
+    ),
+)
 
 internal data class ChxCoursesUiState(
     val sessionVersion: Long? = null,

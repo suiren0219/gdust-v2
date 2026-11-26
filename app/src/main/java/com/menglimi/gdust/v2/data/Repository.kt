@@ -1839,6 +1839,10 @@ class Repository(context: Context) {
         store.llmBase, store.llmKey, store.llmModel, notices(),
     )
 
+    suspend fun chat(messages: List<AiChatMessage>): String = api.complete(
+        store.llmBase, store.llmKey, store.llmModel, messages,
+    )
+
     internal suspend fun summarize(notices: List<Notice>, session: PortalSession): String {
         if (session != portalSession()) throw CancellationException("登录状态已变更")
         val result = api.summarize(store.llmBase, store.llmKey, store.llmModel, notices)

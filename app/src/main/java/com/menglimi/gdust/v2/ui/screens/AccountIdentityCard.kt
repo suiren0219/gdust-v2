@@ -2,16 +2,14 @@ package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -24,8 +22,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,9 +38,11 @@ import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.haooz.nexioui.button.ButtonDefaults
+import com.haooz.nexioui.button.FlatTextButton
+import com.haooz.nexioui.text.NexioText as Text
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ContactsCircle
 
@@ -90,17 +93,19 @@ internal fun AccountIdentityContent(
         color = if (valid) ds.successTint else ds.card,
         insideMargin = PaddingValues(AppUiTokens.CardPadding),
     ) {
-        Column(Modifier.fillMaxWidth().semantics { stateDescription = if (revealed) "身份已展开" else "身份已隐藏" }
-            .clickable(enabled = hasIdentity, onClickLabel = if (revealed) "隐藏身份" else "展开身份") { revealed = !revealed }) {
+        Column(Modifier.fillMaxWidth().heightIn(min = 56.dp)
+            .semantics { stateDescription = if (revealed) "身份已展开" else "身份已隐藏" }
+            .clickable(enabled = hasIdentity, role = Role.Button,
+                onClickLabel = if (revealed) "隐藏身份" else "展开身份") { revealed = !revealed }) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Icon(MiuixIcons.ContactsCircle, null, Modifier.size(28.dp), tint = if (valid) ds.success else ds.sub)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(when {
-                        !hasIdentity -> "门户身份未确认"
+                        !hasIdentity -> "未登录"
                         revealed -> name.ifBlank { "个人信息" }
                         else -> "*****"
-                    }, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+                    }, fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
                     Text(if (hasIdentity) "广东科技学院 · " + if (revealed) account.ifBlank { "—" } else "*****"
                         else "广东科技学院 · 本机数据与偏好", fontSize = 13.sp, color = ds.sub)
                     if (hasIdentity) Text(if (revealed) "点按隐藏姓名与学号" else "点按展开姓名与学号", fontSize = 12.sp, color = ds.sub)
@@ -108,23 +113,34 @@ internal fun AccountIdentityContent(
             }
         }
         Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(portalStateLabel(state), fontSize = 13.sp, fontWeight = FontWeight.Medium,
+        val actionColors = ButtonDefaults.textButtonColors(
+            disabledColor = (if (ds.isDark) Color.White else Color.Black).copy(alpha = 0.06f),
+        )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(state.label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
                 color = if (state == AccountLoginState.EXPIRED) ds.danger else ds.text,
                 modifier = Modifier.weight(1f))
-            if (canVerify) TextButton("验证登录", enabled = state != AccountLoginState.CHECKING, onClick = onVerify)
-            if (revealed && onOpenProfile != null) TextButton("个人信息", onClick = onOpenProfile)
+            if (canVerify) FlatTextButton(
+                text = "验证登录",
+                enabled = state != AccountLoginState.CHECKING,
+                onClick = onVerify,
+                minHeight = 44.dp,
+                cornerRadius = 100.dp,
+                insideMargin = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                textStyle = TextStyle(fontSize = 14.sp),
+                colors = actionColors,
+            )
+            if (revealed && onOpenProfile != null) FlatTextButton(
+                text = "个人信息",
+                onClick = onOpenProfile,
+                minHeight = 44.dp,
+                cornerRadius = 100.dp,
+                insideMargin = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                textStyle = TextStyle(fontSize = 14.sp),
+                colors = actionColors,
+            )
         }
     }
     Spacer(Modifier.height(AppUiTokens.CardGap))
-}
-
-/** 状态词明确限定门户口径，避免「未登录」被误读为整个应用都不可用。 */
-private fun portalStateLabel(state: AccountLoginState): String = when (state) {
-    AccountLoginState.SIGNED_OUT -> "门户未连接"
-    AccountLoginState.UNVERIFIED -> "门户身份待验证"
-    AccountLoginState.CHECKING -> "门户验证中"
-    AccountLoginState.VALID -> "门户已连接"
-    AccountLoginState.EXPIRED -> "门户登录已失效"
-    AccountLoginState.UNAVAILABLE -> "门户暂时无法验证"
 }

@@ -20,18 +20,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
+import com.haooz.nexioui.card.Card
+import com.haooz.nexioui.card.CardDefaults
 import top.yukonga.miuix.kmp.theme.LocalContentColor
 
 object AppUiTokens {
     val PagePadding = 16.dp
     val TitleSize = 34.sp
     val TitleWeight = FontWeight.Medium
-    val CardCorner = 26.dp
-    val ItemCorner = 20.dp
+    val CardCorner = 20.dp
+    val ItemCorner = 16.dp
     val CardGap = 12.dp
-    val CardPadding = 20.dp
+    val CardPadding = 16.dp
 }
 
 @Composable
@@ -43,7 +43,7 @@ fun Modifier.appSurface(cornerRadius: Dp = AppUiTokens.CardCorner): Modifier {
     return clip(shape).background(LocalDs.current.card)
 }
 
-/** Miuix 实底卡；按下只叠加轻微 tint，不缩放、不绘制波纹。 */
+/** NexioUI 连续圆角卡，统一语义表面与按压反馈。 */
 @Composable
 fun AppCard(
     modifier: Modifier = Modifier,

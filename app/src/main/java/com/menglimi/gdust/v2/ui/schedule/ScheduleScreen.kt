@@ -1,5 +1,5 @@
 // Course grouping and paging adapted from NexioSchedule revision 28a99a3.
-// CZeroX solid surfaces preserve GDUST school times, preferences and date-based status.
+// NexioUI surfaces preserve GDUST school times, preferences and date-based status.
 package com.menglimi.gdust.v2.ui.schedule
 
 import android.content.Context
@@ -32,6 +32,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -70,9 +72,9 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Text
+import com.haooz.nexioui.button.Button
+import com.haooz.nexioui.button.ButtonDefaults
+import com.haooz.nexioui.text.NexioText as Text
 
 internal object ScheduleLayout {
     val RowHeight = 54.dp
@@ -121,6 +123,7 @@ fun ScheduleScreen(
         ?: calendar?.week ?: 1
     val initialWeek = currentWeek.coerceIn(1, totalWeeks)
     val context = LocalContext.current
+    val pagePadding = if (LocalConfiguration.current.screenWidthDp >= 600) 20.dp else AppUiTokens.PagePadding
     val stored = remember(context) { context.getSharedPreferences("gdust_cache", Context.MODE_PRIVATE) }
     var textScale by remember(repo) { mutableStateOf(repo.store.courseTextScale) }
     var showTeacher by remember(repo) { mutableStateOf(repo.store.showTeacherOnCard) }
@@ -177,11 +180,11 @@ fun ScheduleScreen(
             )
             if (syncError != null) {
                 AppCard(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = AppUiTokens.PagePadding, vertical = 6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = pagePadding, vertical = 6.dp),
                     insideMargin = PaddingValues(AppUiTokens.CardPadding),
                     onClick = onImport,
                 ) {
-                    Text("同步失败", color = ds.danger, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("同步失败", color = ds.danger, fontSize = 17.sp, fontWeight = FontWeight.Medium)
                     Text(
                         "$syncError · 点击重新导入",
                         color = ds.sub,
@@ -296,6 +299,7 @@ private fun WeekGrid(
     onLessonClick: (CourseBlock) -> Unit,
 ) {
     val ds = LocalDs.current
+    val pagePadding = if (LocalConfiguration.current.screenWidthDp >= 600) 20.dp else AppUiTokens.PagePadding
     val today = now.toLocalDate()
     val time = now.toLocalTime()
     val days = remember(blocks, smartHideWeekend) {
@@ -359,7 +363,8 @@ private fun WeekGrid(
                 .padding(top = 2.dp, bottom = ScheduleLayout.BottomClearance + bottomInset),
         ) {
             if (blocks.isEmpty()) {
-                ScheduleEmptyState(emptyTitle, emptyMessage, onImport)
+                ScheduleEmptyState(emptyTitle, emptyMessage, onImport,
+                    modifier = Modifier.padding(horizontal = pagePadding - 4.dp, vertical = 12.dp))
             }
             Box(Modifier.fillMaxWidth().height(gridHeight).padding(end = 2.dp)) {
                 Row(Modifier.fillMaxSize()) {
@@ -450,6 +455,7 @@ private fun CompactWeekAgenda(
     onLessonClick: (CourseBlock) -> Unit,
 ) {
     val ds = LocalDs.current
+    val pagePadding = if (LocalConfiguration.current.screenWidthDp >= 600) 20.dp else AppUiTokens.PagePadding
     var selectedDay by remember(week, days) {
         mutableStateOf(days.firstOrNull { dates[it] == now.toLocalDate() }
             ?: days.firstOrNull { day -> blocks.any { it.day == day } } ?: days.first())
@@ -458,7 +464,7 @@ private fun CompactWeekAgenda(
     val dateScroll = rememberLazyListState(initialFirstVisibleItemIndex = days.indexOf(selectedDay).coerceAtLeast(0))
     Column(Modifier.fillMaxSize()) {
         LazyRow(Modifier.fillMaxWidth(), state = dateScroll,
-            contentPadding = PaddingValues(horizontal = AppUiTokens.PagePadding, vertical = 8.dp),
+            contentPadding = PaddingValues(horizontal = pagePadding, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(days, key = { it }) { day ->
                 val picked = day == selectedDay
@@ -476,7 +482,7 @@ private fun CompactWeekAgenda(
             }
         }
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
-            .padding(horizontal = AppUiTokens.PagePadding)
+            .padding(horizontal = pagePadding)
             .padding(top = 8.dp, bottom = ScheduleLayout.BottomClearance + bottomInset),
             verticalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap)) {
             Text("${ScheduleTimes.dayNames[selectedDay - 1]} · ${dayLessons.size} 堂课程", fontSize = 13.sp, color = ds.sub)
@@ -484,7 +490,7 @@ private fun CompactWeekAgenda(
                 ScheduleEmptyState(emptyTitle, emptyMessage, onImport)
             } else if (dayLessons.isEmpty()) {
                 AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
-                    Text("今天没有课程", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+                    Text("今天没有课程", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
                     Text("选择其他日期查看安排", fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(top = 6.dp))
                 }
             }
@@ -505,7 +511,7 @@ private fun CompactWeekAgenda(
                         else -> ""
                     }
                     Text("第 ${lesson.startSection}–${lesson.endSection} 节$status", fontSize = 13.sp, color = ds.sub)
-                    Text(lesson.name, fontSize = 18.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold,
+                    Text(lesson.name, fontSize = 17.sp, lineHeight = 26.sp, fontWeight = FontWeight.Medium,
                         color = foreground, modifier = Modifier.padding(top = 10.dp))
                     val start = ScheduleTimes.start(lesson.startSection)
                     val end = ScheduleTimes.end(lesson.endSection)
@@ -560,16 +566,27 @@ private fun ScheduleBreakBand(text: String, sectionWidth: Dp, modifier: Modifier
 }
 
 @Composable
-private fun ScheduleEmptyState(title: String, message: String, onImport: () -> Unit) {
+private fun ScheduleEmptyState(
+    title: String,
+    message: String,
+    onImport: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val ds = LocalDs.current
     AppCard(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+        modifier = modifier.fillMaxWidth(),
         insideMargin = PaddingValues(AppUiTokens.CardPadding),
     ) {
-        Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+        Text(title, fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
         Text(message, fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp, bottom = 16.dp))
-        Button(onClick = onImport, colors = ButtonDefaults.buttonColorsPrimary(), insideMargin = PaddingValues(horizontal = 22.dp, vertical = 10.dp)) {
-            Text("导入课表", fontSize = 14.sp)
+        Button(
+            onClick = onImport,
+            minHeight = 48.dp,
+            cornerRadius = 100.dp,
+            colors = ButtonDefaults.buttonColorsPrimary(),
+            insideMargin = PaddingValues(horizontal = 20.dp, vertical = 0.dp),
+        ) {
+            Text("导入课表", fontSize = 14.sp, color = LocalContentColor.current)
         }
     }
 }

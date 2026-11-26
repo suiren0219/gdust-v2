@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -36,6 +37,13 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.haooz.nexioui.basiccomponent.BasicComponent
+import com.haooz.nexioui.button.Button as NexioButton
+import com.haooz.nexioui.button.ButtonDefaults
+import com.haooz.nexioui.progressindicator.LinearProgressIndicator as NexioLinearProgressIndicator
+import com.haooz.nexioui.progressindicator.ProgressIndicatorDefaults as NexioProgressIndicatorDefaults
+import com.haooz.nexioui.text.NexioText as Text
+import com.haooz.nexioui.theme.NexioTheme
 import com.menglimi.gdust.v2.data.AuthFailed
 import com.menglimi.gdust.v2.data.ChxCourseReadException
 import com.menglimi.gdust.v2.data.ChxSso
@@ -46,10 +54,6 @@ import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.BasicComponent
-import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
-import top.yukonga.miuix.kmp.basic.Text
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -62,33 +66,36 @@ fun ChxEntryScreen(
     onCourses: () -> Unit = {},
     onConnect: (() -> Unit)? = null,
     onNotifications: (() -> Unit)? = null,
+    offlinePreview: Boolean = false,
 ) {
     val ds = LocalDs.current
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val accountVersion by repo.sessionVersion.collectAsState()
     val chxVersion by repo.chxSessionVersion.collectAsState()
-    var saved by remember(repo, accountVersion, chxVersion) { mutableStateOf(repo.store.hasChxSession) }
-    var checkResult by remember(repo, accountVersion, chxVersion) { mutableStateOf<Boolean?>(null) }
-    var checking by remember(repo, accountVersion, chxVersion) { mutableStateOf(false) }
-    var syncing by remember(repo, accountVersion, chxVersion) { mutableStateOf(false) }
-    var authRequired by rememberSaveable(accountVersion, chxVersion) { mutableStateOf(false) }
-    var message by rememberSaveable(accountVersion) { mutableStateOf("") }
-    var isError by rememberSaveable(accountVersion) { mutableStateOf(false) }
-    var syncMessage by rememberSaveable(accountVersion, chxVersion) { mutableStateOf("") }
-    var syncError by rememberSaveable(accountVersion, chxVersion) { mutableStateOf(false) }
-    var helpExpanded by rememberSaveable { mutableStateOf(false) }
-    var logoutPending by rememberSaveable { mutableStateOf(false) }
-    var clearPending by rememberSaveable { mutableStateOf(false) }
-    var serverConfirmed by rememberSaveable { mutableStateOf(false) }
-    var localCleared by rememberSaveable { mutableStateOf<Boolean?>(null) }
-    val busy = checking || syncing || logoutPending || clearPending
+    var saved by remember(repo, offlinePreview, accountVersion, chxVersion) {
+        mutableStateOf(if (offlinePreview) false else repo.store.hasChxSession)
+    }
+    var checkResult by remember(repo, offlinePreview, accountVersion, chxVersion) { mutableStateOf<Boolean?>(null) }
+    var checking by remember(repo, offlinePreview, accountVersion, chxVersion) { mutableStateOf(false) }
+    var syncing by remember(repo, offlinePreview, accountVersion, chxVersion) { mutableStateOf(false) }
+    var authRequired by rememberSaveable(offlinePreview, accountVersion, chxVersion) { mutableStateOf(false) }
+    var message by rememberSaveable(offlinePreview, accountVersion) { mutableStateOf("") }
+    var isError by rememberSaveable(offlinePreview, accountVersion) { mutableStateOf(false) }
+    var syncMessage by rememberSaveable(offlinePreview, accountVersion, chxVersion) { mutableStateOf("") }
+    var syncError by rememberSaveable(offlinePreview, accountVersion, chxVersion) { mutableStateOf(false) }
+    var helpExpanded by rememberSaveable(offlinePreview) { mutableStateOf(false) }
+    var logoutPending by rememberSaveable(offlinePreview) { mutableStateOf(false) }
+    var clearPending by rememberSaveable(offlinePreview) { mutableStateOf(false) }
+    var serverConfirmed by rememberSaveable(offlinePreview) { mutableStateOf(false) }
+    var localCleared by rememberSaveable(offlinePreview) { mutableStateOf<Boolean?>(null) }
+    val busy = offlinePreview || checking || syncing || logoutPending || clearPending
 
     fun isCurrent(account: Long, learning: Long): Boolean =
         repo.sessionVersion.value == account && repo.chxSessionVersion.value == learning && !repo.store.webLogoutPending
 
     fun checkSession() {
-        if (busy) return
+        if (offlinePreview || busy) return
         val account = repo.sessionVersion.value
         val learning = repo.chxSessionVersion.value
         checking = true
@@ -124,12 +131,12 @@ fun ChxEntryScreen(
 
     // 主入口注入的学校登录返回后重建本页；只检查已有候选，首次打开不发起登录。
     LaunchedEffect(repo, accountVersion) {
-        if (saved && !logoutPending && !clearPending && localCleared == null) checkSession()
+        if (!offlinePreview && saved && !logoutPending && !clearPending && localCleared == null) checkSession()
     }
 
     // 先等待学校网页结果，再清本地会话；失败和重建后仍保留本地重试入口。
     LaunchedEffect(clearPending) {
-        if (!clearPending) return@LaunchedEffect
+        if (offlinePreview || !clearPending) return@LaunchedEffect
         checkResult = null
         syncMessage = ""
         val cleared = try {
@@ -151,11 +158,14 @@ fun ChxEntryScreen(
     }
 
     val webLogin = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // Activity 返回或存在 Cookie 都不能证明登录成功。
-        saved = repo.store.hasChxSession
-        checkSession()
+        if (!offlinePreview) {
+            // Activity 返回或存在 Cookie 都不能证明登录成功。
+            saved = repo.store.hasChxSession
+            checkSession()
+        }
     }
     val casLogout = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (offlinePreview) return@rememberLauncherForActivityResult
         logoutPending = false
         serverConfirmed = result.resultCode == Activity.RESULT_OK &&
             result.data?.getBooleanExtra(ChxWebActivity.EXTRA_LOGOUT_CONFIRMED, false) == true
@@ -164,7 +174,7 @@ fun ChxEntryScreen(
     }
 
     fun connect(direct: Boolean = false) {
-        if (busy) return
+        if (offlinePreview || busy) return
         checkResult = null
         localCleared = null
         serverConfirmed = false
@@ -182,22 +192,24 @@ fun ChxEntryScreen(
 
     val connection = chxConnectionPresentation(saved, checkResult, checking, authRequired)
     val canSync = saved && checkResult != false && !authRequired && !busy
+    val themeColors = NexioTheme.colorScheme
     Column(
         Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().navigationBarsPadding()
-            .verticalScroll(rememberScrollState()).padding(horizontal = AppUiTokens.PagePadding),
+            .verticalScroll(rememberScrollState()).padding(horizontal = nexioPagePadding()),
     ) {
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(24.dp))
         PageTitle(title = "学习通", onBack = onBack)
         AppCard(
             modifier = Modifier.fillMaxWidth(),
             insideMargin = PaddingValues(AppUiTokens.CardPadding),
             color = if (connection.verified) ds.successTint else ds.card,
         ) {
-            val account = repo.store.jobNumber
+            val account = if (offlinePreview) "" else repo.store.jobNumber
             Text(
-                if (account.isBlank()) "尚未保存学校账户" else "当前学校账户 · " +
+                if (offlinePreview) "离线演示 · 不读取学校账户或会话"
+                else if (account.isBlank()) "尚未保存学校账户" else "当前学校账户 · " +
                     if (account.length > 4) "****${account.takeLast(4)}" else "****",
-                fontSize = 13.sp, color = ds.sub,
+                fontSize = 13.sp, color = themeColors.onSurfaceVariantSummary,
             )
             Text(
                 when {
@@ -205,16 +217,18 @@ fun ChxEntryScreen(
                     clearPending -> "正在清理"
                     else -> connection.title
                 },
-                fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = ds.text,
+                fontSize = 26.sp, fontWeight = FontWeight.SemiBold,
+                color = if (connection.verified) themeColors.primary else themeColors.onSurface,
                 modifier = Modifier.padding(top = 8.dp),
             )
-            if (saved && repo.store.chxCookieAt > 0) {
+            if (!offlinePreview && saved && repo.store.chxCookieAt > 0) {
                 Text("连接保存于 ${SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(repo.store.chxCookieAt))}",
-                    fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(top = 6.dp))
+                    fontSize = 13.sp, color = themeColors.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(top = 6.dp))
             }
             if (message.isNotBlank()) {
                 Text(message, fontSize = 13.sp, lineHeight = 20.sp,
-                    color = if (isError || authRequired) ds.danger else ds.sub,
+                    color = if (isError || authRequired) themeColors.error else themeColors.onSurfaceVariantSummary,
                     modifier = Modifier.padding(top = 8.dp))
             }
         }
@@ -223,7 +237,7 @@ fun ChxEntryScreen(
             ChxActionButton("连接学习通", !busy, "通过学校统一登录连接") { connect() }
         }
         Spacer(Modifier.height(AppUiTokens.CardGap))
-        ChxActionButton("课程与任务进度", !busy, "查看课程及任务点完成情况", onCourses)
+        ChxActionButton("课程与任务进度", offlinePreview || !busy, "查看课程及任务点完成情况", onCourses)
         Spacer(Modifier.height(AppUiTokens.CardGap))
         ChxActionButton(
             if (syncing) "正在同步作业…" else "同步作业",
@@ -266,9 +280,9 @@ fun ChxEntryScreen(
             }
         }
         if (syncing) {
-            LinearProgressIndicator(
+            NexioLinearProgressIndicator(
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                colors = NexioProgressIndicatorDefaults.progressIndicatorColors(
                     foregroundColor = ds.accent, backgroundColor = ds.breakBar,
                 ),
             )
@@ -278,16 +292,19 @@ fun ChxEntryScreen(
             ChxSyncResult(syncMessage, syncError)
         }
         Spacer(Modifier.height(AppUiTokens.CardGap))
+        if (offlinePreview) {
+            Text("离线演示 · 所有学校服务操作均已禁用。", fontSize = 13.sp, color = ds.sub)
+            Spacer(Modifier.height(AppUiTokens.CardGap))
+        }
         AppCard(modifier = Modifier.fillMaxWidth()) {
             BasicComponent(
                 modifier = Modifier.semantics { stateDescription = if (helpExpanded) "已展开" else "已折叠" },
-                insideMargin = PaddingValues(AppUiTokens.CardPadding),
+                insideMargin = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
                 onClick = { helpExpanded = !helpExpanded }, role = Role.Button,
-                endActions = { Text(if (helpExpanded) "收起" else "展开", fontSize = 13.sp, color = ds.accent) },
-            ) {
-                Text("连接与帮助", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
-            }
-            if (helpExpanded) {
+                title = "连接与帮助",
+                endActions = { Text(if (helpExpanded) "收起" else "展开", fontSize = 13.sp, color = themeColors.primary) },
+            )
+            CardExpand(visible = helpExpanded) {
                 onNotifications?.let { callback ->
                     ChxEntryOption("通知待办", !busy, onClick = callback)
                 }
@@ -318,11 +335,15 @@ fun ChxEntryScreen(
                 }
                 Column(Modifier.padding(horizontal = AppUiTokens.CardPadding).padding(bottom = 12.dp)) {
                     ChxReadDetails(
-                        "连接状态只依据本次学习通首页验证，不代表课程、任务进度或作业接口已成功。" +
-                            "学校账户为本机保存信息，不用于确认学习通网页账户。\n" +
-                            ChxSso.linkingHint(ChxWebSession.hasCasWebSession()) + "\n" +
-                            "退出会清理本机已知学习通与学校认证站点的 Cookie 和网页存储；教务独立会话保留。" +
-                            "学校退出确认不代表所有站点都已退出，本地待办不受影响。",
+                        if (offlinePreview) {
+                            "离线演示页面使用本机虚构数据，不读取学校账户、网页 Cookie、绑定或网络服务。"
+                        } else {
+                            "连接状态只依据本次学习通首页验证，不代表课程、任务进度或作业接口已成功。" +
+                                "学校账户为本机保存信息，不用于确认学习通网页账户。\n" +
+                                ChxSso.linkingHint(ChxWebSession.hasCasWebSession()) + "\n" +
+                                "退出会清理本机已知学习通与学校认证站点的 Cookie 和网页存储；教务独立会话保留。" +
+                                "学校退出确认不代表所有站点都已退出，本地待办不受影响。"
+                        },
                     )
                 }
             }
@@ -386,26 +407,41 @@ internal fun chxWorkSyncError(error: Exception): String = when (error) {
 @Composable
 private fun ChxActionButton(text: String, enabled: Boolean, subtitle: String, onClick: () -> Unit) {
     val ds = LocalDs.current
-    AppCard(
-        modifier = Modifier.fillMaxWidth().semantics { if (!enabled) disabled() },
-        insideMargin = PaddingValues(AppUiTokens.CardPadding),
-        onClick = if (enabled) onClick else null,
+    NexioButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 68.dp)
+            .semantics { if (!enabled) disabled() },
+        cornerRadius = AppUiTokens.ItemCorner,
+        minHeight = 68.dp,
+        insideMargin = PaddingValues(horizontal = AppUiTokens.CardPadding, vertical = 10.dp),
+        colors = ButtonDefaults.buttonColorsPrimary(
+            color = ds.accentSoft,
+            disabledColor = ds.card,
+            contentColor = ds.text,
+            disabledContentColor = ds.sub,
+        ),
     ) {
-        Text(text, fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold,
-            color = if (enabled) ds.text else ds.sub)
-        Text(subtitle, fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub, modifier = Modifier.padding(top = 6.dp))
+        Column(Modifier.fillMaxWidth()) {
+            Text(text, fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium,
+                color = if (enabled) NexioTheme.colorScheme.onSurface else NexioTheme.colorScheme.disabledOnSurface)
+            Text(subtitle, fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
+                modifier = Modifier.padding(top = 4.dp))
+        }
     }
 }
 
 @Composable
 private fun ChxEntryOption(text: String, enabled: Boolean, danger: Boolean = false, onClick: () -> Unit) {
-    val ds = LocalDs.current
     BasicComponent(
         modifier = Modifier.semantics { if (!enabled) disabled() },
-        insideMargin = PaddingValues(horizontal = AppUiTokens.CardPadding, vertical = 16.dp),
-        onClick = onClick, enabled = enabled, role = Role.Button,
-    ) {
-        Text(text, fontSize = 16.sp, lineHeight = 23.sp,
-            color = when { !enabled -> ds.sub; danger -> ds.danger; else -> ds.text })
-    }
+        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+        onClick = onClick,
+        enabled = enabled,
+        role = Role.Button,
+        title = text,
+        titleColor = com.haooz.nexioui.basiccomponent.BasicComponentDefaults.titleColor(
+            color = if (danger) NexioTheme.colorScheme.error else NexioTheme.colorScheme.onSurface,
+        ),
+    )
 }

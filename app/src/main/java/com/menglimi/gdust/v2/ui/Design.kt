@@ -9,9 +9,11 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.dp
+import com.haooz.nexioui.theme.NexioDarkColorScheme
+import com.haooz.nexioui.theme.NexioLightColorScheme
 import androidx.compose.ui.unit.sp
 
-/** CZeroX tokens：页面只使用中性实底与高对比文字。 */
+/** 应用语义色映射到 NexioUI，业务页与组件库共享深浅色。 */
 data class Ds(
     val bg: Color,
     val card: Color,
@@ -24,7 +26,7 @@ data class Ds(
     val danger: Color,
     val isDark: Boolean,
 ) {
-    val brandBlue: Color get() = if (isDark) Color(0xFF4D8BFF) else Color(0xFF106DFD)
+    val brandBlue: Color get() = accent
     val success: Color get() = Color(0xFF36D267)
     val successTint: Color get() = if (isDark) success.copy(alpha = 0.16f).compositeOver(card) else Color(0xFFDEFAE4)
     val chartGreen: Color get() = if (isDark) Color(0xFF4ADE80) else Color(0xFF23C55E)
@@ -32,31 +34,29 @@ data class Ds(
 
 val LocalDs = staticCompositionLocalOf<Ds> { error("no Ds") }
 
-fun dsFor(dark: Boolean): Ds = if (dark) {
-    Ds(
-        bg = Color(0xFF0E0E10),
-        card = Color(0xFF1C1C1E),
-        cardStroke = Color.Transparent,
-        text = Color(0xFFF2F2F7),
-        sub = Color.White.copy(alpha = 0.62f),
-        accent = Color(0xFF7AB0FF),
-        accentSoft = Color(0xFF7AB0FF).copy(alpha = 0.20f),
-        breakBar = Color(0xFF2A2A2C),
-        danger = Color(0xFFFF6B6B),
-        isDark = true,
+fun nexioColors(dark: Boolean): com.haooz.nexioui.theme.NexioColorScheme {
+    val base = if (dark) NexioDarkColorScheme else NexioLightColorScheme
+    return base.copy(
+        background = base.surface,
+        primary = Color(0xFF0A84FF),
+        onPrimary = Color.White,
+        onSurfaceVariantSummary = if (dark) base.onSurfaceVariantSummary.copy(alpha = 0.7f) else base.onSurfaceVariantSummary,
     )
-} else {
-    Ds(
-        bg = Color(0xFFF7F7F7),
-        card = Color.White,
+}
+
+fun dsFor(dark: Boolean): Ds {
+    val colors = nexioColors(dark)
+    return Ds(
+        bg = colors.background,
+        card = colors.surfaceContainer,
         cardStroke = Color.Transparent,
-        text = Color.Black,
-        sub = Color(0xFF666666),
-        accent = Color(0xFF3482FF),
-        accentSoft = Color(0xFF3482FF).copy(alpha = 0.12f),
-        breakBar = Color(0xFFF0F0F0),
-        danger = Color(0xFFEE4444),
-        isDark = false,
+        text = colors.onSurfaceContainer,
+        sub = colors.onSurfaceVariantSummary,
+        accent = colors.primary,
+        accentSoft = colors.primary.copy(alpha = if (dark) 0.20f else 0.10f).compositeOver(colors.surfaceContainer),
+        breakBar = colors.surfaceContainerHigh,
+        danger = colors.error,
+        isDark = dark,
     )
 }
 
@@ -76,7 +76,7 @@ fun WithTypography(ds: Ds, content: @Composable () -> Unit) {
                 onPrimaryContainer = ds.accent,
                 error = ds.danger,
                 outline = ds.sub,
-                onPrimary = Color.Black,
+                onPrimary = Color.White,
                 surfaceTint = Color.Transparent,
                 surfaceContainer = ds.card,
                 surfaceContainerHigh = ds.card,
@@ -106,7 +106,7 @@ fun WithTypography(ds: Ds, content: @Composable () -> Unit) {
                 onPrimaryContainer = ds.accent,
                 error = ds.danger,
                 outline = ds.sub,
-                onPrimary = Color.Black,
+                onPrimary = Color.White,
                 surfaceTint = Color.Transparent,
                 surfaceContainer = ds.card,
                 surfaceContainerHigh = ds.card,
@@ -144,7 +144,7 @@ fun WithTypography(ds: Ds, content: @Composable () -> Unit) {
     )
 }
 
-/** 兼容旧页面命名；业务卡片统一走 CZeroX 实底 AppCard。 */
+/** 兼容旧页面命名，外观由统一 NexioUI 卡片承接。 */
 @Composable
 fun GlassCard(
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
@@ -152,6 +152,6 @@ fun GlassCard(
     content: @Composable BoxScope.() -> Unit,
 ) {
     AppCard(modifier = modifier.fillMaxWidth(), onClick = onClick) {
-        Box(androidx.compose.ui.Modifier.padding(20.dp), content = content)
+        Box(androidx.compose.ui.Modifier.padding(AppUiTokens.CardPadding), content = content)
     }
 }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -18,7 +19,7 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
+import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -87,23 +88,26 @@ internal fun ProjectStarEntry() {
 internal fun SettingSubPage(title: String, subtitle: String, onBack: () -> Unit, content: @Composable () -> Unit) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val threshold = with(density) { 96.dp.toPx() }
+    val backEdge = with(density) { 32.dp.toPx() }
     var backPx by remember { mutableStateOf(0f) }
     androidx.activity.compose.BackHandler { onBack() }
 
     Box(
         Modifier
             .fillMaxSize()
-            .pointerInput(Unit) {
+            .pointerInput(onBack, threshold, backEdge) {
                 detectHorizontalDragGestures(
-                    onDragStart = { start -> backPx = if (start.x < 120f) 0f else Float.NaN },
+                    onDragStart = { start -> backPx = if (start.x < backEdge) 0f else Float.NaN },
                     onDragEnd = {
                         if (!backPx.isNaN() && backPx >= threshold) onBack()
                         backPx = 0f
                     },
                     onDragCancel = { backPx = 0f },
                 ) { change, dragAmount ->
-                    if (!backPx.isNaN()) backPx += dragAmount
-                    change.consume()
+                    if (!backPx.isNaN()) {
+                        backPx += dragAmount
+                        change.consume()
+                    }
                 }
             },
     ) {
@@ -112,8 +116,9 @@ internal fun SettingSubPage(title: String, subtitle: String, onBack: () -> Unit,
             .fillMaxSize()
             .background(pageBackground())
             .statusBarsPadding()
+            .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = AppUiTokens.PagePadding),
+            .padding(horizontal = nexioPagePadding()),
     ) {
         Spacer(Modifier.height(24.dp))
         PageTitle(title = title, subtitle = subtitle, onBack = onBack)
@@ -143,7 +148,7 @@ fun ProfileScreen(repo: Repository, onBack: () -> Unit) {
         SettingGroup {
             SettingOption(title = "生日祝福", subtitle = "仅保存教务返回的月日，生日当天显示一次；不推算年龄。", detail = birthdayStatus)
             SettingEditor {
-                Button(if (birthdayReading) "正在读取…" else "从教务读取生日", enabled = !birthdayReading) {
+                NexioActionButton(if (birthdayReading) "正在读取…" else "从教务读取生日", enabled = !birthdayReading) {
                     birthdayReading = true
                     scope.launch {
                         try {
@@ -247,8 +252,17 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
             )
         }
         Spacer(Modifier.height(10.dp))
+        SectionHeader("第三方开源组件")
+        SettingGroup {
+            Column(Modifier.padding(AppUiTokens.CardPadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("NexioUI · Apache-2.0", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                Text("本应用包含固定版本的 NexioUI 源码。完整许可证与 NOTICE 随应用一并提供。",
+                    fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
         Text(
-            "广科课程表 · 由 $APP_AUTHOR 制作 · AGPL-3.0 开源\n个人项目，与广东科技学院官方无关 · 界面组件来自 Miuix",
+            "广科课程表 · 由 $APP_AUTHOR 制作 · AGPL-3.0 开源\n个人项目，与广东科技学院官方无关 · 界面组件来自 NexioUI / Miuix",
             fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub,
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp).wrapContentSize(Alignment.Center),
         )

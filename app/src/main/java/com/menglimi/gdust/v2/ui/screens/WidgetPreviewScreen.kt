@@ -26,7 +26,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text as M3Text
+import com.haooz.nexioui.text.NexioText as M3Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,7 +63,7 @@ fun WidgetPreviewScreen(onBack: () -> Unit) {
     BackHandler { onBack() }
     Column(
         Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().navigationBarsPadding()
-            .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            .verticalScroll(rememberScrollState()).padding(horizontal = nexioPagePadding()),
     ) {
         Spacer(Modifier.height(24.dp))
         PageTitle(title = "桌面小部件", onBack = onBack)
@@ -79,9 +79,7 @@ fun WidgetPreviewScreen(onBack: () -> Unit) {
 
 @Composable
 private fun SectionLabel(title: String) {
-    val ds = LocalDs.current
-    M3Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = ds.text,
-        modifier = Modifier.padding(top = 14.dp, bottom = 8.dp))
+    SectionHeader(title)
 }
 
 @Composable

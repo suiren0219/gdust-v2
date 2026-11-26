@@ -2,7 +2,7 @@ package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.Text
+import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -36,8 +36,8 @@ fun TodoReminderScreen(repo: Repository, onBack: () -> Unit) {
 
     androidx.compose.runtime.key(revision) {
         SettingSubPage("待办提醒", "作业 · 考试 · 自定义事项的到期提醒", onBack) {
-            SettingGroup {
-                SettingOption(
+            NexioSettingGroup {
+                NexioSettingOption(
                     title = "开启待办提醒",
                     subtitle = "按截止时间提前提醒；只提醒设置了时间的待办",
                     switch = store.todoReminderEnabled,
@@ -45,8 +45,8 @@ fun TodoReminderScreen(repo: Repository, onBack: () -> Unit) {
                 )
             }
             SectionHeader("提醒规则")
-            SettingGroup {
-                SettingOption(title = "提前提醒时间",
+            NexioSettingGroup {
+                NexioSettingOption(title = "提前提醒时间",
                     detail = when (store.todoReminderLead) {
                         0 -> "准时"; 1440 -> "提前 1 天"; else -> "提前 ${store.todoReminderLead} 分钟"
                     }, onClick = { })
@@ -57,7 +57,7 @@ fun TodoReminderScreen(repo: Repository, onBack: () -> Unit) {
                         onSelect = { save { store.todoReminderLead = it } },
                     )
                 }
-                SettingOption(
+                NexioSettingOption(
                     title = "只提醒作业与考试",
                     subtitle = "关闭后，带截止时间的普通事项也会提醒",
                     switch = store.todoReminderOnlyDatedTypes,
@@ -65,14 +65,14 @@ fun TodoReminderScreen(repo: Repository, onBack: () -> Unit) {
                 )
             }
             SectionHeader("权限与测试")
-            SettingGroup {
-                SettingOption(
+            NexioSettingGroup {
+                NexioSettingOption(
                     title = "精确闹钟权限",
                     subtitle = if (LessonReminderAlarms.canScheduleExact(ctx)) "已授权" else "未授权，可能延迟送达",
                     detail = if (LessonReminderAlarms.canScheduleExact(ctx)) "已授权" else "去授权",
                     onClick = { LessonReminderAlarms.openExactAlarmSettings(ctx) },
                 )
-                SettingOption(
+                NexioSettingOption(
                     title = "通知权限",
                     subtitle = "用于接收待办到期提醒",
                     detail = "去设置",
@@ -84,7 +84,7 @@ fun TodoReminderScreen(repo: Repository, onBack: () -> Unit) {
                         }
                     },
                 )
-                SettingOption(
+                NexioSettingOption(
                     title = "测试提醒",
                     subtitle = "发一条示例待办通知",
                     detail = testMsg,
