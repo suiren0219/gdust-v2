@@ -37,6 +37,8 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -74,6 +76,17 @@ class ChxWebActivity : ComponentActivity() {
         const val EXTRA_LOGOUT = "chx_logout"
         const val EXTRA_LOGOUT_CONFIRMED = "chx_logout_confirmed"
         const val EXTRA_SESSION_SAVED = "chx_session_saved"
+        private const val RECOVERY_CHALLENGE_SCRIPT = """(() => {
+            const text = document.body?.innerText || '';
+            const inputs = Array.from(document.querySelectorAll('input'));
+            const challengeInput = inputs.some(input =>
+                [input.id, input.name].some(value =>
+                    ['captcha', 'verifycode', 'validatecode', 'ucode'].includes(
+                        (value || '').toLowerCase().trim())));
+            const form = challengeInput && ['验证码', '安全验证'].some(value => text.includes(value));
+            const flagged = text.includes('9010') && text.includes('操作异常') && text.includes('验证码');
+            return form || flagged;
+        })()"""
     }
 
     private lateinit var repo: Repository
@@ -92,6 +105,8 @@ class ChxWebActivity : ComponentActivity() {
     private var sessionVersion = 0L
     private var chxVersion = 0L
     private var recoveryChecking by mutableStateOf(false)
+    private var recoveryPageFinished by mutableStateOf(false)
+    private var verificationPage by mutableStateOf(false)
     private var recoveryJob: Job? = null
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -151,7 +166,7 @@ class ChxWebActivity : ComponentActivity() {
                         }
                     }
                     if (!logout && stopped != null) {
-                        Button(onClick = ::checkRecovery, enabled = !recoveryChecking,
+                        Button(onClick = ::checkRecovery, enabled = !recoveryChecking && recoveryReady(),
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                             Text(if (recoveryChecking) "正在检查受阻业务…" else "完成验证，检查恢复", fontSize = 14.sp)
                         }
@@ -252,24 +267,54 @@ class ChxWebActivity : ComponentActivity() {
         web.loadUrl(url, mapOf("Cache-Control" to "no-cache"))
     }
 
+    private fun recoveryReady(): Boolean {
+        val url = web.url ?: return false
+        if (currentPage != url) return false
+        return isChxWebRecoveryReady(
+            currentSession = isCurrentSession(),
+            url = url,
+            pageFinished = recoveryPageFinished,
+            mainDocumentFailed = mainPageFailed,
+            verificationPage = verificationPage,
+            candidateCookie = ChxWebSession.candidateCookie(),
+        )
+    }
+
     private fun checkRecovery() {
-        if (recoveryChecking || logout || !isCurrentSession()) return
+        if (recoveryChecking || logout) return
+        val page = pageVersion
+        if (!recoveryReady()) {
+            pageError = "请先在当前网页完成登录或安全验证，并等待页面成功加载后再检查恢复。"
+            return
+        }
         recoveryChecking = true
         pageError = null
         pageMessage = "正在重新读取此前受阻的业务；关闭或检查失败仍会保持暂停。"
         recoveryJob = lifecycleScope.launch {
             try {
                 CookieManager.getInstance().flush()
+                val challenge = suspendCancellableCoroutine<Boolean> { continuation ->
+                    web.evaluateJavascript(RECOVERY_CHALLENGE_SCRIPT) { result ->
+                        if (continuation.isActive) continuation.resume(result != "false")
+                    }
+                }
+                if (page != pageVersion || challenge || !recoveryReady()) {
+                    if (isCurrentSession() && page == pageVersion) pageError =
+                        "网页仍有待完成的安全验证，或页面/会话已变化；完成后请重新检查。"
+                    return@launch
+                }
+                verificationPage = false
                 repo.checkChxRecoveryAfterWebVerification(sessionVersion, chxVersion)
-                if (isCurrentSession()) {
+                if (isCurrentSession() && page == pageVersion) {
                     pageError = null
                     pageMessage = "受阻业务已检查成功，已恢复读取，可返回后重新刷新。"
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                if (isCurrentSession()) pageError = (failure as? com.menglimi.gdust.v2.data.ChxCourseReadException)?.message
-                    ?: "检查未成功，学习通仍保持暂停，请完成网页验证后重试。"
+                if (isCurrentSession() && page == pageVersion) pageError =
+                    (failure as? com.menglimi.gdust.v2.data.ChxCourseReadException)?.message
+                        ?: "检查未成功，学习通仍保持暂停，请完成网页验证后重试。"
             } finally {
                 recoveryChecking = false
             }
@@ -298,6 +343,7 @@ class ChxWebActivity : ComponentActivity() {
 
     private fun showLoadError(message: String) {
         mainPageFailed = true
+        recoveryPageFinished = false
         if (logout) logoutAttemptFailed = true
         logoutConfirmed = false
         pageProgress = 100
@@ -330,6 +376,10 @@ class ChxWebActivity : ComponentActivity() {
             }
 
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                recoveryJob?.cancel()
+                recoveryJob = null
+                recoveryPageFinished = false
+                verificationPage = false
                 pageVersion++
                 currentPage = url
                 mainPageFailed = logout && logoutAttemptFailed
@@ -368,6 +418,14 @@ class ChxWebActivity : ComponentActivity() {
                         else pageMessage = "学校服务器退出尚未确认。可刷新重试，或关闭网页后清理本地会话。"
                     }
                     return
+                }
+                val version = pageVersion
+                view.evaluateJavascript(RECOVERY_CHALLENGE_SCRIPT) { result ->
+                    if (isFinishing || isDestroyed || version != pageVersion || currentPage != url ||
+                        view.url != url || !isCurrentSession()) return@evaluateJavascript
+                    // 解析失败时保持不可恢复；仅明确的 false 表示未发现网页验证码表单/提示。
+                    verificationPage = result != "false"
+                    recoveryPageFinished = true
                 }
                 // 教务网页登录落地即保存入口：学习通联动完成后，「网页登录导入」可直接读取学期课表
                 val teachingSaved = ChxSso.isTeachingWebEntry(url) &&

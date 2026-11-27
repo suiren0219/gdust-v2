@@ -9,7 +9,11 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -105,7 +109,9 @@ class ChxRequestControlTest {
     }
 
     @Test fun responseArrivingAfterCancelledReadKeepsItsRecoveryTarget() = runBlocking {
-        val control = ChxRequestControl(ChxRequestGate(intervalMillis = 0))
+        val now = { 1_000L }
+        val control = ChxRequestControl(ChxRequestGate(now = now, intervalMillis = 0), now = now)
+        control.bindIdentity("A")
         val started = CompletableDeferred<Any>()
         var detailReads = 0
         var listReads = 0
@@ -203,7 +209,8 @@ class ChxRequestControlTest {
 
     @Test fun cooldownAndCaptchaMustBothBeSatisfiedAndTimeAloneNeverResumes() = runBlocking {
         var now = 1_000L
-        val control = ChxRequestControl(ChxRequestGate(now = { now }, intervalMillis = 0))
+        val clock = { now }
+        val control = ChxRequestControl(ChxRequestGate(now = clock, intervalMillis = 0), now = clock)
         var sent = 0
         runCatching {
             control.read(1, {}) { owner, check ->
@@ -224,6 +231,272 @@ class ChxRequestControlTest {
         control.recover(1, {}, true)
         assertEquals(2, sent)
         assertNull(control.pause.value)
+    }
+
+    @Test fun oldIdentityResponseAndReadFinallyCannotReplaceNewIdentityTarget() = runBlocking {
+        val now = { 1_000L }
+        val control = ChxRequestControl(ChxRequestGate(now = now, intervalMillis = 0), now = now)
+        val identityA = control.bindIdentity("A")
+        val oldStarted = CompletableDeferred<Any>()
+        val finishOld = CompletableDeferred<Unit>()
+        val oldRead = async {
+            runCatching {
+                control.read(1, {}, identity = identityA) { owner, _ ->
+                    control.recordResponse(owner, captcha)
+                    oldStarted.complete(owner)
+                    finishOld.await()
+                    true
+                }
+            }.exceptionOrNull()
+        }
+        val oldOwner = oldStarted.await()
+        assertTrue(control.pause.value!!.verificationRequired)
+        val identityB = control.bindIdentity("B")
+        var bReads = 0
+        runCatching {
+            control.read(2, {}, identity = identityB) { owner, check ->
+                bReads++
+                control.execute(owner, check) {
+                    if (bReads == 1) captcha else SessionResponse(200, "B 新请求", null)
+                }
+            }
+        }
+        control.recordResponse(oldOwner, captcha.copy(status = 429, retryAfter = "30"))
+        assertEquals(0L, control.pause.value!!.retryAt)
+        finishOld.complete(Unit)
+        assertTrue(oldRead.await() is CancellationException)
+        assertTrue(control.pause.value!!.verificationRequired)
+        control.recover(2, {}, afterWebVerification = true, identity = identityB)
+        assertEquals(2, bReads)
+        assertNull(control.pause.value)
+    }
+
+    @Test fun identityChangeDuringRecoveryCannotClearNewIdentityPause() = runBlocking {
+        val now = { 1_000L }
+        val control = ChxRequestControl(ChxRequestGate(now = now, intervalMillis = 0), now = now)
+        val identityA = control.bindIdentity("A")
+        val recoveryStarted = CompletableDeferred<Unit>()
+        val finishRecovery = CompletableDeferred<Unit>()
+        var aReads = 0
+        runCatching {
+            control.read(1, {}, identity = identityA) { owner, check ->
+                aReads++
+                if (aReads == 1) control.execute(owner, check) { captcha }
+                else {
+                    recoveryStarted.complete(Unit)
+                    finishRecovery.await()
+                }
+                true
+            }
+        }
+        val oldRecovery = async {
+            runCatching {
+                control.recover(1, {}, afterWebVerification = true, identity = identityA)
+            }.exceptionOrNull()
+        }
+        recoveryStarted.await()
+        val identityB = control.bindIdentity("B")
+        var bReads = 0
+        runCatching {
+            control.read(2, {}, identity = identityB) { owner, check ->
+                bReads++
+                control.execute(owner, check) {
+                    if (bReads == 1) captcha else SessionResponse(200, "B 新请求", null)
+                }
+            }
+        }
+        finishRecovery.complete(Unit)
+        assertTrue(oldRecovery.await() is CancellationException)
+        assertTrue(control.pause.value!!.verificationRequired)
+        control.recover(2, {}, afterWebVerification = true, identity = identityB)
+        assertEquals(2, bReads)
+        assertNull(control.pause.value)
+    }
+
+    @Test fun invalidatedIdentityCannotReplayRecoveryAfterSameUidRebind() = runBlocking {
+        val now = { 1_000L }
+        val control = ChxRequestControl(ChxRequestGate(now = now, intervalMillis = 0), now = now)
+        val oldIdentity = control.bindIdentity("A")
+        var oldReads = 0
+        var newReads = 0
+        runCatching {
+            control.read(7, {}, identity = oldIdentity) { owner, check ->
+                oldReads++
+                control.execute(owner, check) { captcha }
+            }
+        }
+        control.invalidateIdentity()
+        val reboundIdentity = control.bindIdentity("A")
+        assertTrue(oldIdentity != reboundIdentity)
+        runCatching {
+            control.read(7, {}, identity = reboundIdentity) { owner, check ->
+                newReads++
+                control.execute(owner, check) {
+                    if (newReads == 1) captcha else SessionResponse(200, "重新绑定详情", null)
+                }
+            }
+        }
+        control.recover(7, {}, afterWebVerification = true, identity = reboundIdentity)
+        assertEquals(1, oldReads)
+        assertEquals(2, newReads)
+        assertNull(control.pause.value)
+    }
+
+    @Test fun identityChangeKeeps429DeadlineAndAllowsNormalReadAfterExpiry() = runBlocking {
+        var now = 1_000L
+        val clock = { now }
+        val control = ChxRequestControl(ChxRequestGate(now = clock, intervalMillis = 0), now = clock)
+        control.bindIdentity("A")
+        var sends = 0
+        runCatching {
+            control.read(1, {}) { owner, check ->
+                control.execute(owner, check) {
+                    sends++
+                    SessionResponse(429, "{}", null, retryAfter = "2")
+                }
+            }
+        }
+        assertEquals(3_000L, control.pause.value!!.retryAt)
+        val identityB = control.bindIdentity("B")
+        assertEquals(3_000L, control.pause.value!!.retryAt)
+        val beforeDeadline = runCatching {
+            control.read(2, {}, identity = identityB) { owner, check ->
+                control.execute(owner, check) {
+                    sends++
+                    SessionResponse(200, "不可发送", null)
+                }
+            }
+        }.exceptionOrNull()
+        assertTrue(beforeDeadline is ChxCourseReadException)
+        assertEquals(1, sends)
+        now = 3_001L
+        control.read(2, {}, identity = identityB) { owner, check ->
+            control.execute(owner, check) {
+                sends++
+                SessionResponse(200, "成功", null)
+            }
+        }
+        assertEquals(2, sends)
+        assertNull(control.pause.value)
+    }
+
+    @Test fun recoveryUsesFreshSessionCheckForSameIdentity() = runBlocking {
+        val now = { 1_000L }
+        val control = ChxRequestControl(ChxRequestGate(now = now, intervalMillis = 0), now = now)
+        val identity = control.bindIdentity("A")
+        var requestVersion = 1
+        var reads = 0
+        runCatching {
+            control.read(1, { assertEquals(1, requestVersion) }, identity = identity) { owner, check ->
+                reads++
+                control.execute(owner, check) {
+                    if (reads == 1) captcha else SessionResponse(200, "成功", null)
+                }
+            }
+        }
+        requestVersion = 2
+        control.recover(1, { assertEquals(2, requestVersion) }, afterWebVerification = true, identity = identity)
+        assertEquals(2, reads)
+        assertNull(control.pause.value)
+    }
+
+    @Test fun identityChangedAfterReadCannotCommitOldOwnerSnapshotOrTodos() = runBlocking {
+        val control = ChxRequestControl(ChxRequestGate(intervalMillis = 0))
+        val identityA = control.bindIdentity("A")
+        val readFinished = CompletableDeferred<Unit>()
+        val allowCommit = CompletableDeferred<Unit>()
+        var owner = "B"
+        var snapshot = "B 的快照"
+        var todos = listOf("B 的待办")
+        val oldRead = async {
+            val result = control.read(1, {}, identity = identityA) { _, _ -> "A 的快照" }
+            readFinished.complete(Unit)
+            allowCommit.await()
+            runCatching {
+                control.withIdentity(identityA) {
+                    owner = "A"
+                    snapshot = result
+                    todos = listOf("A 的待办")
+                }
+            }.exceptionOrNull()
+        }
+        readFinished.await()
+        control.bindIdentity("B")
+        allowCommit.complete(Unit)
+        assertTrue(oldRead.await() is CancellationException)
+        assertEquals("B", owner)
+        assertEquals("B 的快照", snapshot)
+        assertEquals(listOf("B 的待办"), todos)
+    }
+
+    @Test fun pausedIdentityCannotCommitPartialBusinessResults() = runBlocking {
+        val control = ChxRequestControl(ChxRequestGate(intervalMillis = 0))
+        val identity = control.bindIdentity("A")
+        runCatching {
+            control.read(1, {}, identity = identity) { owner, check ->
+                control.execute(owner, check) { captcha }
+            }
+        }
+        var commits = 0
+        val failure = runCatching { control.withIdentity(identity) { commits++ } }.exceptionOrNull()
+        assertTrue(failure is ChxCourseReadException)
+        assertEquals(0, commits)
+        assertNotNull(control.pause.value)
+    }
+
+    @Test fun identityChangeCannotInterleaveIdentityCheckAndCommit() {
+        val control = ChxRequestControl(ChxRequestGate(intervalMillis = 0))
+        val identity = control.bindIdentity("A")
+        val switching = CountDownLatch(1)
+        val changed = CountDownLatch(1)
+        val workerFailure = AtomicReference<Throwable?>()
+        val switcher = Thread {
+            switching.countDown()
+            try {
+                control.bindIdentity("B")
+            } catch (failure: Throwable) {
+                workerFailure.set(failure)
+            } finally {
+                changed.countDown()
+            }
+        }
+        var committed = false
+        try {
+            control.withIdentity(identity, {
+                switcher.start()
+                assertTrue(switching.await(5, TimeUnit.SECONDS))
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+                while (switcher.state != Thread.State.BLOCKED && changed.count != 0L && System.nanoTime() < deadline) {
+                    Thread.yield()
+                }
+                assertEquals(Thread.State.BLOCKED, switcher.state)
+                control.checkIdentity(identity)
+            }) {
+                assertEquals(Thread.State.BLOCKED, switcher.state)
+                control.checkIdentity(identity)
+                committed = true
+            }
+        } finally {
+            switcher.join(5_000)
+        }
+        assertFalse(switcher.isAlive)
+        assertNull(workerFailure.get())
+        assertTrue(committed)
+        assertEquals("B", control.currentIdentity().uid)
+    }
+
+    @Test fun identityEpochChangedDuringLiveUidCheckCannotCommit() {
+        val control = ChxRequestControl(ChxRequestGate(intervalMillis = 0))
+        val identity = control.bindIdentity("A")
+        var committed = false
+        val failure = runCatching {
+            control.withIdentity(identity, {
+                control.invalidateIdentity()
+                control.bindIdentity("A")
+            }) { committed = true }
+        }.exceptionOrNull()
+        assertTrue(failure is CancellationException)
+        assertFalse(committed)
     }
 
     @Test fun businessFailureAndCancellationAfterReadBothKeepPause() = runBlocking {

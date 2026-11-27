@@ -840,6 +840,15 @@ class Store(context: Context) {
     }
 }
 
+/** 成功加载且识别作业详情页；deadlineMillis=0 表示详情没有可用截止时间。 */
+internal data class ChxWorkDetailParseResult(val deadlineMillis: Long)
+
+/** 非作业详情页返回 null；已识别详情即使没有截止时间也是成功解析。 */
+internal fun parseChxWorkDetail(html: String, nowMillis: Long): ChxWorkDetailParseResult? {
+    val detail = org.jsoup.Jsoup.parse(html).selectFirst(".infoHead") ?: return null
+    return ChxWorkDetailParseResult(ChxWorkParser.parseDeadlineMillis(detail.outerHtml(), nowMillis))
+}
+
 /** 会话门面：所有数据操作的唯一入口。 */
 class Repository(context: Context) {
 
@@ -894,9 +903,35 @@ class Repository(context: Context) {
     /** WebView 重新认证前使旧课程请求过期，不清除正在复用的网页 Cookie。 */
     fun invalidateChxRequests() = synchronized(sessionGuard) {
         mutableChxSessionVersion.value++
-        // 只作废学习通进行中的检查，保留已经验证的连接状态。
+        // 只作废学习通进行中的检查，保留已经验证的连接状态及同 UID 恢复目标。
         ensureServicesBound()
         servicesTracker.bindChx(mutableChxSessionVersion.value)
+    }
+
+    /** 只有实时网页有效会话的 UID 才能绑定业务；请求版本失效不等同于身份变化。 */
+    private suspend fun currentChxIdentity(version: Long, chxVersion: Long): ChxRequestControl.Identity =
+        withContext(Dispatchers.Main.immediate) {
+            webCleanupMutex.withLock {
+                sessionGuard.withCurrent(version) {
+                    if (store.webLogoutPending || clearingChxSession || chxSessionVersion.value != chxVersion) {
+                        throw CancellationException("学习通登录状态已变更")
+                    }
+                    val uid = DataSnapshots.cookieOwner(ChxWebSession.candidateCookie())
+                        ?: throw AuthFailed(401, "请先登录学习通")
+                    chxRequests.bindIdentity(uid)
+                }
+            }
+        }
+
+    /** HTTP 早锁存只核对身份，不检查 Job 或普通请求版本，以保留同身份取消后收到的暂停。 */
+    private fun checkChxIdentity(expected: ChxRequestControl.Identity) {
+        chxRequests.checkIdentity(expected)
+        val uid = DataSnapshots.cookieOwner(ChxWebSession.candidateCookie())
+        if (uid != expected.uid) {
+            if (uid != null) chxRequests.bindIdentity(uid)
+            throw CancellationException("学习通身份已变更")
+        }
+        chxRequests.checkIdentity(expected)
     }
 
     internal fun saveWebSession(pageUrl: String, version: Long, generation: Long? = null): Boolean =
@@ -1076,6 +1111,7 @@ class Repository(context: Context) {
             accountCheckedAt = 0L
             if (!preserveSnapshots) lastSsoTicket = null
             invalidateChxRequests()
+            chxRequests.invalidateIdentity()
             mutableSessionVersion.value = version
         }
         // 账号会话重置：三服务全部回到无候选；旧账号版本此后不能再写状态。
@@ -1756,11 +1792,15 @@ class Repository(context: Context) {
             }
         }
         checkSession()
+        val identity = currentChxIdentity(version, chxVersion)
+        fun checkIdentity() = checkChxIdentity(identity)
         chxRequests.check()
         fun workApi(owner: Any, checkCurrent: () -> Unit) = ChxApi(SessionHttpClient(
             ChxApi::isAllowedUrl, checkCurrent, webCookieMutex = webCleanupMutex,
-            chxRequests = chxRequests, requestOwner = owner))
-        val courses = chxRequests.read(version, ::checkSession) { owner, checkCurrent ->
+            chxRequests = chxRequests, requestOwner = owner,
+            chxBeforeRecovery = { kotlinx.coroutines.delay(1_000L) }))
+        val courses = chxRequests.read(version, ::checkSession,
+            identity = identity, checkIdentity = ::checkIdentity) { owner, checkCurrent ->
             workApi(owner, checkCurrent).courses()
         }
         checkSession()
@@ -1780,17 +1820,22 @@ class Repository(context: Context) {
                     semaphore.withPermit {
                         val result = try {
                             checkSession()
-                            val tabs = chxRequests.read(version, ::checkSession) { owner, checkCurrent ->
+                            val tabs = chxRequests.read(version, ::checkSession,
+                                identity = identity, checkIdentity = ::checkIdentity) { owner, checkCurrent ->
                                 workApi(owner, checkCurrent).courseTabs(course)
                             }
-                            val items = chxRequests.read(version, ::checkSession) { owner, checkCurrent ->
+                            val items = chxRequests.read(version, ::checkSession,
+                                identity = identity, checkIdentity = ::checkIdentity) { owner, checkCurrent ->
                                 workApi(owner, checkCurrent).workList(course, tabs)
                             }
                             val now = System.currentTimeMillis()
                             val detailed = items.map { item ->
-                                val deadline = if (item.status != "未交" || item.detailUrl.isBlank()) 0L else try {
-                                    chxRequests.read(version, ::checkSession, validateRecovery = { it > 0L }) { owner, checkCurrent ->
-                                        ChxWorkParser.parseDeadlineMillis(
+                                val detail = if (item.status != "未交" || item.detailUrl.isBlank()) null else try {
+                                    chxRequests.read<ChxWorkDetailParseResult?>(
+                                        version, ::checkSession, validateRecovery = { it != null },
+                                        identity = identity, checkIdentity = ::checkIdentity,
+                                    ) { owner, checkCurrent ->
+                                        parseChxWorkDetail(
                                             workApi(owner, checkCurrent).workDetailHtml(item.detailUrl), now)
                                     }
                                 } catch (e: CancellationException) {
@@ -1799,11 +1844,11 @@ class Repository(context: Context) {
                                     throw e
                                 } catch (e: ChxCourseReadException) {
                                     if (e.pausesRequests || e is com.menglimi.chaoxing.ChxCookieWriteException) throw e
-                                    0L
+                                    null
                                 } catch (_: Exception) {
-                                    0L
+                                    null
                                 }
-                                item to deadline
+                                item to (detail?.deadlineMillis ?: 0L)
                             }
                             Result.success(detailed)
                         } catch (e: CancellationException) {
@@ -1868,15 +1913,21 @@ class Repository(context: Context) {
             throw ChxCourseReadException(message)
         }
         if (updates.isEmpty()) {
-            val summary = if (failed == 0) "已检查 $scanned 门课程，未发现作业；本地待办已保留"
-                else "部分完成：已检查 $scanned 门课程${failSuffix(failed, failures)}；本地待办已保留"
-            return summary to ChxSyncFailureCounts(authFailures, readFailures)
+            return sessionGuard.withCurrent(version) {
+                checkSession()
+                chxRequests.withIdentity(identity, ::checkIdentity) {
+                    val summary = if (failed == 0) "已检查 $scanned 门课程，未发现作业；本地待办已保留"
+                        else "部分完成：已检查 $scanned 门课程${failSuffix(failed, failures)}；本地待办已保留"
+                    summary to ChxSyncFailureCounts(authFailures, readFailures)
+                }
+            }
         }
         var merged = 0
         sessionGuard.withCurrent(version) {
-        checkSession()
-        chxRequests.check()
-        store.updateTodos { current ->
+            checkSession()
+            chxRequests.withIdentity(identity, ::checkIdentity) {
+                store.acceptChxSnapshotOwner(requireNotNull(identity.uid))
+                store.updateTodos { current ->
             val byId = current.associateBy { it.id }.toMutableMap()
             // 通知监听写入的条目与 web 清单是两套 id（时间戳 vs workId），但文本/课程相同；
             // 同步时按归一化文本合并，避免同一条作业出现两次。
@@ -1936,6 +1987,7 @@ class Repository(context: Context) {
             byId.values.toList()
         }
         }
+        }
         return (if (failed > 0) "部分完成" else "同步完成") + "：检查了 $scanned 门课${failSuffix(failed, failures)}，" +
             "新增 $added 条、更新 $updated 条" +
             (if (merged > 0) "、合并 $merged 条通知重复" else "") +
@@ -1959,7 +2011,9 @@ class Repository(context: Context) {
             }
             chxSessionMutex.withLock {
                 checkSession()
-                chxRequests.recover(version, ::checkSession, afterWebVerification = true)
+                val identity = currentChxIdentity(version, chxVersion)
+                chxRequests.recover(version, ::checkSession, afterWebVerification = true,
+                    identity = identity, checkIdentity = { checkChxIdentity(identity) })
                 checkSession()
             }
         }
@@ -1991,6 +2045,7 @@ class Repository(context: Context) {
                     System.currentTimeMillis(), generation)
                 return@withLock false
             }
+            val identity = currentChxIdentity(version, chxVersion)
             chxRequests.check()
             val home = ChxSso.HOME.toHttpUrl()
             var failureRecorded = false
@@ -1998,9 +2053,11 @@ class Repository(context: Context) {
                 readCookie = ChxWebSession::candidateCookie,
                 probe = {
                     try {
-                        chxRequests.read(version, ::checkSession, validateRecovery = { it == true }) { owner, checkCurrent ->
+                        chxRequests.read(version, ::checkSession, validateRecovery = { it == true },
+                            identity = identity, checkIdentity = { checkChxIdentity(identity) }) { owner, checkCurrent ->
                             val http = SessionHttpClient(allowedUrl = { it == home }, checkSession = checkCurrent,
-                                webCookieMutex = webCleanupMutex, chxRequests = chxRequests, requestOwner = owner)
+                                webCookieMutex = webCleanupMutex, chxRequests = chxRequests, requestOwner = owner,
+                                chxBeforeRecovery = { kotlinx.coroutines.delay(1_000L) })
                             val response = http.execute(okhttp3.Request.Builder().url(home)
                                 .header("User-Agent", ChxCourseApi.USER_AGENT).get().build())
                             ChxApi.sessionEvidence(response.status, ChxSso.HOME, response.body, response.location)
@@ -2039,6 +2096,7 @@ class Repository(context: Context) {
     suspend fun clearChxSession(): Boolean = withContext(NonCancellable + Dispatchers.Main.immediate) {
         clearingChxSession = true
         invalidateChxRequests()
+        chxRequests.invalidateIdentity()
         store.clearChxCookie()
         val cleared = try {
             webCleanupMutex.withLock { ChxWebSession.clear() }
@@ -2197,11 +2255,15 @@ class Repository(context: Context) {
                     throw AuthFailed(401, "请先登录学习通")
                 }
         }
+        val identity = chxRequests.bindIdentity(uid)
         chxRequests.check()
         val current = try {
-            chxRequests.read(version, ::checkSession, validateRecovery = { it.progressError == null }) { owner, checkCurrent ->
+            chxRequests.read(version, ::checkSession,
+                validateRecovery = { it.progressError == null && !it.progressAuthRequired },
+                identity = identity, checkIdentity = { checkChxIdentity(identity) }) { owner, checkCurrent ->
                 val http = SessionHttpClient(ChxCourseApi::isAllowedUrl, checkCurrent,
-                    webCookieMutex = webCleanupMutex, chxRequests = chxRequests, requestOwner = owner)
+                    webCookieMutex = webCleanupMutex, chxRequests = chxRequests, requestOwner = owner,
+                    chxBeforeRecovery = { kotlinx.coroutines.delay(1_000L) })
                 ChxCourseApi(http).load()
             }
         } catch (cancelled: CancellationException) {
@@ -2220,11 +2282,12 @@ class Repository(context: Context) {
             currentCoroutineContext().ensureActive()
             sessionGuard.withCurrent(version) {
                 checkSession()
-                chxRequests.check()
-                val merged = DataSnapshots.mergeCourseProgress(store.loadChxCourseSnapshot(uid)?.data, current)
-                store.acceptChxSnapshotOwner(uid)
-                check(store.saveChxCourseSnapshot(uid, merged)) { "课程已读取，但未能保存到本机。" }
-                merged
+                chxRequests.withIdentity(identity, { checkChxIdentity(identity) }) {
+                    val merged = DataSnapshots.mergeCourseProgress(store.loadChxCourseSnapshot(uid)?.data, current)
+                    store.acceptChxSnapshotOwner(uid)
+                    check(store.saveChxCourseSnapshot(uid, merged)) { "课程已读取，但未能保存到本机。" }
+                    merged
+                }
             }
         }
         checkSession()

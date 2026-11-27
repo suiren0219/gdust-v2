@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -98,6 +99,55 @@ class ChxRequestPauseRegressionTest {
         assertSame(cancelled, runCatching {
             saveSessionResponseCookies(response, chx = true) { throw cancelled }
         }.exceptionOrNull())
+    }
+
+    @Test fun verifiedRecoveryAcceptsParsedDetailWithoutDeadlineButRejectsMissingOrFailedDetails() = runBlocking {
+        val control = ChxRequestControl(ChxRequestGate(intervalMillis = 0))
+        var detailReads = 0
+        var detailHtml = "<html><body>未知页面</body></html>"
+        var failDetailLoad = false
+        var lastResult: ChxWorkDetailParseResult? = null
+        val now = 1_800_000_000_000L
+        suspend fun readDetail(owner: Any, check: () -> Unit): ChxWorkDetailParseResult? {
+            val response = control.execute(owner, check) {
+                detailReads++
+                when {
+                    detailReads == 1 -> SessionResponse(200, """{"code":9010,"msg":"验证码"}""", null)
+                    failDetailLoad -> throw IOException("合成详情读取失败")
+                    else -> SessionResponse(200, detailHtml, null)
+                }
+            }
+            return parseChxWorkDetail(response.body, now).also { lastResult = it }
+        }
+        suspend fun attemptBlockedRead() = control.read(
+            1, {}, validateRecovery = { it != null }, load = ::readDetail,
+        )
+
+        assertTrue(runCatching { attemptBlockedRead() }.exceptionOrNull() is ChxCourseReadException)
+        assertTrue(control.pause.value!!.verificationRequired)
+
+        // 无可识别的详情页结构，不得因手动验证而解除暂停。
+        val missingDetail = runCatching {
+            control.recover(1, {}, afterWebVerification = true)
+        }.exceptionOrNull()
+        assertTrue(missingDetail is ChxCourseReadException)
+        assertNotNull(control.pause.value)
+
+        // 详情加载失败也不能视为原受阻业务已恢复。
+        detailHtml = "<div class='infoHead'>合成详情</div>"
+        failDetailLoad = true
+        val failedDetail = runCatching {
+            control.recover(1, {}, afterWebVerification = true)
+        }.exceptionOrNull()
+        assertTrue(failedDetail is IOException)
+        assertNotNull(control.pause.value)
+
+        // 同一个详情请求在验证后成功解析；0 是合法的无截止时间。
+        failDetailLoad = false
+        control.recover(1, {}, afterWebVerification = true)
+        assertEquals(0L, lastResult!!.deadlineMillis)
+        assertEquals(4, detailReads)
+        assertNull(control.pause.value)
     }
 
     private fun response(request: Request, progress: SessionResponse): SessionResponse = when {

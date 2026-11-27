@@ -2,6 +2,8 @@ package com.menglimi.gdust.v2.data
 
 import android.webkit.CookieManager
 import com.menglimi.chaoxing.ChxCookieWriteException
+import com.menglimi.chaoxing.ChxHttpExchange
+import com.menglimi.chaoxing.ChxResponse
 import com.menglimi.chaoxing.requestPause
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
@@ -40,13 +42,21 @@ internal class SessionHttpClient(
     private val webCookieMutex: Mutex = Mutex(),
     private val chxRequests: ChxRequestControl? = null,
     private val requestOwner: Any = Any(),
+    private val chxBeforeRecovery: (suspend () -> Unit)? = null,
+    clientBuilder: OkHttpClient.Builder = OkHttpClient.Builder(),
 ) {
-    private val client = OkHttpClient.Builder()
+    private val client = clientBuilder
         .followRedirects(false).followSslRedirects(false)
         .retryOnConnectionFailure(chxRequests == null)
         .cookieJar(cookieJar ?: CookieJar.NO_COOKIES)
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
         .callTimeout(45, TimeUnit.SECONDS).build()
+    private val chxExchange = if (chxRequests != null && chxBeforeRecovery != null) {
+        ChxHttpExchange(client, checkSession, beforeRecovery = chxBeforeRecovery) { response ->
+            // 只锁存响应；业务暂停须等同一响应的 Cookie 写回后由闸门抛出。
+            chxRequests.recordResponse(requestOwner, response.toSessionResponse())
+        }
+    } else null
 
     suspend fun execute(request: Request): SessionResponse {
         require(allowedUrl(request.url)) { "不支持的服务地址" }
@@ -63,7 +73,9 @@ internal class SessionHttpClient(
                     .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }.build()
             }
         } else request.newBuilder().removeHeader("Cookie").build()
-        val response = client.newCall(authenticated).readResponse()
+        val response = chxExchange?.execute(authenticated)?.let { result ->
+            Received(result.response.toSessionResponse(), result.cookies)
+        } ?: client.newCall(authenticated).readResponse()
         if (cookieJar == null && response.cookies.isNotEmpty()) saveSessionResponseCookies(response.result, chxRequests != null) {
             withContext(NonCancellable + Dispatchers.Main.immediate) {
                 webCookieMutex.withLock {
@@ -93,6 +105,8 @@ internal class SessionHttpClient(
     }
 
     private data class Received(val result: SessionResponse, val cookies: List<String>)
+
+    private fun ChxResponse.toSessionResponse() = SessionResponse(status, body, location, retryAfter, serverDate)
 
     private suspend fun Call.readResponse(): Received = suspendCancellableCoroutine { continuation ->
         continuation.invokeOnCancellation { cancel() }
