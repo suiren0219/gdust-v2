@@ -126,14 +126,72 @@ class ChxWorkParserTest {
                 course,
             )
         }
+        assertEquals("workEnc", ChxWorkParser.missingField(missing))
         assertTrue(missing.message.orEmpty().contains("workEnc"))
         assertTrue(!missing.message.orEmpty().contains("synthetic"))
         val landing = "https://mooc1.chaoxing.com/visit/stucoursemiddle?courseid=201&clazzid=101&cpi=301"
         val conflict = assertThrows(ChxCourseReadException::class.java) {
             ChxWorkParser.readCourseTabs(html + "<input type='hidden' id='courseId' value='999'>", course, landing)
         }
+        assertNull(ChxWorkParser.missingField(conflict))
         assertTrue(conflict.message.orEmpty().contains("courseid"))
         assertTrue(!conflict.message.orEmpty().contains("999"))
+    }
+
+    @Test fun missingPageAndWorkSignaturesRemainSeparateTypedFailures() {
+        for (name in listOf("enc", "workEnc")) {
+            val html = tabsHtml.replace("id=\"$name\"", "id=\"other\"")
+            val failure = assertThrows(ChxCourseReadException::class.java) {
+                ChxWorkParser.readCourseTabs(html)
+            }
+            assertEquals(name, ChxWorkParser.missingField(failure))
+            assertNull(ChxWorkParser.parseCourseTabs(html))
+        }
+        // 文案相同也不能伪装为解析器产生的缺字段原因。
+        assertNull(ChxWorkParser.missingField(ChxCourseReadException("课程页缺少字段 enc")))
+    }
+
+    @Test fun laterIdentityAndSignatureConflictsTakePrecedenceOverMissingFields() {
+        val course = ChxWorkCourse(111111111, 222222222, 333333333, "合成课程", "")
+        val missingIdentity = tabsHtml.replace("id=\"courseId\"", "id=\"other\"")
+        val missing = assertThrows(ChxCourseReadException::class.java) {
+            ChxWorkParser.readCourseTabs(missingIdentity, course)
+        }
+        assertEquals("courseid", ChxWorkParser.missingField(missing))
+        for (html in listOf(
+            missingIdentity.replace("value=\"222222222\"", "value=\"999\""),
+            tabsHtml.replace("id=\"enc\"", "id=\"other\"") +
+                "<input type='hidden' id='workEnc' value='private'>",
+            tabsHtml.replace("id=\"moocDomainName\"", "id=\"other\"")
+                .replace("value=\"cccc9999dddd8888eeee7777ffff6666\"", "value=\"\""),
+        )) {
+            val failure = assertThrows(ChxCourseReadException::class.java) {
+                ChxWorkParser.readCourseTabs(html, course)
+            }
+            assertNull(ChxWorkParser.missingField(failure))
+            assertTrue(!failure.message.orEmpty().contains("private"))
+            assertTrue(!failure.message.orEmpty().contains("999"))
+        }
+    }
+
+    @Test fun newCourseLandingPathsSupplyIdentityButNeverOverrideConflictingEvidence() {
+        val course = ChxWorkCourse(111111111, 222222222, 333333333, "合成课程", "")
+        val html = tabsHtml.replace("id=\"courseId\"", "id=\"otherCourse\"")
+            .replace("id=\"classId\"", "id=\"otherClass\"").replace("id=\"cpi\"", "id=\"otherCpi\"")
+        for (path in listOf("/mycourse/studentcourse", "/mooc-ans/mycourse/stu.html", "/mooc-ans/mycourse/studentcourse")) {
+            val landing = "https://mooc1.chaoxing.com$path?courseid=111111111&clazzid=222222222&cpi=333333333"
+            val tabs = ChxWorkParser.readCourseTabs(html, course, landing)
+            assertEquals("cccc9999dddd8888eeee7777ffff6666", tabs.workEnc)
+            assertEquals(landing, tabs.coursePageUrl)
+            for (invalid in listOf(landing.replace("courseid=111111111", "courseid=999"),
+                "$landing&classId=999", "$landing&courseid=111111111")) {
+                val failure = assertThrows(ChxCourseReadException::class.java) {
+                    ChxWorkParser.readCourseTabs(tabsHtml, course, invalid)
+                }
+                assertNull(ChxWorkParser.missingField(failure))
+                assertTrue(!failure.message.orEmpty().contains("999"))
+            }
+        }
     }
 
     @Test fun unknownOrMalformedCourseListsDoNotBecomeAnEmptySuccess() {

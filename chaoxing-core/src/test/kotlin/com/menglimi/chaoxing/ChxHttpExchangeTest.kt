@@ -1,5 +1,10 @@
 package com.menglimi.chaoxing
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
@@ -126,6 +131,42 @@ class ChxHttpExchangeTest {
         } finally { client.dispatcher.executorService.shutdownNow() }
     }
 
+    @Test fun rateLimitBodyKeepsVerificationAndCookiesWithoutRetrying() = runBlocking {
+        val attempts = AtomicInteger()
+        val client = OkHttpClient.Builder().retryOnConnectionFailure(false).addInterceptor { chain ->
+            attempts.incrementAndGet()
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(429).message("Synthetic").header("Retry-After", "30")
+                .addHeader("Set-Cookie", "synthetic=one; Path=/; Secure")
+                .addHeader("Set-Cookie", "synthetic=two; Path=/mooc2; Secure")
+                .body("""{"code":9010}""".toResponseBody()).build()
+        }.build()
+        try {
+            val result = ChxHttpExchange(client, beforeRecovery = {}).execute(Request.Builder()
+                .url("https://mooc1.chaoxing.com/mooc2/work/list").build())
+            val stopped = result.response.requestPause(10_000L)!!
+            assertTrue(stopped.verificationRequired)
+            assertEquals(40_000L, stopped.retryAt)
+            assertEquals(listOf("synthetic=one; Path=/; Secure", "synthetic=two; Path=/mooc2; Secure"), result.cookies)
+            assertEquals(1, attempts.get())
+        } finally { client.dispatcher.executorService.shutdownNow() }
+    }
+
+    @Test fun oversizedRateLimitBodyStillKeepsCooldown() = runBlocking {
+        val client = OkHttpClient.Builder().retryOnConnectionFailure(false).addInterceptor { chain ->
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(429).message("Synthetic").header("Retry-After", "30")
+                .body("x".repeat(4 * 1024 * 1024 + 1).toResponseBody()).build()
+        }.build()
+        try {
+            val result = ChxHttpExchange(client, beforeRecovery = {}).execute(Request.Builder()
+                .url("https://mooc1.chaoxing.com/mooc2/work/list").build())
+            assertEquals(429, result.response.status)
+            assertEquals("", result.response.body)
+            assertEquals(40_000L, result.response.requestPause(10_000L)!!.retryAt)
+        } finally { client.dispatcher.executorService.shutdownNow() }
+    }
+
     @Test fun oversizedBodyFailsWithAFixedMessageInsteadOfANetworkError() = runBlocking {
         val attempts = AtomicInteger()
         val client = OkHttpClient.Builder().retryOnConnectionFailure(false).addInterceptor { chain ->
@@ -140,6 +181,41 @@ class ChxHttpExchangeTest {
                     .url("https://mooc2-ans.chaoxing.com/mooc2-ans/visit/interaction").build())
             } }
             assertTrue(error.message.orEmpty().contains("BODY_TOO_LARGE"))
+            assertEquals(1, attempts.get())
+        } finally { client.dispatcher.executorService.shutdownNow() }
+    }
+
+    @Test fun pauseIsRecordedBeforeCancellationCanDiscardTheReceivedResponse() = runBlocking {
+        val gate = ChxRequestGate(now = { 1_000L }, intervalMillis = 0)
+        val callback = CompletableDeferred<Unit>()
+        val attempts = AtomicInteger()
+        lateinit var first: Deferred<ChxResponse>
+        val client = OkHttpClient.Builder().retryOnConnectionFailure(false).addInterceptor { chain ->
+            attempts.incrementAndGet()
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(429).message("Synthetic").header("Retry-After", "30")
+                .body("""{"code":9010}""".toResponseBody()).build()
+        }.build()
+        try {
+            val exchange = ChxHttpExchange(client, onResponseReceived = { response ->
+                gate.record(response.requestPause(1_000L)!!.exception(), "first")
+                first.cancel(CancellationException("synthetic cancellation after response"))
+                callback.complete(Unit)
+            })
+            first = async(start = CoroutineStart.LAZY) {
+                gate.execute("first", {}) {
+                    exchange.execute(Request.Builder().url("https://mooc1.chaoxing.com/mooc2/work/list").build()).response
+                }
+            }
+            first.start()
+            callback.await()
+            first.join()
+            assertTrue(first.isCancelled)
+            assertEquals(ChxRequestPause(true, 31_000L), gate.pause.value)
+            val blocked = assertThrows(ChxCourseReadException::class.java) { runBlocking {
+                gate.execute("queued", {}) { attempts.incrementAndGet(); ChxResponse(200, "not sent") }
+            } }
+            assertTrue(blocked.verificationRequired)
             assertEquals(1, attempts.get())
         } finally { client.dispatcher.executorService.shutdownNow() }
     }

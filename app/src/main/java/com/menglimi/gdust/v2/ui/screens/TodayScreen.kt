@@ -34,7 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
@@ -54,7 +53,6 @@ import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.secondaryTextColor
 import com.menglimi.gdust.v2.ui.schedule.ScheduleTimes
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -82,6 +80,7 @@ fun TodayScreen(
     onOpenServices: () -> Unit = {},
     onService: (CampusService) -> Unit = {},
     hasImportedSchedule: Boolean = blocks.isNotEmpty(),
+    scheduleSource: String = "legacy",
 ) {
     val now by rememberTodayMinuteClock()
     var shortcutTarget by remember { mutableStateOf<CampusService?>(null) }
@@ -101,10 +100,20 @@ fun TodayScreen(
         datedBlocks.filter { (block, date) ->
             if (date != null) date == today
             else currentWeek != null && block.week == currentWeek && block.day == today.dayOfWeek.value
-        }.map { (block, _) -> TodayCourse(block) }.sortedBy { it.block.startSection }
+        }.map { it.first }
+            .distinctBy { listOf(it.name.trim(), it.room.trim(), it.teacher.trim(), it.startSection, it.endSection) }
+            .map { TodayCourse(it) }
+            .sortedBy { it.block.startSection }
     }
     val missingDates = currentWeek == null && datedBlocks.any { it.second == null }
     val imported = hasImportedSchedule || blocks.isNotEmpty()
+    val todayWeekStart = today.minusDays((today.dayOfWeek.value - 1).toLong())
+    val cachedWeekCoversToday = datedBlocks.any { (block, date) ->
+        if (date != null) date.minusDays((date.dayOfWeek.value - 1).toLong()) == todayWeekStart
+        else currentWeek != null && block.week == currentWeek
+    }
+    // 整学期导入可以确认空课日；单周缓存只能说明它实际覆盖的那一周。
+    val coverageMissing = imported && scheduleSource != "zf_term" && !cachedWeekCoversToday
     val store = remember(repo) { repo.store }
     var todos by remember(store) { mutableStateOf(store.loadTodos()) }
     DisposableEffect(store) {
@@ -146,7 +155,6 @@ fun TodayScreen(
                         modifier = Modifier.weight(1f).semantics { heading() },
                     )
                     TodayNoticeButton(unreadCount, onOpenNotices)
-                    TextButton(text = "服务", onClick = onOpenServices, minHeight = 48.dp)
                 }
                 Text(
                     text = "${today.year}年${today.monthValue}月${today.dayOfMonth}日 · ${ScheduleTimes.dayNames[today.dayOfWeek.value - 1]}",
@@ -156,26 +164,6 @@ fun TodayScreen(
                     modifier = Modifier.padding(top = 8.dp),
                 )
                 Text(weekText, fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub)
-            }
-        }
-        item(key = "today-shortcuts-title") {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("校园服务", fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-                    color = ds.text, modifier = Modifier.weight(1f).semantics { heading() })
-                TextButton(text = "全部", onClick = onOpenServices, minHeight = 48.dp)
-            }
-        }
-        item(key = "today-shortcuts") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap)) {
-                CampusMetricCard("待完成事项", pendingTodos.size.toString(), Modifier.weight(1f),
-                    description = when {
-                        overdueTodos > 0 -> "$overdueTodos 项已到期"
-                        nextDue != null -> "最近到期 ${dashboardTime(nextDue.dueAt)}"
-                        else -> "作业、考试与日常事项"
-                    }, warning = overdueTodos > 0, onClick = { shortcutTarget = CampusService.TODO })
-                CampusMetricCard("宿舍电量", if (hasPower) "已绑定" else "未绑定", Modifier.weight(1f),
-                    description = if (hasPower) store.powerRoomName.ifBlank { "查看电量与走势" } else "绑定宿舍后查看电量",
-                    warning = false, onClick = { shortcutTarget = CampusService.POWER })
             }
         }
         when {
@@ -189,38 +177,32 @@ fun TodayScreen(
             }
             todayCourses.isEmpty() -> item(key = "today-empty") {
                 TodayEmptyCard(
-                    title = if (missingDates) "课表日期待确认" else "今天没有课程",
-                    message = if (missingDates) "部分课程缺少日期，请检查课表中的学期设置。"
-                    else "已导入的课表中没有今日安排，可以查看其他日期的课程。",
-                    action = "查看课表",
-                    onAction = onOpenSchedule,
+                    title = when {
+                        missingDates -> "课表日期待确认"
+                        coverageMissing -> "今日课表尚未同步"
+                        else -> "今天没有课程"
+                    },
+                    message = when {
+                        missingDates -> "部分课程缺少日期，请检查课表中的学期设置。"
+                        coverageMissing && scheduleSource == "portal_week" -> "门户单周缓存未覆盖今天，请导入整学期课表后确认。"
+                        coverageMissing -> "现有缓存未覆盖今天，暂时无法确认今日课程。"
+                        else -> "已导入的课表中没有今日安排。"
+                    },
+                    action = if (coverageMissing && !missingDates) "导入课表" else "查看课表",
+                    onAction = if (coverageMissing && !missingDates) onImport else onOpenSchedule,
                 )
             }
             else -> item(key = "today-assistant") {
                 TodayAssistantPanel(todayCourses, now.toLocalTime(), missingDates)
             }
         }
-        if (imported) {
+        if (todayCourses.isNotEmpty()) {
             item(key = "today-overview") {
-                val completed = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.Ended }
-                val ongoing = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.Ongoing }
                 val pending = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.NotStarted }
-                val unknown = todayCourses.size - completed - ongoing - pending
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap)) {
-                        SmallMetricCard("今日课程", todayCourses.size.toString(), Modifier.weight(1f))
-                        SmallMetricCard("待上课程", pending.toString(), Modifier.weight(1f))
-                    }
-                    Text(
-                        buildList {
-                            add("已结束 $completed")
-                            if (ongoing > 0) add("进行中 $ongoing")
-                            if (unknown > 0) add("时间待确认 $unknown")
-                        }.joinToString(" · "),
-                        fontSize = 13.sp,
-                        lineHeight = 20.sp,
-                        color = ds.sub,
-                    )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("今日安排 · ${todayCourses.size} 门", fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                        color = ds.sub, modifier = Modifier.weight(1f).semantics { heading() })
+                    Text("待上 $pending 门", fontSize = 13.sp, color = ds.sub)
                 }
             }
         }
@@ -244,15 +226,28 @@ fun TodayScreen(
                 }
             }
             item(key = "today-schedule-action") {
-                AppCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    insideMargin = PaddingValues(AppUiTokens.CardPadding),
-                    onClick = onOpenSchedule,
-                ) {
-                    Text("查看完整课表", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
-                    Text("查看本周及其他日期的课程安排", fontSize = 13.sp, lineHeight = 20.sp,
-                        color = ds.sub, modifier = Modifier.padding(top = 6.dp))
-                }
+                TextButton(text = "查看完整课表", onClick = onOpenSchedule,
+                    modifier = Modifier.fillMaxWidth(), minHeight = 44.dp, cornerRadius = 100.dp)
+            }
+        }
+        item(key = "today-shortcuts") {
+            SettingsSectionTitle("常用服务")
+            SettingsSectionCard {
+                SettingOption(
+                    title = "待办",
+                    detail = if (overdueTodos > 0) "$overdueTodos 项已到期" else "${pendingTodos.size} 项待完成",
+                    subtitle = nextDue?.let { "最近到期 ${dashboardTime(it.dueAt)}" },
+                    onClick = { shortcutTarget = CampusService.TODO },
+                )
+                SettingsSectionDivider()
+                SettingOption(
+                    title = "宿舍电量",
+                    subtitle = if (hasPower) store.powerRoomName.ifBlank { "查看电量与走势" } else "绑定宿舍后查看电量",
+                    detail = if (hasPower) "已绑定" else "未绑定",
+                    onClick = { shortcutTarget = CampusService.POWER },
+                )
+                SettingsSectionDivider()
+                SettingOption(title = "全部校园服务", onClick = onOpenServices)
             }
         }
     }
@@ -281,35 +276,6 @@ private fun TodayNoticeButton(unreadCount: Int, onClick: () -> Unit) {
     }
 }
 
-@Composable
-private fun SmallMetricCard(label: String, value: String, modifier: Modifier = Modifier) {
-    val ds = LocalDs.current
-    AppCard(modifier = modifier, insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
-        Text(label, fontSize = 13.sp, color = ds.sub)
-        Text(value, fontSize = 36.sp, fontWeight = FontWeight.Bold, color = ds.text,
-            modifier = Modifier.padding(top = 8.dp))
-    }
-}
-
-@Composable
-private fun CampusMetricCard(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
-    description: String,
-    warning: Boolean,
-    onClick: () -> Unit,
-) {
-    val ds = LocalDs.current
-    AppCard(modifier = modifier, insideMargin = PaddingValues(AppUiTokens.CardPadding), onClick = onClick) {
-        Text(label, fontSize = 13.sp, color = ds.sub)
-        Text(value, fontSize = if (value.length > 4) 22.sp else 30.sp, fontWeight = FontWeight.Bold,
-            color = if (warning) ds.danger else ds.text, maxLines = 1)
-        Text(description, fontSize = 12.sp, lineHeight = 17.sp, color = ds.sub,
-            modifier = Modifier.padding(top = 6.dp), maxLines = 2)
-    }
-}
-
 private fun dashboardTime(time: Long): String = java.time.Instant.ofEpochMilli(time)
     .atZone(java.time.ZoneId.systemDefault())
     .format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm"))
@@ -321,8 +287,8 @@ private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, miss
     val next = courses.firstOrNull { it.statusAt(now) == TodayCourseStatus.NotStarted }
     val active = current ?: next
     val unknown = courses.count { it.statusAt(now) == TodayCourseStatus.Unknown }
-    val success = Color(0xFF36D267)
-    val statusColor = if (ds.isDark) success.copy(alpha = 0.16f).compositeOver(ds.card) else Color(0xFFDEFAE4)
+    val success = ds.accent
+    val statusColor = ds.accentSoft
     AppCard(
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(AppUiTokens.CardPadding),

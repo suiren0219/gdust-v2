@@ -2,6 +2,7 @@
 package com.menglimi.gdust.v2.ui.schedule
 
 import com.menglimi.gdust.v2.data.CourseBlock
+import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -18,6 +19,55 @@ class ScheduleLessonsTest {
         teacher: String = "张老师",
         parity: Int = 0,
     ) = CourseBlock(week, day, start, end, name, room, teacher, "", parity)
+
+    @Test
+    fun displayRecoversMissingWeekAndDayFromActualDate() {
+        val block = lesson(week = 0, day = 0).copy(date = "2026-09-16T00:00:00+08:00")
+        val result = scheduleDisplayBlocks(listOf(block), LocalDate.of(2026, 9, 7))
+        assertEquals(listOf(block.copy(week = 2, day = 3)), result)
+        assertEquals(0, block.week)
+        assertEquals(0, block.day)
+    }
+
+    @Test
+    fun displayUsesActualDateWhenImportedPositionDisagrees() {
+        val block = lesson(week = 9, day = 1).copy(date = "2026-09-09")
+        val result = scheduleDisplayBlocks(listOf(block), LocalDate.of(2026, 9, 7))
+        assertEquals(listOf(block.copy(week = 1, day = 3)), result)
+    }
+
+    @Test
+    fun displayWithoutCalendarKeepsKnownWeekAndUsesDatedDayOnly() {
+        val block = lesson(week = 7, day = 0).copy(date = "2026-09-13")
+        assertEquals(listOf(block.copy(day = 7)), scheduleDisplayBlocks(listOf(block), null))
+        assertTrue(scheduleDisplayBlocks(listOf(block.copy(week = 0)), null).isEmpty())
+    }
+
+    @Test
+    fun displayWithoutUsableDatesKeepsValidImportedPositions() {
+        val noDate = lesson(week = 3, day = 4)
+        val invalidDate = lesson(week = 4, day = 5).copy(date = "2026-02-30")
+        val blocks = listOf(noDate, invalidDate, noDate.copy(week = 0), noDate.copy(day = 8))
+        assertEquals(listOf(noDate, invalidDate), scheduleDisplayBlocks(blocks, LocalDate.of(2026, 9, 7)))
+        assertEquals(listOf(noDate, invalidDate), scheduleDisplayBlocks(blocks, null))
+    }
+
+    @Test
+    fun displayRejectsUnplaceableDatesAndInvalidSectionSpans() {
+        val beforeTerm = lesson().copy(date = "2026-09-06")
+        val zeroSection = lesson(start = 0)
+        val reversedSection = lesson(start = 4, end = 3)
+        assertTrue(scheduleDisplayBlocks(listOf(beforeTerm, zeroSection, reversedSection), LocalDate.of(2026, 9, 7)).isEmpty())
+    }
+
+    @Test
+    fun displayDeduplicatesAfterPositioningWithoutExpandingWeeksOrSections() {
+        val block = lesson(week = 0, day = 0, start = 3, end = 6, parity = 1).copy(date = "2026-09-07")
+        val positioned = block.copy(week = 1, day = 1)
+        val result = scheduleDisplayBlocks(listOf(block, positioned, block), LocalDate.of(2026, 9, 7))
+        assertEquals(listOf(positioned), result)
+        assertEquals(listOf(1), aggregateCellLessons(result.single(), result).single().weeks)
+    }
 
     @Test
     fun aggregateKeepsOnlyImportedWeeksAndDeduplicatesResponses() {

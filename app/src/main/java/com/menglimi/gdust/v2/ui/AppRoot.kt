@@ -118,17 +118,24 @@ fun AppRoot(
     var showWidgets by remember { mutableStateOf(false) }
     var showAiSettings by remember { mutableStateOf(false) }
     var settingsSelected by remember { mutableStateOf(false) }
-    var aiMessagesState by remember { mutableStateOf(aiMessages.value) }
+    val sessionVersion by repo.sessionVersion.collectAsState()
+    val chatAccount = repo.store.jobNumber
+    var aiMessagesState by remember(repo, chatAccount) {
+        mutableStateOf(com.menglimi.gdust.v2.ui.screens.restoreAiChat(repo.store.loadAiChatJson()))
+    }
     var webReturnVersion by remember { mutableIntStateOf(0) }
     var schoolLoginMessage by remember { mutableStateOf<String?>(null) }
-    val sessionVersion by repo.sessionVersion.collectAsState()
     val publicNotices = com.menglimi.gdust.v2.data.SchoolNoticeApi()
-    val noticeFeed = remember(repo) { NoticeFeed(repo::portalSession, repo::notices, publicNotices::notices) }
+    val noticeAccount = repo.store.jobNumber
+    val noticeFeed = remember(repo, noticeAccount, sessionVersion) {
+        NoticeFeed(repo::portalSession, repo::notices, publicNotices::notices,
+            loadSnapshot = repo::loadNoticeSnapshot, saveSnapshot = repo::saveNoticeSnapshot)
+            .also { it.restoreInitial() }
+    }
     val noticeState by noticeFeed.state.collectAsState()
     val notices = noticeState.notices
     val noticesLoading = noticeState.loading
     val noticesError = noticeState.error
-    val noticeAccount = repo.store.jobNumber
     var readNoticeIds by remember(noticeAccount) { mutableStateOf(repo.store.readNoticeIds(noticeAccount)) }
     var syncJob by remember { mutableStateOf<Job?>(null) }
     var loggingOut by remember { mutableStateOf(false) }
@@ -215,13 +222,18 @@ fun AppRoot(
             CampusService.WIDGETS -> showWidgets = true
             CampusService.CHX_LINK -> showChxEntry = true
             CampusService.CHX_NOTIFICATIONS -> showChxNotifications = true
-            CampusService.SUMMARY, CampusService.SETTINGS -> showSettings.value = true
+            CampusService.SUMMARY -> { showNotices = true; loadNotices() }
+            CampusService.SETTINGS -> { settingsGroup.value = null; showSettings.value = true }
         }
     }
 
 
-    fun sync(silentIfDue: Boolean = false) {
+    fun sync(silentIfDue: Boolean = false, targetSemester: String? = null) {
         if (syncing) return
+        if (targetSemester != null && !repo.hasTeachingSession()) {
+            syncError = "切换学期需要连接教务网页，原学期课表已保留。"
+            return
+        }
         if (silentIfDue && (repo.nextAutomaticSyncAt() ?: Long.MAX_VALUE) > System.currentTimeMillis()) return
         if (!repo.store.casTicket.isNotBlank() && !repo.hasTeachingSession() && !repo.store.hasSession) {
             needLogin = true
@@ -240,6 +252,7 @@ fun AppRoot(
                 runCatching {
                     kotlinx.coroutines.withTimeoutOrNull(60_000L) {
                         when {
+                            targetSemester != null -> repo.syncTermWithCookies(semester = targetSemester)
                             repo.hasTeachingSession() -> repo.syncTermWithCookies()
                             repo.store.hasSession -> repo.syncSchedule()
                             else -> repo.syncTermWithCookies()
@@ -352,7 +365,9 @@ fun AppRoot(
         }
     }
 
-    LaunchedEffect(sessionVersion) {
+    LaunchedEffect(sessionVersion, chatAccount) {
+        aiMessagesState = com.menglimi.gdust.v2.ui.screens.restoreAiChat(repo.store.loadAiChatJson())
+        aiMessages.value = aiMessagesState
         if (sessionVersion != 0L && !repo.store.hasSession) {
             noticeFeed.clear()
             syncJob?.cancel()
@@ -466,6 +481,7 @@ fun AppRoot(
                     onRefresh = { loadNotices() },
                     source = noticeState.source,
                     onSourceChange = { noticeFeed.refresh(scope, it) },
+                    onConfigureAi = { showNotices = false; showAiSettings = true },
                 )
             }
             "profile" -> {
@@ -556,18 +572,19 @@ fun AppRoot(
                 blocks = blocks,
                 syncError = syncError,
                 aiMessages = aiMessagesState,
-                onAiMessagesChange = { aiMessagesState = it; aiMessages.value = it },
+                onAiMessagesChange = {
+                    if (repo.store.jobNumber == chatAccount && repo.isCurrentSession(sessionVersion)) {
+                        aiMessagesState = it
+                        aiMessages.value = it
+                        repo.store.saveAiChatJson(com.menglimi.gdust.v2.ui.screens.encodeAiChat(it))
+                    }
+                },
                 onOpenAiService = { showAiSettings = true },
                 settingsSelected = settingsSelected,
                 onSwitchTerm = { sem ->
                     val cal = calendar
                     if (cal != null && sem != cal.semester) {
-                        val updated = cal.copy(semester = sem)
-                        repo.store.saveCalendar(updated)
-                        calendar = updated
-                        // 切学期后旧课表不再代表当前学期：清空再同步（失败会明确提示）
-                        blocks = emptyList()
-                        sync()
+                        sync(targetSemester = sem)
                     }
                 },
             )
@@ -682,6 +699,7 @@ private fun MainScaffold(
     onImport: () -> Unit = {},
 ) {
     val ds = LocalDs.current
+    val chatSessionVersion by repo.sessionVersion.collectAsState()
     var chatInputFocused by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(ds.bg)) {
         Crossfade(
@@ -702,6 +720,7 @@ private fun MainScaffold(
                     onOpenServices = onOpenServices,
                     onService = onService,
                     hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
+                    scheduleSource = repo.store.scheduleSource,
                 )
                 1 -> ScheduleScreen(
                     repo = repo,
@@ -716,17 +735,19 @@ private fun MainScaffold(
                 )
                 2 -> PowerScreen(repo)
                 3 -> TodoScreen(repo)
-                4 -> AiChatScreen(
-                    repo = repo,
-                    calendar = calendar,
-                    blocks = blocks,
-                    todos = repo.store.loadTodos(),
-                    messages = aiMessages,
-                    onMessagesChange = onAiMessagesChange,
-                    onInputFocusChanged = { chatInputFocused = it },
-                    onBack = { onTab(0) },
-                    onSettings = onOpenAiService,
-                )
+                4 -> androidx.compose.runtime.key(chatSessionVersion, repo.store.jobNumber) {
+                    AiChatScreen(
+                        repo = repo,
+                        calendar = calendar,
+                        blocks = blocks,
+                        todos = repo.store.loadTodos(),
+                        messages = aiMessages,
+                        onMessagesChange = onAiMessagesChange,
+                        onInputFocusChanged = { chatInputFocused = it },
+                        onBack = { onTab(0) },
+                        onSettings = onOpenAiService,
+                    )
+                }
             }
         }
         if (!chatInputFocused) com.menglimi.gdust.v2.ui.nexio.NexioBottomBar(

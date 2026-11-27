@@ -71,6 +71,7 @@ fun NoticeScreen(
     onRefresh: () -> Unit,
     source: NoticeSource,
     onSourceChange: (NoticeSource) -> Unit,
+    onConfigureAi: () -> Unit = {},
 ) {
     val sessionVersion by repo.sessionVersion.collectAsState()
     // 换号或切换来源后销毁旧界面状态与协程，摘要、错误不会串到下一份列表。
@@ -80,7 +81,7 @@ fun NoticeScreen(
         val context = LocalContext.current
         val store = repo.store
         var summarizing by remember(notices) { mutableStateOf(false) }
-        var summary by remember(notices) { mutableStateOf<String?>(null) }
+        var summary by remember(notices) { mutableStateOf(store.loadNoticeSummary(notices)) }
         var summaryError by remember(notices) { mutableStateOf("") }
         var summaryJob by remember(notices) { mutableStateOf<Job?>(null) }
         var openErrors by remember(notices) { mutableStateOf<Map<Notice, String>>(emptyMap()) }
@@ -187,11 +188,14 @@ fun NoticeScreen(
                     Text("AI 总结", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
                     Text(
                         if (store.hasLlm) "将当前来源的 ${notices.size} 条公告标题交给你配置的模型"
-                        else "先到「设置 → 通知 AI 总结」填好模型配置",
+                        else "配置 AI 服务后，可总结当前来源的公告标题。",
                         fontSize = 13.sp,
                         lineHeight = 20.sp,
                         color = ds.sub,
                     )
+                    if (!store.hasLlm) {
+                        Button(text = "配置 AI 服务", onClick = onConfigureAi)
+                    }
                     summary?.let { Text(it, fontSize = 15.sp, lineHeight = 23.sp, color = ds.text) }
                     if (summaryError.isNotEmpty()) {
                         Text(summaryError, fontSize = 13.sp, lineHeight = 20.sp, color = ds.danger)
@@ -201,9 +205,7 @@ fun NoticeScreen(
                         enabled = store.hasLlm && !summarizing && !loading && notices.isNotEmpty(),
                     ) {
                         val session = repo.portalSession()
-                        if (session == null) {
-                            summaryError = "请先登录学校门户后再总结。"
-                        } else if (repo.sessionVersion.value == sessionVersion) {
+                        if (repo.sessionVersion.value == sessionVersion) {
                             val snapshot = notices.toList()
                             summaryJob?.cancel()
                             summarizing = true

@@ -112,10 +112,7 @@ fun ScheduleScreen(
         }
     }
     val termStart = remember(calendar?.startDate) { ScheduleTimes.parseDate(calendar?.startDate) }
-    val validBlocks = remember(blocks) {
-        blocks.filter { it.week > 0 && it.day in 1..7 && it.startSection > 0 && it.endSection >= it.startSection }
-            .distinct()
-    }
+    val validBlocks = remember(blocks, termStart) { scheduleDisplayBlocks(blocks, termStart) }
     val totalWeeks = maxOf(calendar?.allWeek?.takeIf { it > 0 } ?: 20, validBlocks.maxOfOrNull { it.week } ?: 1)
     val currentWeek = termStart?.let { ScheduleTimes.weekAt(it, now.toLocalDate()) }
         ?: calendar?.week ?: 1

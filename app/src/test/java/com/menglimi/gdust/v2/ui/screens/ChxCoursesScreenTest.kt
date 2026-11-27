@@ -161,6 +161,40 @@ class ChxCoursesScreenTest {
         controller.cancel()
     }
 
+    @Test fun restoredSnapshotSurvivesFailedRefreshAndKeepsItsOriginalTime() = runBlocking {
+        val cached = overview("离线课程")
+        val controller = ChxCoursesController(this, { throw IOException("synthetic-offline") }, { it == 0L })
+        controller.changeSession(0)
+        controller.restore(cached)
+        assertSame(cached, controller.state.value.overview)
+        assertTrue(controller.state.value.stale)
+        controller.refresh()
+        yield()
+        assertSame(cached, controller.state.value.overview)
+        assertEquals(cached.loadedAt, controller.state.value.overview!!.loadedAt)
+        assertTrue(controller.state.value.stale)
+        assertFalse(controller.state.value.loading)
+        controller.changeSession(1)
+        controller.restore(cached)
+        assertNull(controller.state.value.overview)
+        controller.cancel()
+    }
+
+    @Test fun successfulRefreshReplacesRestoredSnapshotAndCannotBeReplacedByAnotherRestore() = runBlocking {
+        val cached = overview("离线课程")
+        val fresh = overview("最新课程").copy(loadedAt = cached.loadedAt + 60_000)
+        val controller = ChxCoursesController(this, { fresh }, { it == 0L })
+        controller.changeSession(0)
+        controller.restore(cached)
+        controller.refresh()
+        yield()
+        assertSame(fresh, controller.state.value.overview)
+        assertFalse(controller.state.value.stale)
+        controller.restore(cached)
+        assertSame(fresh, controller.state.value.overview)
+        controller.cancel()
+    }
+
     @Test fun workSyncFailureKeepsItsOwnScopeAndNeverDisplaysRawNetworkDetails() {
         val transport = chxWorkSyncError(IOException("private query signature and response"))
         assertFalse(transport.contains("private"))

@@ -234,9 +234,12 @@ class TeachingGradesTest {
         assertEquals("fresh&\"+", form.pkey)
         assertEquals(setOf("2026"), form.years)
         assertEquals(setOf("3", "12"), form.semesters)
+        assertEquals(parseGradeForm(gradeFormFixture("")),
+            parseGradeForm(gradeFormFixture("").replace("id='pkey' value=''", "id='pkey'")))
         for (html in listOf(
             gradeFormFixture("").replace("<input id='pkey' value=''>", ""),
-            gradeFormFixture("").replace("id='pkey' value=''", "id='pkey'"),
+            gradeFormFixture("").replace("<input id='pkey' value=''>",
+                "<input id='pkey' value=''><input id='pkey'>"),
             gradeFormFixture("").replace("id='xnm'", "id='other'"),
             gradeFormFixture("").replace("value='2026'", "disabled value='2026'"),
             "<html><body>暂不可用</body></html>",
