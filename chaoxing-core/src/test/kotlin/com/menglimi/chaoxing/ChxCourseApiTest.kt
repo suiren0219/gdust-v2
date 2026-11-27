@@ -250,6 +250,25 @@ class ChxCourseApiTest {
         }
     }
 
+    @Test fun cookieCommitFailureIsNotDowngradedToPartialProgress() = runBlocking {
+        val failure = ChxCookieWriteException(verificationRequired = true, retryAt = 31_000L)
+        var error: ChxCookieWriteException? = null
+        try {
+            ChxCourseApi.loadWith { request ->
+                when (request.url.toString()) {
+                    ChxSso.HOME -> ChxResponse(200, homepage, null)
+                    ChxCourseApi.LIST_URL -> ChxResponse(200, coursePage(courseRow()), null)
+                    else -> throw failure
+                }
+            }
+        } catch (caught: ChxCookieWriteException) {
+            error = caught
+        }
+        assertSame(failure, error)
+        assertTrue(checkNotNull(error).verificationRequired)
+        assertEquals(31_000L, checkNotNull(error).retryAt)
+    }
+
     @Test fun progressFailuresKeepCoursesAndAuthenticationShowsLoginAction() = runBlocking {
         listOf(
             ChxResponse(503, "private server body", null),

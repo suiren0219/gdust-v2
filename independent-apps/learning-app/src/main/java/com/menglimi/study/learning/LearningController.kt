@@ -97,6 +97,7 @@ class LearningController internal constructor(
             var account: String? = null
             var verified = false
             var recovering = false
+            var readingCourse: ChxWorkCourse? = null
             try {
                 guard.mutex.withLock {
                     operation.ensureActive()
@@ -158,6 +159,7 @@ class LearningController internal constructor(
                 val results = mutableListOf<ChxCourseWorkResult>()
                 for (course in targets) {
                     operation.ensureActive(); guard.check(request)
+                    readingCourse = course
                     val result = try {
                         guard.requests.check(request)
                         backend.works(listOf(course)).single().also { require(it.course.cacheKey() == course.cacheKey()) }
@@ -224,6 +226,7 @@ class LearningController internal constructor(
             } finally {
                 withContext(NonCancellable + mainDispatcher) { guard.mutex.withLock {
                     token?.let { guard.requests.finishRecovery(it, false) }
+                    token?.let { request -> preserveLatchedPauseLocked(request, account, readingCourse) }
                     token?.takeIf(guard::isCurrent)?.let {
                         active.remove(LearningLane.WORK)
                         mutableState.update { value -> value.copy(loading = false, retryingCourse = null) }
@@ -261,7 +264,8 @@ class LearningController internal constructor(
                     guard.check(request)
                     checkAccount(account)
                     overview.requestPause?.let { recordPauseLocked(it.exception(), request) }
-                    if (overview.progressError == null && !overview.progressAuthRequired) {
+                    if (overview.progressError == null && !overview.progressAuthRequired &&
+                        overview.requestPause == null) {
                         guard.requests.finishRecovery(request, true)
                         if (guard.requests.pause.value == null && readControl.progressBlocked) {
                             readControl = readControl.copy(pause = null, progressBlocked = false, verificationUrl = null)
@@ -295,6 +299,7 @@ class LearningController internal constructor(
             } finally {
                 withContext(NonCancellable + mainDispatcher) { guard.mutex.withLock {
                     token?.let { guard.requests.finishRecovery(it, false) }
+                    token?.let { request -> preserveLatchedPauseLocked(request, account) }
                     token?.takeIf(guard::isCurrent)?.let {
                         active.remove(LearningLane.COURSES)
                         mutableCourses.update { value -> value.copy(loading = false) }
@@ -318,6 +323,25 @@ class LearningController internal constructor(
         if (lane == LearningLane.WORK) mutableState.update { it.copy(error = message, readControl = readControl) }
         else mutableCourses.update { it.copy(error = message, readControl = readControl) }
         return false
+    }
+
+    /** 响应已到达后即使调用者取消，也只为当前账号保留 gate 锁存的暂停与恢复目标。 */
+    private suspend fun preserveLatchedPauseLocked(request: LearningRequest, account: String?, course: ChxWorkCourse? = null) {
+        if (accountProvider() != account) {
+            accountChangedLocked()
+            return
+        }
+        val stopped = guard.requests.pause.value ?: return
+        val previous = readControl
+        recordPauseLocked(stopped.exception(), request, course)
+        if (readControl == previous) return
+        val cacheError = saveLocked()
+        val message = listOfNotNull(readControl.message(), cacheError).joinToString("\n")
+        if (request.lane == LearningLane.WORK) {
+            mutableState.update { it.copy(error = message, fromCache = it.hasSnapshot) }
+        } else {
+            mutableCourses.update { it.copy(error = message, fromCache = it.hasSnapshot) }
+        }
     }
 
     private fun recordPauseLocked(failure: ChxCourseReadException, request: LearningRequest, course: ChxWorkCourse? = null) {

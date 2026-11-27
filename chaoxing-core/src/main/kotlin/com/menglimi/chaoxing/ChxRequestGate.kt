@@ -23,7 +23,7 @@ data class ChxRequestPause(val verificationRequired: Boolean, val retryAt: Long 
 
 /** 只识别明确响应；不将普通 403、课程编号里的数字当成风控，验证码判定必须有输入框或 9010+验证码的组合。 */
 fun ChxResponse.requestPause(now: Long = System.currentTimeMillis()): ChxRequestPause? {
-    if (status == 429) {
+    val retryAt = if (status == 429) {
         val raw = retryAfter?.trim().orEmpty()
         val seconds = raw.takeIf { it.isNotEmpty() && it.all { char -> char in '0'..'9' } }?.let { it.toLongOrNull() ?: Long.MAX_VALUE }
         val date = runCatching { ZonedDateTime.parse(raw, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() }.getOrNull()
@@ -33,8 +33,8 @@ fun ChxResponse.requestPause(now: Long = System.currentTimeMillis()): ChxRequest
             date != null -> (date - (serverTime ?: now)).coerceAtLeast(0)
             else -> 60_000L
         }.coerceAtLeast(1_000L)
-        return ChxRequestPause(false, if (wait > Long.MAX_VALUE - now) Long.MAX_VALUE else now + wait)
-    }
+        if (wait > Long.MAX_VALUE - now) Long.MAX_VALUE else now + wait
+    } else 0L
     val json = runCatching { JsonParser.parseString(body).asJsonObject }.getOrNull()
     val code = json?.let { value -> listOf("code", "errorCode").any { name ->
         value.get(name)?.takeIf { it.isJsonPrimitive }?.asString == "9010"
@@ -48,7 +48,8 @@ fun ChxResponse.requestPause(now: Long = System.currentTimeMillis()): ChxRequest
         }
     } && listOf("验证码", "安全验证").any { it in text }
     val flagged = text.contains("9010") && text.contains("操作异常") && text.contains("验证码")
-    return if (code || form || flagged) ChxRequestPause(true) else null
+    val verificationRequired = code || form || flagged
+    return if (verificationRequired || status == 429) ChxRequestPause(verificationRequired, retryAt) else null
 }
 
 /** 所有业务请求共用串行入口；暂停后仅允许明确获准的那次恢复检查发送请求。 */
@@ -123,6 +124,11 @@ class ChxRequestGate(
                 throw stopped.exception()
             }
             response
+        } catch (failure: ChxCourseReadException) {
+            currentCoroutineContext().ensureActive()
+            checkSession()
+            record(failure, owner)
+            throw failure
         } finally {
             nextRequestAt = now().let { if (intervalMillis > Long.MAX_VALUE - it) Long.MAX_VALUE else it + intervalMillis }
         }

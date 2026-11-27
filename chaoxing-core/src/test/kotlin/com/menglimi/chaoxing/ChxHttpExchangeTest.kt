@@ -126,6 +126,43 @@ class ChxHttpExchangeTest {
         } finally { client.dispatcher.executorService.shutdownNow() }
     }
 
+    @Test fun responseCallbackLatchesCombinedPauseBeforeExecuteResumes() = runBlocking {
+        val client = OkHttpClient.Builder().retryOnConnectionFailure(false).addInterceptor { chain ->
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(429).message("Synthetic").header("Retry-After", "30")
+                .body("""{"code":9010}""".toResponseBody()).build()
+        }.build()
+        val gate = ChxRequestGate(now = { 1_000L }, intervalMillis = 0)
+        try {
+            val exchange = ChxHttpExchange(client, onResponseReceived = { response ->
+                response.requestPause(1_000L)?.let { gate.record(it.exception(), "owner") }
+            })
+            val received = exchange.execute(Request.Builder().url("https://mooc2-ans.chaoxing.com/visit/test").build())
+            assertEquals(429, received.response.status)
+            assertEquals(ChxRequestPause(true, 31_000L), gate.pause.value)
+        } finally { client.dispatcher.executorService.shutdownNow() }
+    }
+
+    @Test fun rateLimitBodyReadFailureStillReturnsRetryHeadersAndLatchesCooldown() = runBlocking {
+        for (large in listOf(false, true)) {
+            val client = OkHttpClient.Builder().retryOnConnectionFailure(false).addInterceptor { chain ->
+                val body = if (large) "x".repeat(4 * 1024 * 1024 + 1).toResponseBody() else failingBody()
+                Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                    .code(429).message("Synthetic").header("Retry-After", "30").body(body).build()
+            }.build()
+            val gate = ChxRequestGate(now = { 1_000L }, intervalMillis = 0)
+            try {
+                val exchange = ChxHttpExchange(client, onResponseReceived = { response ->
+                    response.requestPause(1_000L)?.let { gate.record(it.exception(), "owner") }
+                })
+                val received = exchange.execute(Request.Builder().url("https://mooc2-ans.chaoxing.com/visit/test").build())
+                assertEquals(429, received.response.status)
+                assertEquals("30", received.response.retryAfter)
+                assertEquals(ChxRequestPause(false, 31_000L), gate.pause.value)
+            } finally { client.dispatcher.executorService.shutdownNow() }
+        }
+    }
+
     @Test fun oversizedBodyFailsWithAFixedMessageInsteadOfANetworkError() = runBlocking {
         val attempts = AtomicInteger()
         val client = OkHttpClient.Builder().retryOnConnectionFailure(false).addInterceptor { chain ->

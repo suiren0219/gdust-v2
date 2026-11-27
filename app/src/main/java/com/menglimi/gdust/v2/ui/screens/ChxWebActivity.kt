@@ -51,6 +51,9 @@ import com.menglimi.gdust.v2.App
 import com.menglimi.gdust.v2.data.ChxSso
 import com.menglimi.gdust.v2.data.ChxWebSession
 import com.menglimi.gdust.v2.data.Repository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.menglimi.gdust.v2.ui.AppTheme
 import com.menglimi.gdust.v2.ui.LocalDs
 import top.yukonga.miuix.kmp.basic.Button
@@ -86,6 +89,9 @@ class ChxWebActivity : ComponentActivity() {
     private var sentCasTicket = false
     private var sessionVersion = 0L
     private var chxVersion = 0L
+    private val activityScope = CoroutineScope(Dispatchers.Main.immediate)
+    private var requestPaused = false
+    private var recoveryRunning = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -97,10 +103,16 @@ class ChxWebActivity : ComponentActivity() {
             finish()
             return
         }
-        repo.invalidateChxRequests()
-        chxVersion = repo.chxSessionVersion.value
         val initialUrl = intent.getStringExtra(EXTRA_URL) ?: ChxSso.fyssoUrl
         logout = intent.getBooleanExtra(EXTRA_LOGOUT, false) || ChxSso.isSchoolLogoutUrl(initialUrl)
+        // 打开验证页/课程页只作废旧请求，保留人工验证才能解除的风控暂停；登录与退出才清暂停。
+        repo.invalidateChxRequests(clearPause = logout || ChxSso.isLoginUrl(initialUrl))
+        chxVersion = repo.chxSessionVersion.value
+        activityScope.launch {
+            repo.chxRequestPause.collect { paused ->
+                requestPaused = paused != null
+            }
+        }
         setResult(RESULT_CANCELED, Intent().putExtra(EXTRA_LOGOUT_CONFIRMED, false))
         web = WebView(this)
         configure(web)
@@ -134,6 +146,12 @@ class ChxWebActivity : ComponentActivity() {
                     if (pageProgress < 100) {
                         LinearProgressIndicator(progress = { pageProgress / 100f }, color = ds.accent,
                             trackColor = ds.breakBar, modifier = Modifier.fillMaxWidth())
+                    }
+                    if (requestPaused && !logout) {
+                        Button(onClick = ::completeChxCheck, enabled = !recoveryRunning,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text(if (recoveryRunning) "正在重新检查受阻请求…" else "完成检查并重试", fontSize = 14.sp)
+                        }
                     }
                     if (pageMessage.isNotBlank() || pageError != null) {
                         Column(Modifier.fillMaxWidth().heightIn(max = 144.dp).verticalScroll(rememberScrollState())
@@ -236,6 +254,34 @@ class ChxWebActivity : ComponentActivity() {
         sentCasTicket = ChxSso.isSchoolLogoutUrl(url) &&
             ChxSso.hasCasTicket(CookieManager.getInstance().getCookie(url))
         web.loadUrl(url, mapOf("Cache-Control" to "no-cache"))
+    }
+
+    private fun completeChxCheck() {
+        if (logout || !isCurrentSession() || recoveryRunning) return
+        val url = web.url.orEmpty()
+        if (ChxSso.isLoginUrl(url) || url.contains("verify", ignoreCase = true) ||
+            url.contains("captcha", ignoreCase = true) || mainPageFailed) {
+            pageError = "请先在网页完成登录或安全验证，再点击此按钮。"
+            return
+        }
+        recoveryRunning = true
+        pageError = null
+        pageMessage = "正在重新执行此前受阻的学习通请求；只有读取和解析成功才会解除暂停。"
+        activityScope.launch {
+            try {
+                repo.resumeChxAfterWebCheck()
+                if (isCurrentSession()) {
+                    pageMessage = "受阻业务已重新读取并通过校验，学习通请求已恢复。"
+                    pageError = null
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (isCurrentSession()) pageError = failure.message ?: "受阻业务仍未确认读取成功，请检查后重试。"
+            } finally {
+                recoveryRunning = false
+            }
+        }
     }
 
     private fun finishBrowsing() {

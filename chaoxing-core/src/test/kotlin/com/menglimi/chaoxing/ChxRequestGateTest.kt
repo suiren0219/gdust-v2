@@ -27,6 +27,24 @@ class ChxRequestGateTest {
         assertFalse(ChxResponse(429, "private").requestPause(now)!!.exception().message!!.contains("private"))
     }
 
+    @Test fun rateLimitAndVerificationPauseCanBeCombined() {
+        val pause = ChxResponse(429, """{"errorCode":"9010"}""", retryAfter = "30")
+            .requestPause(now = 1_000L)!!
+        assertTrue(pause.verificationRequired)
+        assertEquals(31_000L, pause.retryAt)
+    }
+
+    @Test fun cookieWriteFailurePreservesResponsePause() {
+        val cause = IllegalStateException("synthetic")
+        val failure = ChxCookieWriteException(verificationRequired = true, retryAt = 31_000L, cause = cause)
+        assertTrue(failure.verificationRequired)
+        assertEquals(31_000L, failure.retryAt)
+        assertEquals(cause, failure.cause)
+        val gate = ChxRequestGate(intervalMillis = 0)
+        gate.record(failure, "account")
+        assertEquals(ChxRequestPause(true, 31_000L), gate.pause.value)
+    }
+
     @Test fun verifyPromptPageVariantsPauseReads() {
         // processVerifyPng 提示页：输入框名为 ucode，正文只有"操作异常，请输入图片中的验证码"。
         val prompt = ChxResponse(200, """<html><body><h3>提示页面</h3>

@@ -46,6 +46,7 @@ import com.haooz.nexioui.text.NexioText as Text
 import com.haooz.nexioui.theme.NexioTheme
 import com.menglimi.gdust.v2.data.AuthFailed
 import com.menglimi.gdust.v2.data.ChxCourseReadException
+import com.menglimi.chaoxing.ChxRequestPause
 import com.menglimi.gdust.v2.data.ChxSso
 import com.menglimi.gdust.v2.data.ChxWebSession
 import com.menglimi.gdust.v2.data.Repository
@@ -73,6 +74,7 @@ fun ChxEntryScreen(
     val scope = rememberCoroutineScope()
     val accountVersion by repo.sessionVersion.collectAsState()
     val chxVersion by repo.chxSessionVersion.collectAsState()
+    val requestPause by repo.chxRequestPause.collectAsState()
     var saved by remember(repo, offlinePreview, accountVersion, chxVersion) {
         mutableStateOf(if (offlinePreview) false else repo.store.hasChxSession)
     }
@@ -191,7 +193,7 @@ fun ChxEntryScreen(
     }
 
     val connection = chxConnectionPresentation(saved, checkResult, checking, authRequired)
-    val canSync = saved && checkResult != false && !authRequired && !busy
+    val canSync = saved && checkResult != false && !authRequired && requestPause == null && !busy
     val themeColors = NexioTheme.colorScheme
     Column(
         Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().navigationBarsPadding()
@@ -230,6 +232,27 @@ fun ChxEntryScreen(
                 Text(message, fontSize = 13.sp, lineHeight = 20.sp,
                     color = if (isError || authRequired) themeColors.error else themeColors.onSurfaceVariantSummary,
                     modifier = Modifier.padding(top = 8.dp))
+            }
+        }
+        if (requestPause != null && !offlinePreview) {
+            Spacer(Modifier.height(AppUiTokens.CardGap))
+            AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
+                Text("需要完成学习通安全验证", fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+                    color = ds.danger)
+                Text("学习通返回了验证码或请求频率限制，相关读取已暂停，未完成的待办不会被覆盖。"
+                    + "请打开官方网页完成验证，然后点击网页内的“完成检查并重试”。",
+                    fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
+                    modifier = Modifier.padding(top = 8.dp))
+                Spacer(Modifier.height(8.dp))
+                ChxActionButton("打开学习通网页验证", !busy, "仅人工检查成功后才恢复读取") {
+                    try {
+                        webLogin.launch(Intent(context, ChxWebActivity::class.java)
+                            .putExtra(ChxWebActivity.EXTRA_URL, ChxSso.HOME))
+                    } catch (_: Exception) {
+                        isError = true
+                        message = "暂时无法打开学习通网页，请重试。"
+                    }
+                }
             }
         }
         if (!connection.verified) {

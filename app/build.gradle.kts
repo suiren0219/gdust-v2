@@ -95,6 +95,8 @@ fun ExternalModuleDependency.excludeMiuixUi() {
 }
 
 dependencies {
+    // 学习通会话、限速 gate 与可复核传输层。
+    implementation(project(":chaoxing-core"))
     // NexioUI 固定源码库（Android-only KMP）；应用页面保留现有 Android 模块。
     implementation(project(":nexio-ui"))
     implementation(platform("androidx.compose:compose-bom:2026.05.01"))

@@ -31,6 +31,7 @@ import com.menglimi.gdust.v2.data.ChxCourse
 import com.menglimi.gdust.v2.data.ChxCourseOverview
 import com.menglimi.gdust.v2.data.ChxCourseReadException
 import com.menglimi.gdust.v2.data.ChxCourseProgress
+import com.menglimi.gdust.v2.data.ChxSso
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
@@ -62,6 +63,7 @@ fun ChxCoursesScreen(
     val offlineMode = offlineOverview != null
     val sessionVersion by repo.sessionVersion.collectAsState()
     val chxVersion by repo.chxSessionVersion.collectAsState()
+    val requestPause by repo.chxRequestPause.collectAsState()
     val controller = remember(repo, scope, chxVersion, offlineOverview) {
         ChxCoursesController(
             scope = scope,
@@ -113,6 +115,21 @@ fun ChxCoursesScreen(
                     "重新连接学习通",
                     enabled = offlineOverview == null,
                     onClick = onLogin,
+                )
+            }
+        }
+        if (requestPause != null && offlineOverview == null) {
+            Spacer(Modifier.height(AppUiTokens.CardGap))
+            AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
+                Text("学习通读取已暂停", color = ds.danger, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text("需要先在官方网页完成人工验证；只有“完成检查并重试”成功后才恢复读取。",
+                    fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
+                    modifier = Modifier.padding(top = 8.dp))
+                Spacer(Modifier.height(8.dp))
+                NexioActionButton(
+                    "打开网页完成验证",
+                    enabled = !state.loading,
+                    onClick = { onOpenCourse(ChxSso.HOME) },
                 )
             }
         }

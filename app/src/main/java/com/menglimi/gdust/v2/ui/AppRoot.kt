@@ -166,7 +166,6 @@ fun AppRoot(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
     ) { webReturnVersion++ }
     fun openServiceWeb(url: String) {
-        repo.invalidateChxRequests()
         serviceWeb.launch(android.content.Intent(context, ChxWebActivity::class.java)
             .putExtra(ChxWebActivity.EXTRA_URL, url))
     }

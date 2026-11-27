@@ -4,6 +4,8 @@ import com.menglimi.chaoxing.ChxCourse
 import com.menglimi.chaoxing.ChxCourseOverview
 import com.menglimi.chaoxing.ChxCourseProgress
 import com.menglimi.chaoxing.ChxCourseWorkResult
+import com.menglimi.chaoxing.ChxResponse
+import com.menglimi.chaoxing.requestPause
 import com.menglimi.chaoxing.ChxWorkCourse
 import com.menglimi.chaoxing.ChxWorkItem
 import com.menglimi.chaoxing.ChxWorkWithDeadline
@@ -11,6 +13,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
@@ -126,6 +130,106 @@ class LearningControllerTest {
         assertNull(controller.courses.value.error)
         assertFalse(controller.courses.value.loading)
     }
+    @Test fun cancelledWorkReadPreservesPauseTargetAndOnlyRechecksBlockedCourse() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val blockedCourse = workCourse.copy(courseId = 4, name = "受阻课程")
+        val remainingCourse = workCourse.copy(courseId = 7, name = "剩余课程")
+        val started = CompletableDeferred<Unit>()
+        val store = MemoryStore(cached())
+        val calls = mutableListOf<Long>()
+        var discoveries = 0
+        var blocked = true
+        val controller = LearningController(store, { accountA }, {}, { guard, token, _ -> object : LearningBackend {
+            override suspend fun workCourses(): List<ChxWorkCourse> {
+                discoveries++
+                return listOf(workCourse, blockedCourse, remainingCourse)
+            }
+            override suspend fun works(courses: List<ChxWorkCourse>): List<ChxCourseWorkResult> {
+                val selected = courses.single()
+                guard.requests.execute(token, { guard.check(token) }) {
+                    calls += selected.courseId
+                    if (selected == blockedCourse && blocked) {
+                        guard.requests.record(ChxResponse(200, """{"code":9010}""").requestPause()!!.exception(), token)
+                        started.complete(Unit)
+                        awaitCancellation()
+                    }
+                    ChxResponse(200, "合成成功")
+                }
+                return if (selected == workCourse) success("取消前读取的作业")
+                    else listOf(ChxCourseWorkResult.Success(selected, emptyList()))
+            }
+            override suspend fun courses() = error("不应读取进度")
+        } }, dispatcher, dispatcher)
+        controller.reload()
+        val reading = launch { controller.refresh() }
+        runCurrent(); started.await()
+        reading.cancelAndJoin()
+        assertTrue(reading.isCancelled)
+        assertFalse(controller.state.value.loading)
+        assertTrue(controller.state.value.readControl.pause!!.verificationRequired)
+        assertEquals(blockedCourse.cacheKey(), controller.state.value.readControl.blockedCourseKey)
+        assertEquals(blockedCourse.url, controller.state.value.readControl.verificationUrl)
+        assertEquals(listOf(blockedCourse.cacheKey(), remainingCourse.cacheKey()),
+            store.value!!.readControl.pendingCourseKeys)
+        assertEquals("取消前读取的作业", store.value!!.courses.first().works.single().title)
+        controller.refresh(); controller.refreshCourses()
+        assertEquals(1, discoveries)
+        assertEquals(listOf(1L, 4L), calls)
+        blocked = false
+        assertNull(controller.verifyFromWeb(false))
+        assertEquals(listOf(1L, 4L, 4L), calls)
+        assertNull(controller.state.value.readControl.pause)
+        assertEquals(listOf(remainingCourse.cacheKey()), controller.state.value.readControl.pendingCourseKeys)
+    }
+
+    @Test fun cancelledProgressReadPreservesPauseAndChangedAccountCannotReceiveIt() = runTest {
+        for (changeAccount in listOf(false, true)) {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val initial = cached()
+            val store = MemoryStore(initial)
+            val started = CompletableDeferred<Unit>()
+            var account = accountA
+            var blocked = true
+            var calls = 0
+            val controller = LearningController(store, { account }, {}, { guard, token, _ -> backend(courses = {
+                guard.requests.execute(token, { guard.check(token) }) {
+                    calls++
+                    if (blocked) {
+                        guard.requests.record(ChxResponse(200, """{"code":9010}""").requestPause()!!.exception(), token)
+                        started.complete(Unit)
+                        awaitCancellation()
+                    }
+                    ChxResponse(200, "合成成功")
+                }
+                ChxCourseOverview(listOf(course), loadedAt = 200)
+            }) }, dispatcher, dispatcher)
+            controller.reload()
+            val reading = launch { controller.refreshCourses() }
+            runCurrent(); started.await()
+            if (changeAccount) account = accountB
+            reading.cancelAndJoin()
+            assertTrue(reading.isCancelled)
+            assertFalse(controller.courses.value.loading)
+            if (changeAccount) {
+                assertNull(store.value)
+                assertNull(controller.courses.value.readControl.pause)
+                assertTrue(controller.courses.value.courses.isEmpty())
+                assertTrue(controller.courses.value.error!!.contains("账号已变化"))
+            } else {
+                assertTrue(controller.courses.value.readControl.pause!!.verificationRequired)
+                assertTrue(controller.courses.value.readControl.progressBlocked)
+                assertEquals(initial.overview, store.value!!.overview)
+                assertEquals(100L, controller.courses.value.updatedAt)
+                controller.refreshCourses(); controller.refresh()
+                assertEquals(1, calls)
+                blocked = false
+                assertNull(controller.verifyFromWeb(false))
+                assertEquals(2, calls)
+                assertNull(controller.courses.value.readControl.pause)
+            }
+        }
+    }
+
     @Test fun noUniqueAccountKeepsOnlyMemoryAndNeverWritesSnapshot() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val store = MemoryStore(null)
