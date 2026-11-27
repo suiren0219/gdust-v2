@@ -60,8 +60,6 @@ data class PowerDetail(
 
 data class Captcha(val imageBytes: ByteArray, val uuid: String)
 
-data class AiChatMessage(val role: String, val content: String)
-
 class AuthFailed(val code: Int, msg: String) : Exception(msg)
 
 // ─────────────────────────────── 客户端 ───────────────────────────────

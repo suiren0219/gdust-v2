@@ -6,7 +6,7 @@ import org.junit.Test
 class SettingsNavigationTest {
     @Test fun productionDirectoryCoversEachExistingEntryExactlyOnce() {
         val expected = setOf("profile", "grades", "schoolNotices", "fiveEducation", "chx", "term", "weekend",
-            "autoSync", "maintenance", "sync", "webImport", "cachedCourses", "calendar", "schedules", "reminder",
+            "autoSync", "maintenanceReminder", "maintenance", "sync", "webImport", "cachedCourses", "calendar", "schedules", "shareSchedule", "reminder",
             "todoReminder", "chxNotifications", "warn", "interval", "desktop", "startTab", "widgets", "export", "import",
             "llm", "summary", "mcp", "about")
         val entries = SettingsNavigation.categories.flatMap { it.entries }
