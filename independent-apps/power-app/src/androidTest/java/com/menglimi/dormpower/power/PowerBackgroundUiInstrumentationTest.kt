@@ -13,6 +13,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PowerBackgroundUiInstrumentationTest {
+    @Test fun settingsShowsQueryRhythmPresetSwitchAndStatus() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        assertTrue(context.packageName.endsWith(".backgroundtest"))
+        val activity = instrumentation.startActivitySync(Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK).putExtra("tab", 2))
+        try {
+            instrumentation.waitForIdleSync()
+            val seen = mutableSetOf<String>()
+            for (attempt in 0 until 16) {
+                SystemClock.sleep(300)
+                val visible = mutableSetOf<String>()
+                collect(instrumentation.uiAutomation.rootInActiveWindow, visible)
+                seen.addAll(visible)
+                if (listOf("更新提示节奏", "手动", "均衡", "低电量关注", "自定间隔", "此设置只决定缓存何时标记为“待更新”", "开机自动查询", "后台启动记录")
+                        .all { title -> visible.any { it.contains(title) } }) {
+                    saveScreenshot("settings-rhythm.png")
+                    break
+                }
+            }
+            for (title in listOf("更新提示节奏", "手动", "均衡", "低电量关注", "自定间隔", "此设置只决定缓存何时标记为“待更新”", "开机自动查询", "后台启动记录")) {
+                assertTrue("Missing $title: $seen", seen.any { it.contains(title) })
+            }
+        } finally {
+            instrumentation.runOnMainSync { activity.finish() }
+        }
+    }
+
     @Test fun restoredLedgerAndAllHistoryHaveVisibleScreens() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext

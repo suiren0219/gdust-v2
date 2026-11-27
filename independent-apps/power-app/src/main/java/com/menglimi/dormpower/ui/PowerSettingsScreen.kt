@@ -15,6 +15,7 @@ import com.menglimi.dormpower.power.PowerBackgroundStatus
 import com.menglimi.dormpower.power.PowerUiState
 import com.menglimi.dormpower.power.powerValue
 import com.menglimi.ksu.ui.*
+import com.menglimi.power.PowerQueryPreset
 
 @Composable
 internal fun PowerSettingsScreen(
@@ -30,13 +31,36 @@ internal fun PowerSettingsScreen(
     }
     var unbindDialog by rememberSaveable { mutableStateOf(false) }
     var thresholdDialog by rememberSaveable { mutableStateOf(false) }
+    var intervalDialog by rememberSaveable { mutableStateOf(false) }
     val config = state.config
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 124.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { PageHeader("设置", if (preview) "合成预览 · 设置仅在当前预览内生效" else "提醒、自启动与外观") }
+        item { PageHeader("设置", if (preview) "合成预览 · 设置仅在当前预览内生效" else "更新提示、提醒和外观") }
         state.settingsError?.let { item { MessageCard(it, actions.clearSettingsError) } }
         item { SectionTitle("宿舍监控") }
         item { BootQueryCard(bootQueryEnabled, preview, onBootQueryEnabled) }
+        item {
+            KCard(Modifier.fillMaxWidth()) {
+                Text("更新提示节奏", style = MaterialTheme.typography.titleMedium)
+                PowerQueryPreset.entries.chunked(2).forEach { pair ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        pair.forEach { preset ->
+                            FilterChip(selected = config.preset == preset, onClick = { actions.preset(preset) },
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp), label = { Text(preset.title) })
+                        }
+                    }
+                }
+                Text(config.preset.description, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 10.dp))
+                if (config.preset == PowerQueryPreset.CUSTOM) {
+                    SettingRow("自定提示间隔", "每 ${config.customIntervalMinutes} 分钟 · 支持 15–120 分钟", Glyph.CLOCK) {
+                        TextButton(onClick = { intervalDialog = true }) { Text("修改") }
+                    }
+                }
+                Text("此设置只决定缓存何时标记为“待更新”，本身不会联网。开机自动查询由上方独立开关控制。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         item {
             KCard(Modifier.fillMaxWidth()) {
                 Text("后台启动记录", style = MaterialTheme.typography.titleMedium)
@@ -117,6 +141,22 @@ internal fun PowerSettingsScreen(
         dismissButton = { TextButton(onClick = { unbindDialog = false }) { Text("取消") } })
     if (thresholdDialog) ThresholdDialog(config.effectiveLowThreshold, config.effectiveDropRateThreshold,
         onDismiss = { thresholdDialog = false }, onSave = { low, drop -> actions.thresholds(low, drop); thresholdDialog = false })
+    if (intervalDialog) IntervalDialog(config.customIntervalMinutes, { intervalDialog = false }) {
+        actions.interval(it); intervalDialog = false
+    }
+}
+
+@Composable
+private fun IntervalDialog(minutes: Int, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
+    var text by rememberSaveable { mutableStateOf(minutes.toString()) }
+    val value = text.toIntOrNull()?.takeIf { it in 15..120 }
+    PowerDialog("自定查询间隔", onDismiss, confirm = {
+        Button(onClick = { value?.let(onSave) }, enabled = value != null) { Text("保存") }
+    }) {
+        OutlinedTextField(text, { text = it }, singleLine = true, label = { Text("间隔 / 分钟") },
+            modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            isError = value == null, supportingText = { Text("输入 15–120 分钟的整数，用于判断电量显示是否需要更新。") })
+    }
 }
 
 @Composable
