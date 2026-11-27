@@ -117,6 +117,9 @@ fun SettingsScreen(
     onSchoolNotices: () -> Unit = {},
     onFiveEducation: () -> Unit = {},
     onReconnectService: (SchoolService) -> Unit = {},
+    onOpenMcp: () -> Unit = {},
+    category: MutableState<String?>,
+    onSchedules: () -> Unit = {},
 ) {
     val ds = LocalDs.current
     val secondary = ds.sub
@@ -125,6 +128,7 @@ fun SettingsScreen(
     val focusManager = LocalFocusManager.current
     val context = androidx.compose.ui.platform.LocalContext.current
     var query by rememberSaveable { mutableStateOf("") }
+    var subPage by category
 
     var base by remember { mutableStateOf(store.llmBase) }
     var apiKey by remember { mutableStateOf(store.llmKey) }
@@ -172,7 +176,7 @@ fun SettingsScreen(
         id = "profile", title = "个人信息", summary = "广东科技学院 · 本机数据与偏好",
         keywords = "账户 账号 学校 学号 姓名 登录 验证 隐私", icon = MiuixIcons.ContactsCircle,
     )
-    val groups = listOf(
+    val originalGroups = listOf(
         SettingsSection("通用", listOf(
             SettingsEntry(
                 id = "desktop", title = "桌面名称与图标", summary = "自定义桌面入口的名称和图片", icon = MiuixIcons.Home,
@@ -194,7 +198,8 @@ fun SettingsScreen(
         )),
         SettingsSection("课表", listOf(
             SettingsEntry(
-                id = "term", title = "学期设置", summary = "开学日期、总周数与当前周", icon = MiuixIcons.Months,
+                id = "term", title = "学期设置", summary = if (store.isIndependentSchedule) "独立课表沿用导入的学期，请切回学校课表再修改"
+                    else "开学日期、总周数与当前周", icon = MiuixIcons.Months, enabled = !store.isIndependentSchedule,
                 keywords = "校历 开学日期 总周数 当前周", detail = termStartLocal.ifBlank { "跟随校历" },
                 onClick = { toggle("term") },
                 editor = {
@@ -425,6 +430,12 @@ fun SettingsScreen(
                 onClick = { importLauncher.launch(arrayOf("application/json", "text/*")) },
             ),
         )),
+        SettingsSection("AI", listOf(
+            SettingsEntry(
+                id = "mcp", title = "AI 与 MCP", summary = "本机只读服务 · 可选个人课表云", icon = MiuixIcons.MindMap,
+                keywords = "AI MCP 本地服务 云端 同步课表", onClick = onOpenMcp,
+            ),
+        )),
         SettingsSection("关于", listOf(
             SettingsEntry(
                 id = "about", title = "关于与更新", summary = "版本、更新说明与数据来源", icon = MiuixIcons.Info,
@@ -432,20 +443,33 @@ fun SettingsScreen(
             ),
         )),
     )
+    val allEntries = originalGroups.flatMap { it.entries } + accountEntry.copy(onClick = onProfile) + listOf(
+        SettingsEntry("chxNotifications", "学习通通知待办", MiuixIcons.Messages, summary = "授权本机通知读取", onClick = onChxNotifications),
+        SettingsEntry("schedules", "课表切换", MiuixIcons.Months, summary = "学校课表与独立云端课表", onClick = onSchedules),
+    )
+    val groups = SettingsNavigation.categories.map { c -> SettingsSection(c.title, allEntries.filter { it.id in c.entries }) }
     val search = query.trim()
-    val visibleGroups = groups.mapNotNull { group ->
+    val isDirectory = subPage == null && search.isBlank()
+    val sourceGroups = if (subPage == null) groups else groups.filter { it.title == subPage }
+    val visibleGroups = sourceGroups.mapNotNull { group ->
         group.copy(entries = group.entries.filter { it.matches(search, group.title) })
             .takeIf { it.entries.isNotEmpty() }
     }
-    val showAccount = accountEntry.matches(search, "账户")
-    // 服务状态卡只在空搜索或查询词命中连接相关词时出现，不挤占具体设置的搜索结果。
-    val showServiceStatus = search.isBlank() ||
-        "服务连接 登录状态 门户 教务 学习通 验证".contains(search, ignoreCase = true)
-    val showLogout = loggedIn && (search.isBlank() || "退出登录 清除本机数据 账户".contains(search, ignoreCase = true))
-
-    BackHandler {
-        if (query.isNotEmpty()) { query = ""; focusManager.clearFocus() } else onBack()
+    val showAccount = false
+    val showServiceStatus = subPage == "账号与服务" || (subPage == null && !isDirectory &&
+        "服务连接 登录状态 门户 教务 学习通 验证".contains(search, ignoreCase = true))
+    val showLogout = subPage == null && loggedIn &&
+        (search.isBlank() || "退出登录 清除本机数据 账户".contains(search, ignoreCase = true))
+    val scrollState = key(subPage) { rememberScrollState() }
+    val backAction = {
+        when (SettingsNavigation.back(subPage, query)) {
+            SettingsBack.CLEAR_SEARCH -> { query = ""; focusManager.clearFocus() }
+            SettingsBack.DIRECTORY -> { subPage = null; openSection.value = null }
+            SettingsBack.EXIT -> onBack()
+        }
     }
+
+    BackHandler { backAction() }
     val density = LocalDensity.current
     val backThreshold = with(density) { 96.dp.toPx() }
     val backEdge = with(density) { 32.dp.toPx() }
@@ -456,11 +480,11 @@ fun SettingsScreen(
         Modifier
             .fillMaxSize()
             .background(pageBackground())
-            .pointerInput(onBack, backThreshold, backEdge) {
+            .pointerInput(backAction, backThreshold, backEdge) {
                 detectHorizontalDragGestures(
                     onDragStart = { backPx = if (it.x < backEdge) 0f else Float.NaN },
                     onDragEnd = {
-                        if (!backPx.isNaN() && backPx >= backThreshold) onBack()
+                        if (!backPx.isNaN() && backPx >= backThreshold) backAction()
                         backPx = Float.NaN
                     },
                     onDragCancel = { backPx = Float.NaN },
@@ -470,30 +494,42 @@ fun SettingsScreen(
             }
             .statusBarsPadding()
             .imePadding()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
             .padding(horizontal = AppUiTokens.PagePadding),
     ) {
         Spacer(Modifier.height(24.dp))
-        PageTitle(title = "设置", onBack = onBack)
+        PageTitle(title = subPage ?: "设置", onBack = backAction)
         SettingsSearchField(query = query, onQueryChange = { query = it })
-        if (showAccount) {
-            AccountIdentityCard(repo, onOpenProfile = onProfile)
-        }
-        if (showServiceStatus) {
-            ServiceStatusCard(repo, onReconnect = onReconnectService)
-        }
-        visibleGroups.forEach { group ->
-            key(group.title) {
-                SectionHeader(group.title)
-                SettingGroup {
-                    group.entries.forEach { entry ->
-                        key(entry.id) {
-                            SettingsPreference(entry)
-                            if (openSection.value == entry.id && entry.editor != null) {
-                                SettingEditor { entry.editor.invoke() }
-                            }
-                            if (entry.id == "sync" && syncError != null) {
-                                SettingEditor { Text(syncError, fontSize = 13.sp, color = ds.danger) }
+        if (!isDirectory && showAccount) AccountIdentityCard(repo, onOpenProfile = onProfile)
+        if (showServiceStatus) ServiceStatusCard(repo, onReconnect = onReconnectService)
+        if (isDirectory) {
+            SettingGroup {
+                groups.forEach { group ->
+                    val destination = group.title
+                    key(destination) {
+                        SettingsPreference(SettingsEntry(
+                            id = "category-$destination", title = destination,
+                            summary = SettingsNavigation.categories.single { it.title == destination }.summary,
+                            icon = group.entries.first().icon,
+                            onClick = { focusManager.clearFocus(); subPage = destination; query = ""; openSection.value = null },
+                        ))
+                    }
+                }
+            }
+        } else {
+            visibleGroups.forEach { group ->
+                key(group.title) {
+                    if (subPage == null) SectionHeader(group.title)
+                    SettingGroup {
+                        group.entries.forEach { entry ->
+                            key(entry.id) {
+                                SettingsPreference(entry)
+                                if (openSection.value == entry.id && entry.editor != null) {
+                                    SettingEditor { entry.editor.invoke() }
+                                }
+                                if (entry.id == "sync" && syncError != null) {
+                                    SettingEditor { Text(syncError, fontSize = 13.sp, color = ds.danger) }
+                                }
                             }
                         }
                     }
@@ -508,11 +544,11 @@ fun SettingsScreen(
                 ))
             }
         }
-        if (!showAccount && !showServiceStatus && visibleGroups.isEmpty() && !showLogout) {
+        if (!showAccount && !showServiceStatus && visibleGroups.isEmpty() && !showLogout && !isDirectory) {
             Text("没有找到相关设置", fontSize = 14.sp, color = secondary,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
         }
-        if (search.isBlank() || "GitHub 项目主页 star 支持 开源".contains(search, ignoreCase = true)) {
+        if (subPage == null && (search.isBlank() || "GitHub 项目主页 star 支持 开源".contains(search, ignoreCase = true))) {
             ProjectStarEntry()
         }
         Spacer(Modifier.navigationBarsPadding().height(110.dp))

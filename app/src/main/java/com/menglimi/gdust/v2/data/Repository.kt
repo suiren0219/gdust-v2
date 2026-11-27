@@ -53,6 +53,17 @@ class Store(context: Context) {
     }
 
     private val plain = app.getSharedPreferences("gdust_cache", Context.MODE_PRIVATE)
+    internal val schedules = ScheduleLibrary(
+        read = { plain.getString(ScheduleLibrary.KEY, null) },
+        write = { check(plain.edit().putString(ScheduleLibrary.KEY, it).commit()) { "课表保存失败，原数据已保留" } },
+    )
+    internal val selectedIndependentSchedule: IndependentSchedule? get() = runCatching { schedules.snapshot().selected }.getOrNull()
+    val isIndependentSchedule: Boolean get() = selectedIndependentSchedule != null
+    val currentScheduleName: String get() = selectedIndependentSchedule?.name ?: "学校课表"
+    internal fun importIndependentSchedule(document: String, revision: Long): IndependentSchedule = schedules.import(document, revision)
+    internal fun selectSchedule(id: String) = schedules.select(id)
+    internal fun exportCurrentSchedule(): String = selectedIndependentSchedule?.schedule?.document
+        ?: ScheduleShareCodec.export(loadCalendar(), loadBlocks(), currentScheduleName)
     internal var automaticSyncNeedsLogin: Boolean
         get() = plain.getBoolean("auto_sync_needs_login", false)
         set(value) { plain.edit().putBoolean("auto_sync_needs_login", value).apply() }
@@ -119,6 +130,15 @@ class Store(context: Context) {
         get() = "prn".s
         set(v) { "prn".s = v }
 
+    // Local MCP token is optional; the service always binds to loopback.
+    var localMcpToken: String
+        get() = "local_mcp_token".s
+        set(value) { "local_mcp_token".s = value.trim() }
+
+    var localMcpEnabled: Boolean
+        get() = secure.getBoolean("local_mcp_enabled", false)
+        set(value) { secure.edit().putBoolean("local_mcp_enabled", value).apply() }
+
     // LLM（用户自填，无内置默认）
     var llmBase: String
         get() = "lbase".s
@@ -132,25 +152,31 @@ class Store(context: Context) {
 
     // ── 课表缓存 ──
     fun saveCalendar(cal: CalendarInfo) = plain.edit().putString("calendar", gson.toJson(cal)).apply()
-    fun loadCalendar(): CalendarInfo? = plain.getString("calendar", null)?.let {
+    fun loadCalendar(): CalendarInfo? = selectedIndependentSchedule?.schedule?.calendar?.let { cal ->
+        val week = com.menglimi.gdust.v2.ui.schedule.ScheduleTimes.weekAt(java.time.LocalDate.parse(cal.startDate), java.time.LocalDate.now())
+        cal.copy(week = week.coerceIn(1, cal.allWeek))
+    } ?: loadSchoolCalendar()
+    internal fun loadSchoolCalendar(): CalendarInfo? = plain.getString("calendar", null)?.let {
         runCatching { gson.fromJson(it, CalendarInfo::class.java) }.getOrNull()
     }
 
-    val scheduleSource: String get() = plain.getString("schedule_source", "legacy") ?: "legacy"
+    val scheduleSource: String get() = if (isIndependentSchedule) "cloud_import" else schoolScheduleSource
+    internal val schoolScheduleSource: String get() = plain.getString("schedule_source", "legacy") ?: "legacy"
 
     fun saveBlocks(blocks: List<CourseBlock>, source: String = "portal_week") = plain.edit()
         .putString("blocks", gson.toJson(blocks))
         .putString("schedule_source", source)
         .apply()
 
-    fun loadBlocks(): List<CourseBlock> {
+    fun loadBlocks(): List<CourseBlock> = selectedIndependentSchedule?.schedule?.blocks ?: loadSchoolBlocks()
+    internal fun loadSchoolBlocks(): List<CourseBlock> {
         val t = object : TypeToken<List<CourseBlock>>() {}.type
         val blocks = runCatching {
             gson.fromJson<List<CourseBlock>>(plain.getString("blocks", "[]"), t)
         }.getOrDefault(emptyList())
-        if (scheduleSource != "legacy") return blocks
+        if (schoolScheduleSource != "legacy") return blocks
         // 旧版曾复制单周缓存：只有日期与真实周次一致的条目可以继续显示。
-        val start = runCatching { java.time.LocalDate.parse(loadCalendar()?.startDate) }.getOrNull()
+        val start = runCatching { java.time.LocalDate.parse(loadSchoolCalendar()?.startDate) }.getOrNull()
             ?: return emptyList()
         return blocks.filter { block ->
             val date = runCatching { java.time.LocalDate.parse(block.date) }.getOrNull()
@@ -308,18 +334,21 @@ class Store(context: Context) {
 
     // ── 学期日历设置：只校正日期映射，不生成课程 ──
     /** 学期第一周周一，YYYY-MM-DD；空=用校历 startTime。 */
+    internal val schoolTermStartDate: String get() = plain.getString("term_start", "") ?: ""
     var termStartDate: String
-        get() = plain.getString("term_start", "") ?: ""
+        get() = selectedIndependentSchedule?.schedule?.calendar?.startDate ?: schoolTermStartDate
         set(v) = plain.edit().putString("term_start", v).apply()
 
     /** 学期总周数；0=用校历 allWeek。 */
+    internal val schoolTermWeeks: Int get() = plain.getInt("term_weeks", 0)
     var termWeeks: Int
-        get() = plain.getInt("term_weeks", 0)
+        get() = selectedIndependentSchedule?.schedule?.calendar?.allWeek ?: schoolTermWeeks
         set(v) = plain.edit().putInt("term_weeks", v).apply()
 
     /** 手动指定当前周；0=用校历 week。 */
+    internal val schoolTermCurrentWeek: Int get() = plain.getInt("term_week", 0)
     var termCurrentWeek: Int
-        get() = plain.getInt("term_week", 0)
+        get() = if (isIndependentSchedule) loadCalendar()?.week ?: 1 else schoolTermCurrentWeek
         set(v) = plain.edit().putInt("term_week", v).apply()
 
     /** 壁纸：本机文件路径（空=不用壁纸）；模糊 dp；压暗 0~0.8。 */
@@ -523,7 +552,7 @@ class Store(context: Context) {
 
     fun observeSchedule(listener: () -> Unit): () -> Unit {
         val observer = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == null || key in setOf("blocks", "calendar", "last_sync_at")) listener()
+            if (key == null || key in setOf("blocks", "calendar", "last_sync_at", ScheduleLibrary.KEY)) listener()
         }
         plain.registerOnSharedPreferenceChangeListener(observer)
         return { plain.unregisterOnSharedPreferenceChangeListener(observer) }
@@ -623,12 +652,12 @@ class Store(context: Context) {
             "exportedAt" to System.currentTimeMillis(),
             "calendar" to plain.getString("calendar", null),
             "blocks" to plain.getString("blocks", null),
-            "schedule_source" to scheduleSource,
+            "schedule_source" to schoolScheduleSource,
             "todos" to plain.getString("todos", null),
             "samples" to plain.getString("samples", null),
-            "term_start" to termStartDate,
-            "term_weeks" to termWeeks,
-            "term_week" to termCurrentWeek,
+            "term_start" to schoolTermStartDate,
+            "term_weeks" to schoolTermWeeks,
+            "term_week" to schoolTermCurrentWeek,
             "start_tab" to startTab,
             "ui_style" to uiStyle,
             "monet_enabled" to monetEnabled,
@@ -822,7 +851,7 @@ class Repository(context: Context) {
                 }
             }
             checkSession()
-            val request = teachingProbeRequest(pageUrl, store.loadCalendar()) ?: run {
+            val request = teachingProbeRequest(pageUrl, store.loadSchoolCalendar()) ?: run {
                 // 连验证请求都构造不出来：无会话材料，不是明确拒绝。
                 applyServicePatch(SchoolService.TEACHING, version, null, ServiceAuthStatus.NOT_CONNECTED, null,
                     System.currentTimeMillis(), generation)
@@ -974,7 +1003,7 @@ class Repository(context: Context) {
 
     /** 校历：优先本机缓存；没有再找门户；都没有就给可操作提示。 */
     private suspend fun resolveCalendar(version: Long): CalendarInfo {
-        sessionGuard.withCurrent(version) { store.loadCalendar() }?.let { return it }
+        sessionGuard.withCurrent(version) { store.loadSchoolCalendar() }?.let { return it }
         val portal = portalSession()
         if (portal != null) {
             try {
@@ -1503,14 +1532,14 @@ class Repository(context: Context) {
         }
         val cal = sessionGuard.withCurrent(session.version) {
             raw.copy(
-                startDate = store.termStartDate.ifBlank { raw.startDate },
-                allWeek = if (store.termWeeks > 0) store.termWeeks else raw.allWeek,
-                week = if (store.termCurrentWeek > 0) store.termCurrentWeek else raw.week,
+                startDate = store.schoolTermStartDate.ifBlank { raw.startDate },
+                allWeek = if (store.schoolTermWeeks > 0) store.schoolTermWeeks else raw.allWeek,
+                week = if (store.schoolTermCurrentWeek > 0) store.schoolTermCurrentWeek else raw.week,
             )
         }
         // 已有真实学期课表时，门户快照不参与覆盖；更新应重新读取正方学期响应。
         val imported = sessionGuard.withCurrent(session.version) {
-            if (store.scheduleSource == "zf_term") requireNotNull(store.loadCalendar()) to store.loadBlocks()
+            if (store.schoolScheduleSource == "zf_term") requireNotNull(store.loadSchoolCalendar()) to store.loadSchoolBlocks()
             else null
         }
         if (imported != null) {

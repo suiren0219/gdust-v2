@@ -28,6 +28,8 @@ android {
         versionName = vName
     }
 
+    buildFeatures { buildConfig = true }
+
     signingConfigs {
         if (hasReleaseKey) {
             create("release") {
@@ -41,10 +43,12 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".research"
-            versionNameSuffix = "-debug"
+            applicationIdSuffix = ".mcptest"
+            versionNameSuffix = "-mcp-debug"
+            buildConfigField("int", "MCP_PORT", "26622")
         }
         release {
+            buildConfigField("int", "MCP_PORT", "26621")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

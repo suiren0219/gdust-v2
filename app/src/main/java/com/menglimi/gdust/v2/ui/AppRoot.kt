@@ -29,6 +29,7 @@ import com.menglimi.gdust.v2.ui.screens.LoginScreen
 import com.menglimi.gdust.v2.ui.screens.InfoDialog
 import com.menglimi.gdust.v2.ui.screens.PowerScreen
 import com.menglimi.gdust.v2.ui.screens.SettingsScreen
+import com.menglimi.gdust.v2.ui.screens.McpSettingsScreen
 import com.menglimi.gdust.v2.ui.screens.TermImportScreen
 import com.menglimi.gdust.v2.ui.screens.TodayScreen
 import com.menglimi.gdust.v2.ui.screens.TodoScreen
@@ -99,6 +100,10 @@ fun AppRoot(
     var showGrades by remember { mutableStateOf(false) }
     var showChxCourses by remember { mutableStateOf(false) }
     var showWidgets by remember { mutableStateOf(false) }
+    var showMcpSettings by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var showSchedules by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val settingsCategory = androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    val settingsPageState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var webReturnVersion by remember { mutableIntStateOf(0) }
     var schoolLoginMessage by remember { mutableStateOf<String?>(null) }
     val sessionVersion by repo.sessionVersion.collectAsState()
@@ -237,8 +242,8 @@ fun AppRoot(
                     throw java.net.SocketTimeoutException("读取课表超过 60 秒，已停止等待。")
                 }
                 if (repo.isCurrentSession(version) && result != null) {
-                    calendar = result.first
-                    blocks = result.second
+                    calendar = repo.store.loadCalendar()
+                    blocks = repo.store.loadBlocks()
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -324,6 +329,10 @@ fun AppRoot(
         showGrades = false
         showChxCourses = false
         showProfile = false
+        showMcpSettings = false
+        showSchedules = false
+        settingsCategory.value = null
+        settingsPageState.removeState("settings")
         showSettings.value = false
         loggedIn.value = false
         scope.launch {
@@ -391,6 +400,8 @@ fun AppRoot(
             showProfile -> "profile"
             showAbout -> "about"
             showWidgets -> "widgets"
+            showMcpSettings -> "mcp_settings"
+            showSchedules -> "schedule_library"
             showSettings.value -> "settings"
             showServices -> "services"
             !loggedIn.value -> "login"
@@ -406,6 +417,7 @@ fun AppRoot(
                     repo = repo,
                     onBack = { showWebImport = false },
                     onImported = { cal, list ->
+                        repo.store.selectSchedule(com.menglimi.gdust.v2.data.ScheduleCatalog.SCHOOL)
                         calendar = cal
                         blocks = list
                         showWebImport = false
@@ -472,6 +484,13 @@ fun AppRoot(
                 androidx.activity.compose.BackHandler { showWidgets = false }
                 WidgetPreviewScreen(onBack = { showWidgets = false })
             }
+            "mcp_settings" -> McpSettingsScreen(repo = repo, onBack = { showMcpSettings = false }, onImported = {
+                calendar = repo.store.loadCalendar(); blocks = repo.store.loadBlocks()
+                showMcpSettings = false; showSettings.value = false; tab.intValue = 1; loggedIn.value = true
+            })
+            "schedule_library" -> com.menglimi.gdust.v2.ui.screens.ScheduleLibraryScreen(repo, onBack = { showSchedules = false }, onSelected = {
+                calendar = repo.store.loadCalendar(); blocks = repo.store.loadBlocks()
+            })
             "services" -> CampusServicesScreen(
                 signedIn = hasAccount,
                 accountName = repo.store.realName,
@@ -489,7 +508,7 @@ fun AppRoot(
                 onPreview = { loggedIn.value = true },
                 onSchoolLogin = ::openSchoolLogin,
             )
-            "settings" -> SettingsScreen(
+            "settings" -> settingsPageState.SaveableStateProvider("settings") { SettingsScreen(
                 repo = repo,
                 syncError = syncError,
                 onSync = { sync() },
@@ -524,13 +543,16 @@ fun AppRoot(
                 },
                 onLogout = { logout() },
                 onReconnectService = ::openServiceLogin,
+                onOpenMcp = { showMcpSettings = true },
+                category = settingsCategory,
+                onSchedules = { showSchedules = true },
                 loggedIn = connections.hasRestorableSession || repo.store.hasSession ||
                     repo.hasTeachingSession() || repo.store.hasChxSession,
                 chxSessionSaved = chxSessionSaved,
                 openSection = openSection,
                 syncing = syncing,
-                onBack = { showSettings.value = false },
-            )
+                onBack = { showSettings.value = false; settingsCategory.value = null; settingsPageState.removeState("settings") },
+            ) }
             "main" -> MainScaffold(
                 repo = repo,
                 tab = tab.intValue,
@@ -549,7 +571,7 @@ fun AppRoot(
                 syncError = syncError,
                 onSwitchTerm = { sem ->
                     val cal = calendar
-                    if (cal != null && sem != cal.semester) {
+                    if (!repo.store.isIndependentSchedule && cal != null && sem != cal.semester) {
                         val updated = cal.copy(semester = sem)
                         repo.store.saveCalendar(updated)
                         calendar = updated
@@ -720,7 +742,7 @@ private fun MainScaffold(
                     onPrevWeek = {},
                     onNextWeek = {},
                     onSwitchTerm = onSwitchTerm,
-                    fullTermImported = repo.store.scheduleSource == "zf_term",
+                    fullTermImported = repo.store.scheduleSource in setOf("zf_term", "cloud_import"),
                     onImport = onImport,
                 )
                 2 -> PowerScreen(repo)

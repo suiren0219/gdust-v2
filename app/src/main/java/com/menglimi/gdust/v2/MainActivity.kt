@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -71,6 +72,10 @@ class MainActivity : ComponentActivity() {
             // 小部件打开本机内容可走 App 已有的预览模式，不要求教务会话仍然有效。
             val loggedIn = rememberSaveable { mutableStateOf(widgetRequest.value != null) }
             val checked = rememberSaveable { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                val enabled = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.repo.store.localMcpEnabled }
+                if (enabled) com.menglimi.gdust.v2.service.LocalMcpService.start(app)
+            }
             // 定位与 navigationVersion 一起下发，避免旧页面先消费请求后又被导航重建。
             val focusedTodo = rememberSaveable { mutableStateOf<Long?>(null) }
             val navigationVersion = rememberSaveable { mutableIntStateOf(0) }
