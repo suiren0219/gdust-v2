@@ -36,24 +36,24 @@ App 和课表、电量、待办三类九款桌面小部件使用同一套实底�
 
 ## 本地验证
 
-构建与单测使用本机 Gradle：
+构建与单测在仓库根目录运行：
 
 ```bash
-D:/android-sdk/gradle-dist/gradle-9.7.1/bin/gradle.bat -p D:/projects/gdust/gdust-v2 :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease --console=plain
+gradle :app:testProductionDebugUnitTest :app:testPreviewDebugUnitTest :app:assembleProductionRelease :app:assemblePreviewDebug
 ```
 
 `CZeroContrastTest` 覆盖日夜模式的主文字、辅助文字、状态卡对比度与卡面不透明性。业务回归继续运行原有课表、会话、成绩、待办和小部件测试。
 
-Debug 包提供 `CZeroPreviewActivity`，合成数据使用 `czero_preview_` 前缀偏好存储，与账号、课表、待办和电量真实缓存隔离。仅在 debug 清单注册，Release 不包含验收活动。可查看 `today/schedule/power/todo/history/widgets/settings/profile/about`；电量页使用未绑定态，不写假账号或发起绑定。
+CZero 预览只在 `preview` flavor 中通过 `PreviewApp` 和唯一 launcher 提供，`productionDebug` 已移除通用预览入口。预览包名为 `cn.edu.gdust.suiren.preview.mcptest`。合成数据使用 `czero_preview_` 前缀偏好存储，与账号、课表、待办和电量真实缓存隔离。可查看 `today/schedule/power/todo/history/widgets/settings/profile/about`；电量页使用未绑定态，不写假账号或发起绑定。
 
 ```bash
-adb -s emulator-5554 shell am start -f 0x24000000 -n com.menglimi.gdust.v2.research/com.menglimi.gdust.v2.debug.CZeroPreviewActivity --es screen today
+adb -s emulator-5554 shell am start -f 0x24000000 -n cn.edu.gdust.suiren.preview.mcptest/com.menglimi.gdust.v2.debug.CZeroPreviewActivity --es screen today
 ```
 
 `widget_render` 使用真实 Glance `compose()` 生成 RemoteViews，供外观检查，不触发生产 PendingIntent：
 
 ```bash
-adb -s emulator-5554 shell am start -f 0x24000000 -n com.menglimi.gdust.v2.research/com.menglimi.gdust.v2.debug.CZeroPreviewActivity --es screen widget_render --es kind power --es shape medium
+adb -s emulator-5554 shell am start -f 0x24000000 -n cn.edu.gdust.suiren.preview.mcptest/com.menglimi.gdust.v2.debug.CZeroPreviewActivity --es screen widget_render --es kind power --es shape medium
 ```
 
 `kind` 为 `schedule/power/todo`，`shape` 为 `wide/medium/tall`。共享模拟器验收前应先协调使用时段，并确认截图前台包名。

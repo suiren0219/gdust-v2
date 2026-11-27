@@ -7,7 +7,7 @@
 | 学习助手 | `cn.edu.gdust.suiren.learning` | 学习通正常网页登录、作业筛选、课程任务点进度、原网页详情、本机缓存 |
 | 宿舍电量 | `cn.edu.gdust.suiren.power` | 查询并选择已有房间、剩余电量、趋势与历史、后台查询、低电量和掉电通知 |
 
-学习助手与宿舍电量支持 Android 13 及以上，可以同时安装，也可以只安装所需的一个。应用数据、设置、账号会话分别隔离。整合前宿舍电量为 `0.1.8`（versionCode 9）；本次发布版本见关于页与 APK 元数据。
+学习助手与宿舍电量支持 Android 13 及以上，可以同时安装，也可以只安装所需的一个。应用数据、设置、账号会话分别隔离。当前版本候选为学习助手 `0.1.13`（versionCode 14）与宿舍电量 `0.1.9`（versionCode 10）；两份 Release APK 已构建并通过包名、版本、签名和 16 KiB 对齐检查，证书与历史附件一致；设备覆盖安装、数据保留及真实业务尚未验证，版本尚未发布。
 
 宿舍电量 0.1.3 增加本机加密快照备份恢复，隔离损坏统计/历史项及无效时区字段；0.1.6 修复升级后裁剪旧采样和账本字段遗漏；0.1.8 将查询策略改为仅标记本机读数“待更新”，不会因该设置自动联网。开机单次查询为独立开关且默认关闭。沿用旧包名、存储与签名；覆盖安装保留数据，卸载或清除数据会删除本机记录。
 
@@ -21,7 +21,7 @@
 
 设置中新增「桌面名称与图标」：支持相册选图、恢复默认、创建或更新自定义桌面快捷方式。默认图标复用主项目同一前景资源和暖奶油底；应用列表名称与安装标识不随快捷方式变化，包名始终保留 `gdust` 与 `suiren`。
 
-关于页署名为「穗稔 · suiren0219」，提供 GitHub 项目主页、发布页和手动检查更新。更新只识别本仓库中对应应用的 `learning-assistant-X.Y.Z[-preview].apk` 或 `dorm-power-X.Y.Z[-preview].apk` 附件，不将主项目或另一应用作为升级。浏览器负责下载，安装由用户确认；尚无对应附件时明确提示未发布。
+关于页署名为「穗稔 · suiren0219」，提供 GitHub 项目主页、发布页和手动检查更新。已发布 Release 中，学习助手附件必须使用与 APK `versionName` 完全对应的 `learning-assistant-X.Y.Z.apk` 名称，宿舍电量则使用 `dorm-power-X.Y.Z.apk`；例如当前源码候选对应 `learning-assistant-0.1.13.apk` 与 `dorm-power-0.1.9.apk`。`versionCode` 是安装包元数据，不写入附件名；预览附件仅在版本号后加 `-preview`。更新器只识别本仓库对应应用的匹配附件，不将主项目或另一应用作为升级。浏览器负责下载，安装由用户确认；尚无对应的已上传附件时明确提示未发布。
 
 ## 功能边界
 
@@ -44,19 +44,30 @@ independent-apps/
 
 两个 App 各自声明业务依赖，不通过同一个 APK 的构建变体隐藏另一功能。`standaloneApp` 属性进一步允许只配置一个 App 和对应核心库。
 
-使用 JDK 21、Gradle 9.7.1、Android SDK 37；Java 字节码目标 17，targetSdk 35。先在 `local.properties` 配置 SDK，或设置 `ANDROID_HOME`。
+使用 JDK 21、Gradle 9.7.1、Android SDK 37；Java 字节码目标 17，targetSdk 35。先在 `local.properties` 配置 SDK，或设置 `ANDROID_HOME`。本仓库没有 Gradle Wrapper；将 `GRADLE_HOME` 设为 Gradle 安装目录的绝对路径，然后在仓库根目录用 PowerShell 按绝对路径调用 `gradle.bat`：
 
-```bash
+```powershell
+$gradle = Join-Path $env:GRADLE_HOME 'bin\gradle.bat'
+
 # 仅学习助手，不加载电量核心或电量 App
- gradle -p independent-apps -PstandaloneApp=learning :chaoxing-core:test :learning-app:testDebugUnitTest :learning-app:assembleDebug :learning-app:assembleRelease
+& $gradle -p independent-apps -PstandaloneApp=learning :chaoxing-core:test :learning-app:testDebugUnitTest :learning-app:assembleDebug :learning-app:assembleRelease
 
 # 仅宿舍电量，不加载学习通核心或学习助手
- gradle -p independent-apps -PstandaloneApp=power :power-core:test :power-app:testDebugUnitTest :power-app:assembleDebug :power-app:assembleRelease
+& $gradle -p independent-apps -PstandaloneApp=power :power-core:test :power-app:testDebugUnitTest :power-app:assembleDebug :power-app:assembleRelease
 ```
 
-本机可用 `D:/android-sdk/gradle-dist/gradle-9.7.1/bin/gradle.bat` 替换 `gradle`。原仓库没有 Gradle wrapper，未伪造 wrapper 文件。
+主工程与学习助手共用 `chaoxing-core/build/`，两个独立 App 也共用 `ksu-ui` 的构建目录。主工程和两个独立 App 的 Gradle 调用须顺序执行，上一条结束后再启动下一条。
 
-Debug 包名带 `.debug` 后缀。Release 默认生成 unsigned 包；交付的 preview APK 在本机用 Android 开发测试证书单独签名，已经压缩，不含调试预览 Activity。正式发布前应固定专用发布证书；更换证书后无法直接覆盖测试签名版本。签名密钥、构建产物和本地配置不纳入版本控制。
+Debug 包名默认带 `.debug` 后缀。两个独立 App 都没有产品风味，`:assembleRelease` 直接构建 `release`，启用 R8 和资源压缩。签名配置有效时产物为：
+
+- 学习助手：`independent-apps/learning-app/build/outputs/apk/release/learning-app-release.apk`
+- 宿舍电量：`independent-apps/power-app/build/outputs/apk/release/power-app-release.apk`
+
+未提供 Release 签名配置时，产物在相同目录，文件名以 `-release-unsigned.apk` 结尾。签名通过本机 Gradle 用户配置提供 `releaseKeyStore`、`releaseStorePassword`、`releaseKeyAlias` 和 `releaseKeyPassword`，不将配置值、密钥或构建产物纳入版本控制。
+
+历史 `-preview` 附件是用别名为 `androiddebugkey` 的开发测试密钥签过的 Release APK，不是 Debug 产物。本轮两个独立 App 的 Release 已沿用历史附件的同一 `androiddebugkey` 密钥，公开证书摘要比对一致；设备原位升级与数据保留尚未实测。别名相同不等于证书相同，新生成的 `androiddebugkey` 不能替代历史密钥。
+
+实际产出 APK 才算已构建，完成 APK 签名才算已签名。发布前仍须核对包名、`versionName` 和 `versionCode`，用 `apksigner` 验签并与历史附件比对证书摘要，再实测覆盖安装及数据保留。只有核验后的签名 APK 附件已上传到已发布的 GitHub Release，才算已发布。
 
 ## 隐私和许可
 
@@ -66,4 +77,4 @@ Debug 包名带 `.debug` 后缀。Release 默认生成 unsigned 包；交付的 
 - 两个 App 均关闭系统备份。换绑、解绑和退出操作提供明确确认。
 - 项目遵循上级 [AGPL-3.0 LICENSE](../LICENSE) 和 [NOTICE.md](../NOTICE.md)。应用为个人学习项目，与广东科技学院、超星或完美校园官方无关。
 
-调试合成预览只用于验证界面与交互，明确标注“合成预览”，不是用户真实课程或电量。最终测试结果和未验证范围见 [QA.md](QA.md)。
+调试合成预览只用于验证界面与交互，明确标注“合成预览”，不是用户真实课程或电量。2026-11-17 / 0.1.0 的历史验收结果见 [QA.md](QA.md)；本轮候选结果与未验证范围见 [docs/FEATURES_AND_APIS.md](../docs/FEATURES_AND_APIS.md)。
