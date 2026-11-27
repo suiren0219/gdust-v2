@@ -25,13 +25,44 @@ class ChxApi internal constructor(private val execute: suspend (Request) -> Sess
         val trusted = ChxCourseApi.trustedCourseUrl(course.url, course.classId.toString(),
             course.courseId.toString(), course.cpi.toString())
             ?: throw ChxCourseReadException("课程入口无法识别，请在学习通网页查看。")
-        val page = readPage(trusted, ChxSso.HOME, "课程页", ::isCoursePage)
-        ChxWorkParser.readCourseTabs(page.body, course)
+        var page = readPage(trusted, ChxSso.HOME, "课程页", ::isCoursePage)
+        val visited = mutableSetOf<String>()
+        repeat(4) {
+            currentCoroutineContext().ensureActive()
+            if (!visited.add(page.url.toString())) throw ChxCourseReadException("课程正文出现循环跳转，请在网页查看。")
+            try {
+                return@withContext ChxWorkParser.readCourseTabs(page.body, course, page.url.toString())
+            } catch (failure: ChxCourseReadException) {
+                if (ChxWorkParser.missingField(failure) == null) throw failure
+                val next = ChxCourseNavigation.next(page.body, page.url, course)
+                    ?: throw ChxCourseReadException(failure.message.orEmpty() +
+                        "（落地 ${ChxReadDiagnostics.route(page.url, page.url.toString())}；${ChxCourseNavigation.describe(page.body)}）")
+                if (next.toString() in visited) {
+                    throw ChxCourseReadException("课程正文出现循环跳转，请在网页查看。")
+                }
+                if (it == 3) throw ChxCourseReadException("课程正文跳转次数过多，请在网页查看。")
+                // 只跟随页面明确声明且通过主机、路径及课程身份检查的正文入口，不执行脚本。
+                page = readPage(next.toString(), ChxSso.HOME, "课程正文", { candidate -> candidate == next })
+            }
+        }
+        throw ChxCourseReadException("课程正文跳转次数过多，请在网页查看。")
     }
 
     suspend fun workList(course: ChxWorkCourse, tabs: ChxWorkTabs): List<ChxWorkItem> = withContext(Dispatchers.IO) {
         val requestUrl = workListUrl(course, tabs)
-        val page = readPage(requestUrl.toString(), COURSE_PAGE, "作业列表", ::isWorkList)
+        val referer = tabs.coursePageUrl.takeIf { it.isNotBlank() }?.let { value ->
+            trustedUrl(value)?.takeIf { page ->
+                val identities = mapOf("courseid" to course.courseId, "clazzid" to course.classId,
+                    "classid" to course.classId, "cpi" to course.cpi)
+                page.queryParameterNames.all { key ->
+                    val expected = identities[key.lowercase()]
+                    expected == null || page.queryParameterValues(key).let { values ->
+                        values.size == 1 && values.single()?.toLongOrNull() == expected
+                    }
+                }
+            }?.toString() ?: throw ChxCourseReadException("作业来源课程页无法确认，请重新读取课程。")
+        } ?: COURSE_PAGE
+        val page = readPage(requestUrl.toString(), referer, "作业列表", ::isWorkList)
         ChxWorkParser.parseWorkList(page.body, course, page.url.toString())
     }
 
@@ -56,7 +87,7 @@ class ChxApi internal constructor(private val execute: suspend (Request) -> Sess
         repeat(5) {
             currentCoroutineContext().ensureActive()
             if (!visited.add(url.toString())) throw ChxCourseReadException("$stage 出现循环跳转，请在网页查看。")
-            val request = Request.Builder().url(url).header("User-Agent", ChxCourseApi.USER_AGENT)
+            val request = Request.Builder().url(url).header("User-Agent", USER_AGENT)
                 .apply { if (referer != null) header("Referer", referer) }.get().build()
             val response = ChxCourseApi.executeChecked(execute, request, "$stage 读取失败")
             if (response.status in setOf(301, 302, 303, 307, 308)) {
@@ -78,6 +109,9 @@ class ChxApi internal constructor(private val execute: suspend (Request) -> Sess
     }
 
     companion object {
+        // 作业协议来自桌面网页；手机 UA 可能返回不含签名隐藏域的移动壳页。
+        internal const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         private const val COURSE_PAGE = "https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu"
 
         /** 仅课程服务的两个精确主机；不放行任意超星子域，Cookie 仍由会话层逐 URL 读取。 */
@@ -85,15 +119,31 @@ class ChxApi internal constructor(private val execute: suspend (Request) -> Sess
             url.scheme == "https" && url.port == 443 && url.username.isEmpty() && url.password.isEmpty() &&
                 url.fragment == null && url.host in setOf("mooc1.chaoxing.com", "mooc2-ans.chaoxing.com")
 
-        private fun isCoursePage(url: HttpUrl): Boolean =
+        internal fun isWorkList(url: HttpUrl): Boolean = url.host == "mooc1.chaoxing.com" &&
+            url.encodedPath in setOf("/mooc2/work/list", "/mooc-ans/mooc2/work/list",
+                "/mooc2/work/list.html", "/mooc-ans/mooc2/work/list.html")
+
+        internal fun isCoursePage(url: HttpUrl): Boolean =
             (url.host == "mooc1.chaoxing.com" && url.encodedPath == "/visit/stucoursemiddle") ||
                 (url.host == "mooc2-ans.chaoxing.com" && url.encodedPath == "/mooc2-ans/mycourse/stu")
 
-        private fun isWorkList(url: HttpUrl): Boolean = url.host == "mooc1.chaoxing.com" &&
-            url.encodedPath in setOf("/mooc2/work/list", "/mooc-ans/mooc2/work/list")
-
         internal fun isWorkDetail(url: HttpUrl): Boolean = url.host == "mooc1.chaoxing.com" &&
             url.encodedPath in setOf("/mooc2/work/task", "/mooc-ans/mooc2/work/task")
+
+        /** Only resolve the literal relative task path emitted by the trusted work-list page. */
+        internal fun workDetailTarget(base: HttpUrl, value: String): HttpUrl? {
+            val reference = runCatching { URI(value) }.getOrNull() ?: return null
+            val listPaths = setOf("/mooc2/work/list", "/mooc-ans/mooc2/work/list",
+                "/mooc2/work/list.html", "/mooc-ans/mooc2/work/list.html")
+            val resolutionBase = if (reference.scheme == null && reference.rawAuthority == null &&
+                reference.rawPath == "work/task" && base.host == "mooc1.chaoxing.com" &&
+                base.encodedPath in listPaths) base.resolve("../") ?: return null else base
+            val target = redirectTarget(resolutionBase, value)?.takeIf(::isWorkDetail) ?: return null
+            if (reference.scheme == null && reference.rawAuthority == null && reference.rawPath == "work/task" &&
+                (target.queryParameter("workId") == null || target.queryParameter("answerId") == null ||
+                    target.queryParameter("enc").isNullOrBlank())) return null
+            return target
+        }
 
         /** URI 检查避免 HttpUrl 规范化掩盖用户信息、反斜线、路径穿越等非协议地址。 */
         internal fun trustedUrl(value: String): HttpUrl? {
@@ -132,16 +182,23 @@ class ChxApi internal constructor(private val execute: suspend (Request) -> Sess
                 base.encodedPath !in setOf("/", "/mooc-ans", "/mooc-ans/")) {
                 throw ChxCourseReadException("课程页的作业服务地址无法识别，请在学习通网页查看。")
             }
-            val raw = tabs.moocDomain.trimEnd('/') + "/mooc2/work/list"
+            val raw = tabs.workListEndpoint.takeIf { it.isNotBlank() }
+                ?: tabs.moocDomain.trimEnd('/') + "/mooc2/work/list"
             val url = trustedUrl(raw)?.takeIf(::isWorkList)
-                ?: throw ChxCourseReadException("课程页的作业服务地址无法识别，请在学习通网页查看。")
-            return url.newBuilder()
-                .addQueryParameter("courseId", course.courseId.toString())
-                .addQueryParameter("classId", course.classId.toString())
-                .addQueryParameter("cpi", course.cpi.toString())
-                .addQueryParameter("ut", "s").addQueryParameter("t", tabs.t)
-                .addQueryParameter("stuenc", tabs.enc).addQueryParameter("enc", tabs.workEnc)
-                .build()
+                ?: throw ChxCourseReadException("课程页的作业服务地址无法识别，请在网页查看。")
+            val parameters = linkedMapOf("courseId" to course.courseId.toString(),
+                "classId" to course.classId.toString(), "cpi" to course.cpi.toString(),
+                "ut" to "s", "t" to tabs.t, "stuenc" to tabs.enc, "enc" to tabs.workEnc)
+            if (url.queryParameterNames.any { name ->
+                    name !in parameters || url.queryParameterValues(name) != listOf(parameters.getValue(name))
+                }) {
+                throw ChxCourseReadException("课程页作业入口参数存在冲突，请重新读取课程。")
+            }
+            val builder = url.newBuilder()
+            parameters.forEach { (name, value) ->
+                if (name !in url.queryParameterNames) builder.addQueryParameter(name, value)
+            }
+            return builder.build()
         }
 
         /** 纯判定便于回归：200/非登录 HTML 本身不是有效会话证据。 */

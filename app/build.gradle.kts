@@ -16,7 +16,7 @@ android {
     compileSdk = 37
 
     // 版本标识单一来源：versionName 直接带构建号，装的是不是最新一眼可见
-    val vCode = 25
+    val vCode = 26
     val vName = "2.0.0-alpha.$vCode"
 
     defaultConfig {
@@ -26,16 +26,26 @@ android {
         targetSdk = 35
         versionCode = vCode
         versionName = vName
+        buildConfigField("boolean", "PREVIEW_TARGET", "false")
+        buildConfigField("boolean", "MCP_ENABLED", "true")
     }
 
-    // 独立安装的离线预览 flavor：复用 debug build type（Compose、assets 与 test）。
+    // 正式应用与隔离离线预览分别构建，预览包不生成 Release。
     flavorDimensions += "previewTarget"
     productFlavors {
+        create("production") {
+            dimension = "previewTarget"
+            buildConfigField("boolean", "PREVIEW_TARGET", "false")
+            buildConfigField("boolean", "MCP_ENABLED", "true")
+        }
         create("preview") {
             dimension = "previewTarget"
             applicationIdSuffix = ".preview"
+            buildConfigField("boolean", "PREVIEW_TARGET", "true")
+            buildConfigField("boolean", "MCP_ENABLED", "false")
         }
     }
+    buildFeatures { buildConfig = true }
 
     signingConfigs {
         if (hasReleaseKey) {
@@ -56,10 +66,12 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".research"
-            versionNameSuffix = "-debug"
+            applicationIdSuffix = ".mcptest"
+            versionNameSuffix = "-mcp-debug"
+            buildConfigField("int", "MCP_PORT", "26622")
         }
         release {
+            buildConfigField("int", "MCP_PORT", "26621")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -116,6 +128,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation(project(":chaoxing-core"))
     // 学习通作业页是服务端渲染 HTML：用 Jsoup 解析（纯 Java，单测也能跑）
     implementation("org.jsoup:jsoup:1.17.2")
     // 只取二维码矩阵生成（Canvas 自绘，不引完整扫码 SDK）

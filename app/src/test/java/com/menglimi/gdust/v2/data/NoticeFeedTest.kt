@@ -44,7 +44,7 @@ class NoticeFeedTest {
     }
 
     @Test
-    fun sameSourceFailureKeepsLastSuccessAndItsTimestamp() = Fixture().use { f ->
+    fun sameSourceFailureKeepsLastSuccessAndItsTimestamp() = Fixture(mutableMapOf()).use { f ->
         f.feed.refresh(f.scope, NoticeSource.CAMPUS)
         val previous = notice("虚构官网新闻")
         f.requests[0].complete(listOf(previous))
@@ -57,6 +57,8 @@ class NoticeFeedTest {
         assertEquals(1_000L, f.feed.state.value.updatedAt)
         assertEquals("网络连接失败，请检查网络后重试。", f.feed.state.value.error)
         assertFalse(f.feed.state.value.loading)
+        assertEquals(DataSnapshot(listOf(previous), 1_000L), f.snapshot(NoticeSource.CAMPUS))
+        assertEquals(1, f.savedSnapshots.size)
     }
 
     @Test
@@ -124,12 +126,15 @@ class NoticeFeedTest {
     }
 
     @Test
-    fun sessionChangeBeforeRefreshCannotPublishAnOldResponse() = Fixture().use { f ->
+    fun sessionChangeBeforeRefreshCannotPublishAnOldResponse() = Fixture(mutableMapOf()).use { f ->
         f.feed.refresh(f.scope)
         f.session = f.session!!.copy(version = 2L)
+        assertFalse(f.requests[0].job.isCancelled)
         f.requests[0].complete(listOf(notice("会话失效后的结果")))
         assertTrue(f.feed.state.value.notices.isEmpty())
         assertEquals(0L, f.feed.state.value.updatedAt)
+        assertTrue(f.savedSnapshots.isEmpty())
+        assertNull(f.snapshot(NoticeSource.PORTAL))
         f.feed.clear()
         assertEquals(NoticeFeedState(), f.feed.state.value)
     }
@@ -164,7 +169,7 @@ class NoticeFeedTest {
     }
 
     @Test
-    fun validEmptyResponseIsSuccessfulAndReplacesPreviousResults() = Fixture().use { f ->
+    fun validEmptyResponseIsSuccessfulAndReplacesPreviousResults() = Fixture(mutableMapOf()).use { f ->
         f.feed.refresh(f.scope)
         f.requests[0].complete(listOf(notice("旧结果")))
         f.now = 2_000L
@@ -174,6 +179,10 @@ class NoticeFeedTest {
         assertEquals(2_000L, f.feed.state.value.updatedAt)
         assertNull(f.feed.state.value.error)
         assertFalse(f.feed.state.value.loading)
+        val snapshot = DataSnapshot(emptyList<Notice>(), 2_000L)
+        assertEquals(snapshot, f.snapshot(NoticeSource.PORTAL))
+        assertEquals(NoticeSource.PORTAL to snapshot, f.savedSnapshots.last())
+        assertEquals(2, f.savedSnapshots.size)
     }
 
     @Test
@@ -234,7 +243,7 @@ class NoticeFeedTest {
     }
 
     @Test
-    fun selectingAnotherSourceCancelsRefreshAndLateResponseCannotReplaceCache() = Fixture().use { f ->
+    fun selectingAnotherSourceCancelsRefreshAndLateResponseCannotReplaceCache() = Fixture(mutableMapOf()).use { f ->
         val previous = notice("上次成功公告")
         f.feed.refresh(f.scope, NoticeSource.ACADEMIC)
         f.requests[0].complete(listOf(previous))
@@ -250,6 +259,8 @@ class NoticeFeedTest {
         assertEquals(listOf(previous), f.feed.state.value.notices)
         assertEquals(1_000L, f.feed.state.value.updatedAt)
         assertNull(f.feed.state.value.error)
+        assertEquals(DataSnapshot(listOf(previous), 1_000L), f.snapshot(NoticeSource.ACADEMIC))
+        assertEquals(1, f.savedSnapshots.size)
     }
 
     @Test
@@ -327,16 +338,177 @@ class NoticeFeedTest {
         assertEquals(3, f.requests.size)
     }
 
+    @Test
+    fun recreatedFeedRestoresPersistentSnapshotsAndTheirTimestampsWithoutFetching() {
+        val snapshots = mutableMapOf<Pair<String, NoticeSource>, DataSnapshot<List<Notice>>>()
+        val sources = listOf(NoticeSource.PORTAL, NoticeSource.CAMPUS, NoticeSource.ACADEMIC)
+        Fixture(snapshots).use { f ->
+            sources.forEachIndexed { index, source ->
+                f.now = (index + 1) * 1_000L
+                f.feed.refresh(f.scope, source)
+                f.requests[index].complete(listOf(notice("${source.name}的持久通知", 500L)))
+            }
+            assertEquals(3, f.savedSnapshots.size)
+        }
+        Fixture(snapshots).use { f ->
+            f.feed.restoreInitial()
+            sources.forEachIndexed { index, source ->
+                f.feed.select(source)
+                assertEquals(
+                    NoticeFeedState(
+                        source = source,
+                        notices = listOf(notice("${source.name}的持久通知", 500L)),
+                        updatedAt = (index + 1) * 1_000L,
+                    ),
+                    f.feed.state.value,
+                )
+            }
+            assertTrue(f.requests.isEmpty())
+            assertTrue(f.savedSnapshots.isEmpty())
+        }
+    }
+
+    @Test
+    fun initialSameSourceSelectionRestoresSnapshotBeforeAnyRefresh() {
+        val previous = notice("首帧门户缓存")
+        val snapshots = mutableMapOf(
+            ("test-account-a" to NoticeSource.PORTAL) to DataSnapshot(listOf(previous), 750L),
+        )
+        Fixture(snapshots).use { f ->
+            f.feed.select(NoticeSource.PORTAL)
+            assertEquals(NoticeFeedState(notices = listOf(previous), updatedAt = 750L), f.feed.state.value)
+            assertTrue(f.requests.isEmpty())
+            assertTrue(f.savedSnapshots.isEmpty())
+        }
+    }
+
+    @Test
+    fun nullSessionRestoresPublicSnapshotWithoutFetchingOrSaving() {
+        val previous = notice("未登录时的公开缓存")
+        val snapshots = mutableMapOf(
+            ("public" to NoticeSource.ACADEMIC) to DataSnapshot(listOf(previous), 750L),
+        )
+        Fixture(snapshots).use { f ->
+            f.session = null
+            f.feed.restoreInitial(NoticeSource.ACADEMIC)
+            assertEquals(
+                NoticeFeedState(source = NoticeSource.ACADEMIC, notices = listOf(previous), updatedAt = 750L),
+                f.feed.state.value,
+            )
+            f.feed.select(NoticeSource.ACADEMIC)
+            assertEquals(listOf(previous), f.feed.state.value.notices)
+            assertTrue(f.requests.isEmpty())
+            assertTrue(f.savedSnapshots.isEmpty())
+        }
+    }
+
+    @Test
+    fun restoredSnapshotSurvivesRefreshFailureWithoutChangingItsTimestampOrBeingSavedAgain() {
+        val previous = notice("恢复后刷新失败的通知")
+        val snapshot = DataSnapshot(listOf(previous), 750L)
+        val snapshots = mutableMapOf(
+            ("test-account-a" to NoticeSource.PORTAL) to snapshot,
+        )
+        Fixture(snapshots).use { f ->
+            f.now = 2_000L
+            f.feed.restoreInitial()
+            f.feed.refresh(f.scope)
+            assertEquals(listOf(previous), f.feed.state.value.notices)
+            assertEquals(750L, f.feed.state.value.updatedAt)
+            f.requests[0].fail(IOException("synthetic-offline"))
+            assertEquals(listOf(previous), f.feed.state.value.notices)
+            assertEquals(750L, f.feed.state.value.updatedAt)
+            assertEquals("网络连接失败，请检查网络后重试。", f.feed.state.value.error)
+            assertFalse(f.feed.state.value.loading)
+            assertEquals(snapshot, f.snapshot(NoticeSource.PORTAL))
+            assertTrue(f.savedSnapshots.isEmpty())
+        }
+    }
+
+    @Test
+    fun emptyPersistentSnapshotRestoresItsSuccessfulTimestamp() {
+        val snapshots = mutableMapOf(
+            ("test-account-a" to NoticeSource.PORTAL) to DataSnapshot(emptyList<Notice>(), 750L),
+        )
+        Fixture(snapshots).use { f ->
+            f.feed.restoreInitial()
+            assertEquals(NoticeFeedState(updatedAt = 750L), f.feed.state.value)
+            assertTrue(f.requests.isEmpty())
+            assertTrue(f.savedSnapshots.isEmpty())
+        }
+    }
+
+    @Test
+    fun switchingAccountsRestoresTheirOwnSnapshotsAndLateResponsesCannotWriteIntoEitherAccount() {
+        val previousA = notice("账号A持久通知")
+        val previousB = notice("账号B持久通知")
+        val snapshotA = DataSnapshot(listOf(previousA), 750L)
+        val snapshotB = DataSnapshot(listOf(previousB), 850L)
+        val snapshots = mutableMapOf(
+            ("test-account-a" to NoticeSource.PORTAL) to snapshotA,
+            ("test-account-b" to NoticeSource.PORTAL) to snapshotB,
+        )
+        Fixture(snapshots).use { f ->
+            val accountA = f.session
+            f.feed.restoreInitial()
+            assertEquals(listOf(previousA), f.feed.state.value.notices)
+            f.feed.refresh(f.scope)
+            f.session = PortalSession("test-account-b", "synthetic-token-b", 2L)
+            f.feed.select(NoticeSource.PORTAL)
+            assertTrue(f.requests[0].job.isCancelled)
+            assertEquals(NoticeFeedState(notices = listOf(previousB), updatedAt = 850L), f.feed.state.value)
+            f.requests[0].complete(listOf(notice("账号A迟到通知")))
+            assertEquals(snapshotB, f.snapshot(NoticeSource.PORTAL))
+            assertEquals(listOf(previousB), f.feed.state.value.notices)
+            assertTrue(f.savedSnapshots.isEmpty())
+            f.session = accountA
+            f.feed.select(NoticeSource.PORTAL)
+            assertEquals(NoticeFeedState(notices = listOf(previousA), updatedAt = 750L), f.feed.state.value)
+            assertEquals(snapshotA, f.snapshot(NoticeSource.PORTAL))
+            assertEquals(1, f.requests.size)
+        }
+    }
+
+    @Test
+    fun refreshAndRestoreApplySameProjectionWhilePersistingUnfilteredOriginals() {
+        val raw = listOf(notice("校长到学院调研", 3_000L), notice("考试缴费通知", 2_000L),
+            notice(" 考试缴费通知 ", 1_500L), notice("另一条办事通知", 1_000L))
+        NoticeSource.entries.forEach { source ->
+            val expected = if (source == NoticeSource.CAMPUS) listOf(raw[1], raw[3])
+                else listOf(raw[0], raw[1], raw[3])
+            val snapshots = mutableMapOf<Pair<String, NoticeSource>, DataSnapshot<List<Notice>>>()
+            Fixture(snapshots).use { f ->
+                f.feed.refresh(f.scope, source)
+                f.requests[0].complete(raw)
+                assertEquals(expected, f.feed.state.value.notices)
+                assertEquals(raw, f.snapshot(source)?.data)
+            }
+            Fixture(snapshots).use { f ->
+                f.feed.restoreInitial(source)
+                assertEquals(expected, f.feed.state.value.notices)
+                assertEquals(raw, f.snapshot(source)?.data)
+                assertTrue(f.savedSnapshots.isEmpty())
+                f.feed.refresh(f.scope)
+                f.requests[0].fail(AuthFailed(401, "synthetic-expired"))
+                assertEquals(expected, f.feed.state.value.notices)
+                assertEquals(1_000L, f.feed.state.value.updatedAt)
+            }
+        }
+    }
+
     private fun notice(title: String, time: Long = 1_000L) = Notice(
         title, "https://app.dingtalk.com/blackboard/h5/listNotice", "门户通知", "示例部门", time,
     )
 
     /** 手动恢复的非取消挂起点模拟忽略取消的 I/O，无需真实等待或 coroutines-test。 */
-    private class Fixture : Closeable {
+    private class Fixture(
+        private val snapshots: MutableMap<Pair<String, NoticeSource>, DataSnapshot<List<Notice>>>? = null,
+    ) : Closeable {
         var session: PortalSession? = PortalSession("test-account-a", "synthetic-token-a", 1L)
         var now = 1_000L
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val requests = mutableListOf<Pending>()
+        val savedSnapshots = mutableListOf<Pair<NoticeSource, DataSnapshot<List<Notice>>>>()
         val feed = NoticeFeed(
             currentSession = { session },
             fetch = { session, source ->
@@ -348,7 +520,22 @@ class NoticeFeedTest {
                 suspendCoroutine { continuation -> requests += Pending(null, NoticeSource.ACADEMIC, job, continuation) }
             },
             clock = { now },
+            loadSnapshot = { source -> snapshot(source) },
+            saveSnapshot = { source, snapshot ->
+                if (snapshots != null) {
+                    savedSnapshots += source to snapshot
+                    snapshotKey(source)?.let { snapshots[it] = snapshot }
+                }
+            },
         )
+
+        fun snapshot(source: NoticeSource): DataSnapshot<List<Notice>>? =
+            snapshotKey(source)?.let { snapshots?.get(it) }
+
+        private fun snapshotKey(source: NoticeSource): Pair<String, NoticeSource>? {
+            val owner = if (source == NoticeSource.ACADEMIC) "public" else session?.account ?: return null
+            return owner to source
+        }
 
         override fun close() {
             feed.clear()

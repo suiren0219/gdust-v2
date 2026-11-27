@@ -1,6 +1,12 @@
 package com.menglimi.gdust.v2.data
 
 import android.webkit.CookieManager
+import com.menglimi.chaoxing.ChxCookieWriteException
+import com.menglimi.chaoxing.ChxHttpExchange
+import com.menglimi.chaoxing.ChxResponse
+import com.menglimi.chaoxing.requestPause
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -20,7 +26,13 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-internal data class SessionResponse(val status: Int, val body: String, val location: String?)
+internal data class SessionResponse(
+    val status: Int,
+    val body: String,
+    val location: String?,
+    val retryAfter: String? = null,
+    val serverDate: String? = null,
+)
 
 /** 只向调用方许可的地址发送会话；跳转交业务层判断，取消时关闭请求与响应流。 */
 internal class SessionHttpClient(
@@ -28,15 +40,30 @@ internal class SessionHttpClient(
     private val checkSession: () -> Unit,
     private val cookieJar: CookieJar? = null,
     private val webCookieMutex: Mutex = Mutex(),
+    private val chxRequests: ChxRequestControl? = null,
+    private val requestOwner: Any = Any(),
+    private val chxBeforeRecovery: (suspend () -> Unit)? = null,
+    clientBuilder: OkHttpClient.Builder = OkHttpClient.Builder(),
 ) {
-    private val client = OkHttpClient.Builder()
+    private val client = clientBuilder
         .followRedirects(false).followSslRedirects(false)
+        .retryOnConnectionFailure(chxRequests == null)
         .cookieJar(cookieJar ?: CookieJar.NO_COOKIES)
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
         .callTimeout(45, TimeUnit.SECONDS).build()
+    private val chxExchange = if (chxRequests != null && chxBeforeRecovery != null) {
+        ChxHttpExchange(client, checkSession, beforeRecovery = chxBeforeRecovery) { response ->
+            // 只锁存响应；业务暂停须等同一响应的 Cookie 写回后由闸门抛出。
+            chxRequests.recordResponse(requestOwner, response.toSessionResponse())
+        }
+    } else null
 
     suspend fun execute(request: Request): SessionResponse {
         require(allowedUrl(request.url)) { "不支持的服务地址" }
+        return chxRequests?.execute(requestOwner, checkSession) { executeOnce(request) } ?: executeOnce(request)
+    }
+
+    private suspend fun executeOnce(request: Request): SessionResponse {
         checkSession()
         val authenticated = if (cookieJar == null) withContext(Dispatchers.Main.immediate) {
             webCookieMutex.withLock {
@@ -46,8 +73,10 @@ internal class SessionHttpClient(
                     .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }.build()
             }
         } else request.newBuilder().removeHeader("Cookie").build()
-        val response = client.newCall(authenticated).readResponse()
-        if (cookieJar == null && response.cookies.isNotEmpty()) {
+        val response = chxExchange?.execute(authenticated)?.let { result ->
+            Received(result.response.toSessionResponse(), result.cookies)
+        } ?: client.newCall(authenticated).readResponse()
+        if (cookieJar == null && response.cookies.isNotEmpty()) saveSessionResponseCookies(response.result, chxRequests != null) {
             withContext(NonCancellable + Dispatchers.Main.immediate) {
                 webCookieMutex.withLock {
                     checkSession()
@@ -57,8 +86,11 @@ internal class SessionHttpClient(
                         response.cookies.forEach { cookie ->
                             checkSession()
                             suspendCancellableCoroutine<Unit> { continuation ->
-                                manager.setCookie(request.url.toString(), cookie) {
-                                    if (continuation.isActive) continuation.resume(Unit)
+                                manager.setCookie(request.url.toString(), cookie) { accepted ->
+                                    if (continuation.isActive) {
+                                        if (accepted == true) continuation.resume(Unit)
+                                        else continuation.resumeWithException(IOException("网页会话更新失败，请重试。"))
+                                    }
                                 }
                             }
                         }
@@ -74,6 +106,8 @@ internal class SessionHttpClient(
 
     private data class Received(val result: SessionResponse, val cookies: List<String>)
 
+    private fun ChxResponse.toSessionResponse() = SessionResponse(status, body, location, retryAfter, serverDate)
+
     private suspend fun Call.readResponse(): Received = suspendCancellableCoroutine { continuation ->
         continuation.invokeOnCancellation { cancel() }
         enqueue(object : Callback {
@@ -85,17 +119,36 @@ internal class SessionHttpClient(
                 try {
                     val result = response.use {
                         // 列表响应过大通常是非预期页面；不要截断后当作成功的空列表。
-                        val body = it.peekBody(4L * 1024 * 1024 + 1).bytes()
-                        check(body.size <= 4 * 1024 * 1024) { "服务返回的数据过大，请在网页查看" }
-                        val charset = it.body?.contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8
-                        Received(SessionResponse(it.code, body.toString(charset), it.header("Location")),
-                            it.headers("Set-Cookie"))
+                        val limited = it.code == 429 && chxRequests != null
+                        val limit = if (limited) 64 * 1024 else 4 * 1024 * 1024
+                        // 429 即使正文读取失败也须交给闸门锁存；限长正文仍参与验证码识别。
+                        val body = if (limited) runCatching { it.peekBody(limit.toLong()).bytes() }.getOrDefault(byteArrayOf())
+                            else it.peekBody(limit.toLong() + 1).bytes().also { bytes ->
+                                check(bytes.size <= limit) { "服务返回的数据过大，请在网页查看" }
+                            }
+                        val charset = runCatching { it.body?.contentType()?.charset(Charsets.UTF_8) }.getOrNull() ?: Charsets.UTF_8
+                        Received(SessionResponse(it.code, body.toString(charset), it.header("Location"),
+                            it.header("Retry-After"), it.header("Date")), it.headers("Set-Cookie"))
                     }
+                    chxRequests?.recordResponse(requestOwner, result.result)
                     if (continuation.isActive) continuation.resume(result)
                 } catch (e: Exception) {
                     if (continuation.isActive) continuation.resumeWithException(e)
                 }
             }
         })
+    }
+}
+
+/** 写入失败不能遮蔽同一响应的验证码/429，外部取消仍原样传播。 */
+internal suspend fun saveSessionResponseCookies(response: SessionResponse, chx: Boolean, save: suspend () -> Unit) {
+    try {
+        save()
+    } catch (failure: Exception) {
+        if (failure is CancellationException && failure !is TimeoutCancellationException) throw failure
+        if (!chx) throw failure
+        val stopped = response.toChxResponse().requestPause()
+        throw ChxCookieWriteException(verificationRequired = stopped?.verificationRequired == true,
+            retryAt = stopped?.retryAt ?: 0).apply { initCause(failure) }
     }
 }

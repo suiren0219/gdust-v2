@@ -284,6 +284,26 @@ class ChxCourseApiTest {
         assertFalse(result.progressError.orEmpty().contains("private transport details"))
     }
 
+    @Test fun cookieCommitFailureAtEveryRequestNeverBecomesPartialSuccess() {
+        for (failAt in 1..3) {
+            val failure = ChxCookieWriteException(verificationRequired = true, retryAt = 30_000L)
+            var calls = 0
+            val result = assertThrows(ChxCookieWriteException::class.java) {
+                runBlocking {
+                    ChxCourseApi.loadWith {
+                        calls++
+                        if (calls == failAt) throw failure
+                        ChxResponse(200, if (calls == 1) homepage else coursePage(courseRow()))
+                    }
+                }
+            }
+            assertSame(failure, result)
+            assertEquals(failAt, calls)
+            assertTrue(result.verificationRequired)
+            assertEquals(30_000L, result.retryAt)
+        }
+    }
+
     @Test fun cancellationAtEveryRequestIsRethrown() {
         for (cancelAt in 1..3) {
             val cancelled = CancellationException("测试取消")

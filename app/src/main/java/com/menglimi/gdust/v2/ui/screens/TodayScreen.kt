@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -83,6 +84,7 @@ fun TodayScreen(
     hasImportedSchedule: Boolean = blocks.isNotEmpty(),
     serviceSummary: String = "",
     onServices: (() -> Unit)? = null,
+    scheduleSource: String = "legacy",
 ) {
     val now by rememberTodayMinuteClock()
     var shortcutTarget by remember { mutableStateOf<CampusService?>(null) }
@@ -102,10 +104,20 @@ fun TodayScreen(
         datedBlocks.filter { (block, date) ->
             if (date != null) date == today
             else currentWeek != null && block.week == currentWeek && block.day == today.dayOfWeek.value
-        }.map { (block, _) -> TodayCourse(block) }.sortedBy { it.block.startSection }
+        }.map { it.first }
+            .distinctBy { listOf(it.name.trim(), it.room.trim(), it.teacher.trim(), it.startSection, it.endSection) }
+            .map { TodayCourse(it) }
+            .sortedBy { it.block.startSection }
     }
     val missingDates = currentWeek == null && datedBlocks.any { it.second == null }
     val imported = hasImportedSchedule || blocks.isNotEmpty()
+    val todayWeekStart = today.minusDays((today.dayOfWeek.value - 1).toLong())
+    val cachedWeekCoversToday = datedBlocks.any { (block, date) ->
+        if (date != null) date.minusDays((date.dayOfWeek.value - 1).toLong()) == todayWeekStart
+        else currentWeek != null && block.week == currentWeek
+    }
+    // 整学期导入可以确认空课日；单周缓存只能说明它实际覆盖的那一周。
+    val coverageMissing = imported && scheduleSource != "zf_term" && !cachedWeekCoversToday
     val store = remember(repo) { repo.store }
     var todos by remember(store) { mutableStateOf(store.loadTodos()) }
     DisposableEffect(store) {
@@ -203,38 +215,32 @@ fun TodayScreen(
             }
             todayCourses.isEmpty() -> item(key = "today-empty") {
                 TodayEmptyCard(
-                    title = if (missingDates) "课表日期待确认" else "今天没有课程",
-                    message = if (missingDates) "部分课程缺少日期，请检查课表中的学期设置。"
-                    else "已导入的课表中没有今日安排，可以查看其他日期的课程。",
-                    action = "查看课表",
-                    onAction = onOpenSchedule,
+                    title = when {
+                        missingDates -> "课表日期待确认"
+                        coverageMissing -> "今日课表尚未同步"
+                        else -> "今天没有课程"
+                    },
+                    message = when {
+                        missingDates -> "部分课程缺少日期，请检查课表中的学期设置。"
+                        coverageMissing && scheduleSource == "portal_week" -> "门户单周缓存未覆盖今天，请导入整学期课表后确认。"
+                        coverageMissing -> "现有缓存未覆盖今天，暂时无法确认今日课程。"
+                        else -> "已导入的课表中没有今日安排。"
+                    },
+                    action = if (coverageMissing && !missingDates) "导入课表" else "查看课表",
+                    onAction = if (coverageMissing && !missingDates) onImport else onOpenSchedule,
                 )
             }
             else -> item(key = "today-assistant") {
                 TodayAssistantPanel(todayCourses, now.toLocalTime(), missingDates)
             }
         }
-        if (imported) {
+        if (todayCourses.isNotEmpty()) {
             item(key = "today-overview") {
-                val completed = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.Ended }
-                val ongoing = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.Ongoing }
                 val pending = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.NotStarted }
-                val unknown = todayCourses.size - completed - ongoing - pending
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap)) {
-                        SmallMetricCard("今日课程", todayCourses.size.toString(), Modifier.weight(1f))
-                        SmallMetricCard("待上课程", pending.toString(), Modifier.weight(1f))
-                    }
-                    Text(
-                        buildList {
-                            add("已结束 $completed")
-                            if (ongoing > 0) add("进行中 $ongoing")
-                            if (unknown > 0) add("时间待确认 $unknown")
-                        }.joinToString(" · "),
-                        fontSize = 13.sp,
-                        lineHeight = 20.sp,
-                        color = ds.sub,
-                    )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("今日安排 · ${todayCourses.size} 门", fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                        color = ds.sub, modifier = Modifier.weight(1f).semantics { heading() })
+                    Text("待上 $pending 门", fontSize = 13.sp, color = ds.sub)
                 }
             }
         }
@@ -292,16 +298,6 @@ private fun TodayNoticeButton(unreadCount: Int, onClick: () -> Unit) {
         if (unreadCount > 0) {
             Box(Modifier.align(Alignment.TopEnd).padding(5.dp).size(7.dp).background(ds.danger, CircleShape))
         }
-    }
-}
-
-@Composable
-private fun SmallMetricCard(label: String, value: String, modifier: Modifier = Modifier) {
-    val ds = LocalDs.current
-    AppCard(modifier = modifier, insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
-        Text(label, fontSize = 13.sp, color = ds.sub)
-        Text(value, fontSize = 36.sp, fontWeight = FontWeight.Bold, color = ds.text,
-            modifier = Modifier.padding(top = 8.dp))
     }
 }
 

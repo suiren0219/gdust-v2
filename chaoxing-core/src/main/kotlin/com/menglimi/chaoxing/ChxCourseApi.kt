@@ -77,6 +77,8 @@ class ChxCourseApi(
             } catch (_: ChxAuthFailed) {
                 currentCoroutineContext().ensureActive()
                 ChxCourseOverview(courses, "学习通会话已失效，任务点进度未知，请重新登录。", progressAuthRequired = true)
+            } catch (error: ChxCookieWriteException) {
+                throw error
             } catch (error: Exception) {
                 currentCoroutineContext().ensureActive()
                 ChxCourseOverview(courses, if (error is ChxCourseReadException) error.message else UNKNOWN_PROGRESS,
@@ -329,7 +331,7 @@ class ChxCourseApi(
 }
 
 /** 只包含固定、可展示的错误文案，不携带响应正文、请求头或账户数据。 */
-class ChxCourseReadException(
+open class ChxCourseReadException(
     message: String,
     val missingField: String? = null,
     val verificationRequired: Boolean = false,

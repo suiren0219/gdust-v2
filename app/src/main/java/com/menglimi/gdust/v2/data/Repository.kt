@@ -53,6 +53,17 @@ class Store(context: Context) {
     }
 
     private val plain = app.getSharedPreferences("gdust_cache", Context.MODE_PRIVATE)
+    internal val schedules = ScheduleLibrary(
+        read = { plain.getString(ScheduleLibrary.KEY, null) },
+        write = { check(plain.edit().putString(ScheduleLibrary.KEY, it).commit()) { "课表保存失败，原数据已保留" } },
+    )
+    internal val selectedIndependentSchedule: IndependentSchedule? get() = runCatching { schedules.snapshot().selected }.getOrNull()
+    val isIndependentSchedule: Boolean get() = selectedIndependentSchedule != null
+    val currentScheduleName: String get() = selectedIndependentSchedule?.name ?: "学校课表"
+    internal fun importIndependentSchedule(document: String, revision: Long): IndependentSchedule = schedules.import(document, revision)
+    internal fun selectSchedule(id: String) = schedules.select(id)
+    internal fun exportCurrentSchedule(): String = selectedIndependentSchedule?.schedule?.document
+        ?: ScheduleShareCodec.export(loadCalendar(), loadBlocks(), currentScheduleName)
     internal var automaticSyncNeedsLogin: Boolean
         get() = plain.getBoolean("auto_sync_needs_login", false)
         set(value) { plain.edit().putBoolean("auto_sync_needs_login", value).apply() }
@@ -119,6 +130,15 @@ class Store(context: Context) {
         get() = "prn".s
         set(v) { "prn".s = v }
 
+    // Local MCP token is optional; the service always binds to loopback.
+    var localMcpToken: String
+        get() = "local_mcp_token".s
+        set(value) { "local_mcp_token".s = value.trim() }
+
+    var localMcpEnabled: Boolean
+        get() = secure.getBoolean("local_mcp_enabled", false)
+        set(value) { secure.edit().putBoolean("local_mcp_enabled", value).apply() }
+
     // LLM（用户自填，无内置默认）
     var llmBase: String
         get() = "lbase".s
@@ -132,25 +152,39 @@ class Store(context: Context) {
 
     // ── 课表缓存 ──
     fun saveCalendar(cal: CalendarInfo) = plain.edit().putString("calendar", gson.toJson(cal)).apply()
-    fun loadCalendar(): CalendarInfo? = plain.getString("calendar", null)?.let {
+    fun loadCalendar(): CalendarInfo? = selectedIndependentSchedule?.schedule?.calendar?.let { cal ->
+        val week = com.menglimi.gdust.v2.ui.schedule.ScheduleTimes.weekAt(java.time.LocalDate.parse(cal.startDate), java.time.LocalDate.now())
+        cal.copy(week = week.coerceIn(1, cal.allWeek))
+    } ?: loadSchoolCalendar()
+    internal fun loadSchoolCalendar(): CalendarInfo? = plain.getString("calendar", null)?.let {
         runCatching { gson.fromJson(it, CalendarInfo::class.java) }.getOrNull()
     }
 
-    val scheduleSource: String get() = plain.getString("schedule_source", "legacy") ?: "legacy"
+    val scheduleSource: String get() = if (isIndependentSchedule) "cloud_import" else schoolScheduleSource
+    internal val schoolScheduleSource: String get() = plain.getString("schedule_source", "legacy") ?: "legacy"
 
     fun saveBlocks(blocks: List<CourseBlock>, source: String = "portal_week") = plain.edit()
         .putString("blocks", gson.toJson(blocks))
         .putString("schedule_source", source)
         .apply()
 
-    fun loadBlocks(): List<CourseBlock> {
+    /** 校历、课程和成功时间属于同一快照，避免观察者读到半份新学期。 */
+    internal fun saveSchedule(cal: CalendarInfo, blocks: List<CourseBlock>, source: String, syncedAt: Long? = null) {
+        val edit = plain.edit().putString("calendar", gson.toJson(cal))
+            .putString("blocks", gson.toJson(blocks)).putString("schedule_source", source)
+        if (syncedAt != null) edit.putLong("last_sync_at", syncedAt)
+        check(edit.commit()) { "课表已读取，但未能保存到本机。" }
+    }
+
+    fun loadBlocks(): List<CourseBlock> = selectedIndependentSchedule?.schedule?.blocks ?: loadSchoolBlocks()
+    internal fun loadSchoolBlocks(): List<CourseBlock> {
         val t = object : TypeToken<List<CourseBlock>>() {}.type
         val blocks = runCatching {
             gson.fromJson<List<CourseBlock>>(plain.getString("blocks", "[]"), t)
         }.getOrDefault(emptyList())
-        if (scheduleSource != "legacy") return blocks
+        if (schoolScheduleSource != "legacy") return blocks
         // 旧版曾复制单周缓存：只有日期与真实周次一致的条目可以继续显示。
-        val start = runCatching { java.time.LocalDate.parse(loadCalendar()?.startDate) }.getOrNull()
+        val start = runCatching { java.time.LocalDate.parse(loadSchoolCalendar()?.startDate) }.getOrNull()
             ?: return emptyList()
         return blocks.filter { block ->
             val date = runCatching { java.time.LocalDate.parse(block.date) }.getOrNull()
@@ -308,18 +342,21 @@ class Store(context: Context) {
 
     // ── 学期日历设置：只校正日期映射，不生成课程 ──
     /** 学期第一周周一，YYYY-MM-DD；空=用校历 startTime。 */
+    internal val schoolTermStartDate: String get() = plain.getString("term_start", "") ?: ""
     var termStartDate: String
-        get() = plain.getString("term_start", "") ?: ""
+        get() = selectedIndependentSchedule?.schedule?.calendar?.startDate ?: schoolTermStartDate
         set(v) = plain.edit().putString("term_start", v).apply()
 
     /** 学期总周数；0=用校历 allWeek。 */
+    internal val schoolTermWeeks: Int get() = plain.getInt("term_weeks", 0)
     var termWeeks: Int
-        get() = plain.getInt("term_weeks", 0)
+        get() = selectedIndependentSchedule?.schedule?.calendar?.allWeek ?: schoolTermWeeks
         set(v) = plain.edit().putInt("term_weeks", v).apply()
 
     /** 手动指定当前周；0=用校历 week。 */
+    internal val schoolTermCurrentWeek: Int get() = plain.getInt("term_week", 0)
     var termCurrentWeek: Int
-        get() = plain.getInt("term_week", 0)
+        get() = if (isIndependentSchedule) loadCalendar()?.week ?: 1 else schoolTermCurrentWeek
         set(v) = plain.edit().putInt("term_week", v).apply()
 
     /** 壁纸：本机文件路径（空=不用壁纸）；模糊 dp；压暗 0~0.8。 */
@@ -523,7 +560,7 @@ class Store(context: Context) {
 
     fun observeSchedule(listener: () -> Unit): () -> Unit {
         val observer = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == null || key in setOf("blocks", "calendar", "last_sync_at")) listener()
+            if (key == null || key in setOf("blocks", "calendar", "last_sync_at", ScheduleLibrary.KEY)) listener()
         }
         plain.registerOnSharedPreferenceChangeListener(observer)
         return { plain.unregisterOnSharedPreferenceChangeListener(observer) }
@@ -587,9 +624,119 @@ class Store(context: Context) {
     val hasPowerBinding: Boolean get() = powerAccount.isNotBlank() && powerCode > 0 && powerRoomVerify.isNotBlank()
     val hasLlm: Boolean get() = llmBase.isNotEmpty() && llmKey.isNotEmpty() && llmModel.isNotEmpty()
 
+    internal fun loadGradeSnapshot(year: String, semester: String): DataSnapshot<GradeReport>? {
+        val owner = gradeSnapshotOwner() ?: return null
+        if (webLogoutPending) return null
+        return DataSnapshots.grades(secure.getString(snapshotKey("grades", owner, year, semester), null), year, semester)
+    }
+
+    internal fun saveGradeSnapshot(year: String, semester: String, snapshot: DataSnapshot<GradeReport>): Boolean {
+        if (webLogoutPending) return false
+        val owner = gradeSnapshotOwner() ?: java.util.UUID.randomUUID().toString().also {
+            secure.edit().putString("teaching_snapshot_owner", it).commit()
+        }
+        return secure.edit().putString(snapshotKey("grades", owner, year, semester), DataSnapshots.encode(snapshot)).commit()
+    }
+
+    private fun gradeSnapshotOwner(): String? = jobNumber.takeIf { it.isNotBlank() }?.let { account ->
+        secure.getString(snapshotKey("teaching_owner", account), null)?.takeIf { it.isNotBlank() } ?: account
+    } ?: secure.getString("teaching_snapshot_owner", null)?.takeIf { it.isNotBlank() }
+
+    /** 网页教务先于门户确认身份时，把匿名快照归到已确认账号；不复制或丢弃原始资料。 */
+    internal fun promoteTeachingSnapshotOwner(account: String) {
+        if (jobNumber.isNotBlank() || account.isBlank()) return
+        val anonymous = secure.getString("teaching_snapshot_owner", null)?.takeIf { it.isNotBlank() } ?: return
+        secure.edit().putString(snapshotKey("teaching_owner", account), anonymous).commit()
+    }
+
+    internal val chxCourseSnapshotOwner: String?
+        get() = secure.getString("chx_snapshot_owner", null)?.takeIf { it.isNotBlank() }
+
+    /** 只在业务读取成功后切换快照归属，Cookie 候选本身不算认证证据。 */
+    internal fun acceptChxSnapshotOwner(uid: String) {
+        require(uid.isNotBlank())
+        val previous = chxCourseSnapshotOwner ?: DataSnapshots.cookieOwner(chxCookie)
+        if (previous != null && previous != uid) {
+            plain.edit().remove("chx_tabs").remove("chx_seen_notifications").commit()
+            updateTodos { items -> items.filterNot { it.source == "chaoxing" } }
+        }
+        check(secure.edit().putString("chx_snapshot_owner", uid).commit()) { "未能保存学习通资料归属。" }
+    }
+
+    internal fun loadChxCourseSnapshot(uid: String): DataSnapshot<ChxCourseOverview>? {
+        if (uid.isBlank() || webLogoutPending) return null
+        return DataSnapshots.courses(secure.getString(snapshotKey("chx_courses", uid), null))
+    }
+
+    internal fun saveChxCourseSnapshot(uid: String, overview: ChxCourseOverview): Boolean {
+        if (uid.isBlank() || webLogoutPending) return false
+        val snapshot = DataSnapshot(overview, overview.loadedAt.coerceAtLeast(1L))
+        return secure.edit().putString(snapshotKey("chx_courses", uid), DataSnapshots.encode(snapshot))
+            .putString("chx_snapshot_owner", uid).commit()
+    }
+
+    internal fun loadNoticeSnapshot(source: NoticeSource): DataSnapshot<List<Notice>>? {
+        val owner = if (source == NoticeSource.ACADEMIC) "public" else jobNumber.takeIf { it.isNotBlank() } ?: return null
+        if (webLogoutPending && source != NoticeSource.ACADEMIC) return null
+        return DataSnapshots.notices(secure.getString(snapshotKey("notices", owner, source.name), null))
+    }
+
+    internal fun saveNoticeSnapshot(source: NoticeSource, snapshot: DataSnapshot<List<Notice>>): Boolean {
+        val owner = if (source == NoticeSource.ACADEMIC) "public" else jobNumber.takeIf { it.isNotBlank() } ?: return false
+        if (webLogoutPending && source != NoticeSource.ACADEMIC) return false
+        return secure.edit().putString(snapshotKey("notices", owner, source.name), DataSnapshots.encode(snapshot)).commit()
+    }
+
+    private fun localDataOwner(create: Boolean = false): String? {
+        if (jobNumber.isNotBlank()) return jobNumber
+        secure.getString("local_data_owner", null)?.takeIf { it.isNotBlank() }?.let { return it }
+        if (!create) return null
+        val owner = java.util.UUID.randomUUID().toString()
+        return owner.takeIf { secure.edit().putString("local_data_owner", it).commit() }
+    }
+
+    fun loadAiChatJson(): String? {
+        val owner = localDataOwner() ?: return null
+        return secure.getString(snapshotKey("ai_chat", owner), null)
+    }
+
+    fun saveAiChatJson(json: String): Boolean {
+        if (runCatching { com.google.gson.JsonParser.parseString(json).isJsonArray }.getOrDefault(false).not()) return false
+        val owner = localDataOwner(create = true) ?: return false
+        return secure.edit().putString(snapshotKey("ai_chat", owner), json).commit()
+    }
+
+    fun loadNoticeSummary(notices: List<Notice>): String? {
+        val owner = localDataOwner() ?: return null
+        return secure.getString(snapshotKey("notice_summary", owner, gson.toJson(notices)), null)
+    }
+
+    fun saveNoticeSummary(notices: List<Notice>, summary: String): Boolean {
+        if (summary.isBlank()) return false
+        val owner = localDataOwner(create = true) ?: return false
+        return secure.edit().putString(snapshotKey("notice_summary", owner, gson.toJson(notices)), summary).commit()
+    }
+
+    internal fun loadPowerRooms(account: String, code: Int): DataSnapshot<List<PowerRoom>>? =
+        DataSnapshots.powerRooms(secure.getString(snapshotKey("power_rooms", account, code.toString()), null))
+
+    internal fun savePowerRooms(account: String, code: Int, rooms: List<PowerRoom>): Boolean = secure.edit()
+        .putString(snapshotKey("power_rooms", account, code.toString()),
+            DataSnapshots.encode(DataSnapshot(rooms, System.currentTimeMillis()))).commit()
+
+    private fun snapshotKey(kind: String, vararg values: String): String {
+        val source = values.joinToString("") { "${it.length}:$it" }
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(source.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return "snapshot_${kind}_$digest"
+    }
+
     /** 手动网页备用导入后复用 WebView 自己的持久 CookieManager 会话；白名单见 ChxSso.isTeachingWebEntry。 */
     fun saveWebImport(pageUrl: String) {
         require(ChxSso.isTeachingWebEntry(pageUrl)) { "只保存学校域名的网页入口" }
+        if (jobNumber.isBlank() && gradeSnapshotOwner() == null) secure.edit()
+            .putString("teaching_snapshot_owner", java.util.UUID.randomUUID().toString()).apply()
         plain.edit().putString("web_import_page", pageUrl).apply()
     }
 
@@ -605,12 +752,18 @@ class Store(context: Context) {
         get() = plain.getBoolean("web_logout_pending", false)
         set(value) = plain.edit().putBoolean("web_logout_pending", value).apply()
 
-    internal fun clearAccountSession() {
-        secure.edit().remove("token").remove("ticket").remove("job").remove("name")
-            .remove("chx_cookie").remove("birthday_account").remove("birthday_month_day").remove("birthday_shown").apply()
+    internal fun clearAccountSession(preserveSnapshots: Boolean = false) {
+        val secureEdit = secure.edit().remove("token").remove("ticket").remove("job").remove("name")
+            .remove("chx_cookie").remove("birthday_account").remove("birthday_month_day").remove("birthday_shown")
+            .remove("teaching_snapshot_owner").remove("chx_snapshot_owner").remove("local_data_owner")
+        secure.all.keys.filter { (!preserveSnapshots && it.startsWith("snapshot_")) ||
+            it.startsWith("snapshot_ai_chat_") || it.startsWith("snapshot_notice_summary_") }.forEach(secureEdit::remove)
+        secureEdit.apply()
         plain.edit().remove("blocks").remove("calendar").remove("schedule_source")
             .remove("web_import_page").remove("chx_cookie_at").remove("last_sync_at")
+            .remove("chx_tabs").remove("chx_seen_notifications")
             .remove("notice_read_at").putBoolean("web_logout_pending", true).apply()
+        updateTodos { items -> items.filterNot { it.source == "chaoxing" } }
         plain.edit().remove("last_auto_sync_attempt_at").remove("auto_sync_needs_login").apply()
     }
 
@@ -623,12 +776,12 @@ class Store(context: Context) {
             "exportedAt" to System.currentTimeMillis(),
             "calendar" to plain.getString("calendar", null),
             "blocks" to plain.getString("blocks", null),
-            "schedule_source" to scheduleSource,
+            "schedule_source" to schoolScheduleSource,
             "todos" to plain.getString("todos", null),
             "samples" to plain.getString("samples", null),
-            "term_start" to termStartDate,
-            "term_weeks" to termWeeks,
-            "term_week" to termCurrentWeek,
+            "term_start" to schoolTermStartDate,
+            "term_weeks" to schoolTermWeeks,
+            "term_week" to schoolTermCurrentWeek,
             "start_tab" to startTab,
             "ui_style" to uiStyle,
             "monet_enabled" to monetEnabled,
@@ -687,6 +840,15 @@ class Store(context: Context) {
     }
 }
 
+/** 成功加载且识别作业详情页；deadlineMillis=0 表示详情没有可用截止时间。 */
+internal data class ChxWorkDetailParseResult(val deadlineMillis: Long)
+
+/** 非作业详情页返回 null；已识别详情即使没有截止时间也是成功解析。 */
+internal fun parseChxWorkDetail(html: String, nowMillis: Long): ChxWorkDetailParseResult? {
+    val detail = org.jsoup.Jsoup.parse(html).selectFirst(".infoHead") ?: return null
+    return ChxWorkDetailParseResult(ChxWorkParser.parseDeadlineMillis(detail.outerHtml(), nowMillis))
+}
+
 /** 会话门面：所有数据操作的唯一入口。 */
 class Repository(context: Context) {
 
@@ -706,6 +868,8 @@ class Repository(context: Context) {
     private val scheduleSyncMutex = Mutex()
     private val webCleanupMutex = Mutex()
     private val chxSessionMutex = Mutex()
+    private val chxRequests = ChxRequestControl()
+    val chxRequestPause = chxRequests.pause
     private val api = GdustApi()
     private val teachingSso = TeachingSsoClient()
     /** 登录后教务会话 Cookie 持久化在这里；后续同步、续租、定时任务共用。 */
@@ -739,9 +903,35 @@ class Repository(context: Context) {
     /** WebView 重新认证前使旧课程请求过期，不清除正在复用的网页 Cookie。 */
     fun invalidateChxRequests() = synchronized(sessionGuard) {
         mutableChxSessionVersion.value++
-        // 只作废学习通进行中的检查，保留已经验证的连接状态。
+        // 只作废学习通进行中的检查，保留已经验证的连接状态及同 UID 恢复目标。
         ensureServicesBound()
         servicesTracker.bindChx(mutableChxSessionVersion.value)
+    }
+
+    /** 只有实时网页有效会话的 UID 才能绑定业务；请求版本失效不等同于身份变化。 */
+    private suspend fun currentChxIdentity(version: Long, chxVersion: Long): ChxRequestControl.Identity =
+        withContext(Dispatchers.Main.immediate) {
+            webCleanupMutex.withLock {
+                sessionGuard.withCurrent(version) {
+                    if (store.webLogoutPending || clearingChxSession || chxSessionVersion.value != chxVersion) {
+                        throw CancellationException("学习通登录状态已变更")
+                    }
+                    val uid = DataSnapshots.cookieOwner(ChxWebSession.candidateCookie())
+                        ?: throw AuthFailed(401, "请先登录学习通")
+                    chxRequests.bindIdentity(uid)
+                }
+            }
+        }
+
+    /** HTTP 早锁存只核对身份，不检查 Job 或普通请求版本，以保留同身份取消后收到的暂停。 */
+    private fun checkChxIdentity(expected: ChxRequestControl.Identity) {
+        chxRequests.checkIdentity(expected)
+        val uid = DataSnapshots.cookieOwner(ChxWebSession.candidateCookie())
+        if (uid != expected.uid) {
+            if (uid != null) chxRequests.bindIdentity(uid)
+            throw CancellationException("学习通身份已变更")
+        }
+        chxRequests.checkIdentity(expected)
     }
 
     internal fun saveWebSession(pageUrl: String, version: Long, generation: Long? = null): Boolean =
@@ -794,6 +984,7 @@ class Repository(context: Context) {
             check(store.jobNumber.isBlank() || store.jobNumber == account) {
                 "学校网页账号与当前账号不同，请先退出当前账号再登录。"
             }
+            store.promoteTeachingSnapshotOwner(account)
             store.portalToken = token
             store.jobNumber = account
             store.realName = name
@@ -822,7 +1013,7 @@ class Repository(context: Context) {
                 }
             }
             checkSession()
-            val request = teachingProbeRequest(pageUrl, store.loadCalendar()) ?: run {
+            val request = teachingProbeRequest(pageUrl, store.loadSchoolCalendar()) ?: run {
                 // 连验证请求都构造不出来：无会话材料，不是明确拒绝。
                 applyServicePatch(SchoolService.TEACHING, version, null, ServiceAuthStatus.NOT_CONNECTED, null,
                     System.currentTimeMillis(), generation)
@@ -911,15 +1102,16 @@ class Repository(context: Context) {
         }
     }
 
-    private fun resetAccountSession(): Long = synchronized(sessionGuard) {
+    private fun resetAccountSession(preserveSnapshots: Boolean = false): Long = synchronized(sessionGuard) {
         val version = sessionGuard.invalidate()
         sessionGuard.withCurrent(version) {
             teachingCookies.clear()
-            store.clearAccountSession()
+            store.clearAccountSession(preserveSnapshots)
             mutableAccountLogin.value = AccountLoginState.SIGNED_OUT
             accountCheckedAt = 0L
-            lastSsoTicket = null
+            if (!preserveSnapshots) lastSsoTicket = null
             invalidateChxRequests()
+            chxRequests.invalidateIdentity()
             mutableSessionVersion.value = version
         }
         // 账号会话重置：三服务全部回到无候选；旧账号版本此后不能再写状态。
@@ -966,19 +1158,26 @@ class Repository(context: Context) {
     }
 
     private suspend fun beginLogin(): Long {
-        val version = resetAccountSession()
-        check(clearWebLoginData()) { "旧网页会话尚未清除，请重试退出后再登录。" }
+        val version = sessionGuard.current()
+        // 认证失败、取消或断网均不动现有资料；只有显式退出遗留的清理需要先完成。
+        if (store.webLogoutPending) check(clearWebLoginData()) { "旧网页会话尚未清除，请重试退出后再登录。" }
+        currentCoroutineContext().ensureActive()
         sessionGuard.withCurrent(version) { }
         return version
     }
 
     /** 校历：优先本机缓存；没有再找门户；都没有就给可操作提示。 */
-    private suspend fun resolveCalendar(version: Long): CalendarInfo {
-        sessionGuard.withCurrent(version) { store.loadCalendar() }?.let { return it }
+    private fun calendarForSync(raw: CalendarInfo, semester: String? = null): CalendarInfo = DataSnapshots.calendarForSync(
+        raw, semester, store.schoolTermStartDate, store.schoolTermWeeks, store.schoolTermCurrentWeek,
+    )
+
+    private suspend fun resolveCalendar(version: Long, semester: String? = null): CalendarInfo {
+        sessionGuard.withCurrent(version) { store.loadSchoolCalendar()?.let { calendarForSync(it, semester) } }?.let { return it }
         val portal = portalSession()
         if (portal != null) {
             try {
-                return api.calendar(portal.token, portal.account)
+                val raw = api.calendar(portal.token, portal.account)
+                return sessionGuard.withCurrent(version) { calendarForSync(raw, semester) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) { }
@@ -1031,9 +1230,7 @@ class Repository(context: Context) {
         sessionGuard.withCurrent(version) {
             checkAutomaticSync(version)
             store.automaticSyncNeedsLogin = false
-            store.saveCalendar(cal)
-            store.saveBlocks(blocks, "zf_term")
-            store.lastSyncAt = System.currentTimeMillis()
+            store.saveSchedule(cal, blocks, "zf_term", System.currentTimeMillis())
         }
         cal to blocks
     }
@@ -1068,25 +1265,24 @@ class Repository(context: Context) {
     }
 
     /** 手动同步先复用 Cookie；只有明确认证失效才静默恢复一次，不重放旧 ticket。 */
-    suspend fun syncTermWithCookies(): Pair<CalendarInfo, List<CourseBlock>> = scheduleSyncMutex.withLock {
+    suspend fun syncTermWithCookies(semester: String? = null): Pair<CalendarInfo, List<CourseBlock>> = scheduleSyncMutex.withLock {
         val version = sessionGuard.current()
         val (cal, blocks) = try {
-            readTermWithCookies(version)
+            readTermWithCookies(version, semester)
         } catch (_: AuthFailed) {
             renewSchoolSession(version)
-            readTermWithCookies(version)
+            readTermWithCookies(version, semester)
         }
+        currentCoroutineContext().ensureActive()
         sessionGuard.withCurrent(version) {
             store.automaticSyncNeedsLogin = false
-            store.saveCalendar(cal)
-            store.saveBlocks(blocks, "zf_term")
-            store.lastSyncAt = System.currentTimeMillis()
+            store.saveSchedule(cal, blocks, "zf_term", System.currentTimeMillis())
         }
         cal to blocks
     }
 
-    private suspend fun readTermWithCookies(version: Long): Pair<CalendarInfo, List<CourseBlock>> {
-        val cal = resolveCalendar(version)
+    private suspend fun readTermWithCookies(version: Long, semester: String? = null): Pair<CalendarInfo, List<CourseBlock>> {
+        val cal = resolveCalendar(version, semester)
         return withServiceProbe(SchoolService.TEACHING, version, null) { generation ->
         val hasDirectCookie = sessionGuard.withCurrent(version) {
             listOf("172.16.254.1", "gkjx.gdust.edu.cn", "webvpn.gdust.edu.cn")
@@ -1106,12 +1302,8 @@ class Repository(context: Context) {
             recordServiceFailure(SchoolService.TEACHING, version, null, e, generation)
             throw e.asTeachingSyncFailure()
         }
-        sessionGuard.withCurrent(version) {
-            store.automaticSyncNeedsLogin = false
-            store.saveCalendar(cal)
-            store.saveBlocks(blocks, "zf_term")
-            store.lastSyncAt = System.currentTimeMillis()
-        }
+        currentCoroutineContext().ensureActive()
+        sessionGuard.withCurrent(version) { }
         applyServicePatch(SchoolService.TEACHING, version, null, ServiceAuthStatus.VERIFIED, null,
             System.currentTimeMillis(), generation)
         cal to blocks
@@ -1123,22 +1315,22 @@ class Repository(context: Context) {
      * 教务网页导入页：网页在独立 Activity（TeachingWebActivity）里登录，回到 Compose 后走这里读，
      * 不再依赖页面内 JS fetch。
      */
-    suspend fun importTermWithWebSession(cal: CalendarInfo): List<CourseBlock> {
+    suspend fun importTermWithWebSession(cal: CalendarInfo): List<CourseBlock> = scheduleSyncMutex.withLock {
         val version = sessionGuard.current()
-        return withServiceProbe(SchoolService.TEACHING, version, null) { generation ->
+        withServiceProbe(SchoolService.TEACHING, version, null) { generation ->
+        val target = sessionGuard.withCurrent(version) { calendarForSync(cal) }
         val page = sessionGuard.withCurrent(version) { store.loadWebImportPage() }
         val blocks = try {
-            fetchWebTerm(cal, page, version)
+            fetchWebTerm(target, page, version)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (e: Exception) {
             recordServiceFailure(SchoolService.TEACHING, version, null, e, generation)
             throw e
         }
+        currentCoroutineContext().ensureActive()
         sessionGuard.withCurrent(version) {
-            store.saveCalendar(cal)
-            store.saveBlocks(blocks, "zf_term")
-            store.lastSyncAt = System.currentTimeMillis()
+            store.saveSchedule(target, blocks, "zf_term", System.currentTimeMillis())
         }
         applyServicePatch(SchoolService.TEACHING, version, null, ServiceAuthStatus.VERIFIED, null,
             System.currentTimeMillis(), generation)
@@ -1459,26 +1651,46 @@ class Repository(context: Context) {
     private suspend fun applySessions(fallbackJob: String, ticket: String, version: Long) {
         sessionGuard.withCurrent(version) { }
         val token = api.exchangeToken(ticket)
-        var identityVerified = false
-        val (job, name) = try {
-            api.userInfo(token).also { identityVerified = it.first.isNotBlank() && it.first != "guest" }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: AuthFailed) {
-            throw e
-        } catch (_: Exception) {
-            fallbackJob to ""
+        val (job, name) = api.userInfo(token)
+        if (token.isBlank() || job.isBlank() || job.equals("guest", ignoreCase = true)) {
+            throw AuthFailed(401, "未能确认学校账号，请重新登录。")
         }
-        sessionGuard.withCurrent(version) {
+        if (fallbackJob.isNotBlank() && fallbackJob != job) {
+            throw AuthFailed(401, "登录身份与输入账号不一致，请重新登录。")
+        }
+        currentCoroutineContext().ensureActive()
+        val changedAccount = sessionGuard.withCurrent(version) {
+            store.jobNumber.isNotBlank() && store.jobNumber != job
+        }
+        var acceptedVersion = version
+        if (changedAccount) {
+            // 新身份已由业务接口确认；清网页会话失败也不提前清本地资料。
+            val cleared = clearWebLoginData()
+            if (!cleared) {
+                sessionGuard.withCurrent(version) { store.webLogoutPending = false }
+                error("旧网页会话尚未清除，请稍后重新登录。")
+            }
+            currentCoroutineContext().ensureActive()
+            sessionGuard.withCurrent(version) { acceptedVersion = resetAccountSession(preserveSnapshots = true) }
+        }
+        sessionGuard.withCurrent(acceptedVersion) {
+            store.promoteTeachingSnapshotOwner(job)
             store.portalToken = token
-            store.jobNumber = job.ifBlank { fallbackJob }
-            store.realName = name
+            store.jobNumber = job
+            if (name.isNotBlank() || changedAccount) store.realName = name
             store.casTicket = ""
-            mutableAccountLogin.value = if (identityVerified) AccountLoginState.VALID else AccountLoginState.UNVERIFIED
-            accountCheckedAt = if (identityVerified) android.os.SystemClock.elapsedRealtime() else 0L
-            applyServicePatch(SchoolService.PORTAL, version, null,
-                if (identityVerified) ServiceAuthStatus.VERIFIED else ServiceAuthStatus.SAVED,
-                if (identityVerified) null else ServiceProblem.UNCONFIRMED, System.currentTimeMillis())
+            store.webLogoutPending = false
+            store.automaticSyncNeedsLogin = false
+            mutableAccountLogin.value = AccountLoginState.VALID
+            accountCheckedAt = android.os.SystemClock.elapsedRealtime()
+            if (!changedAccount) {
+                val nextVersion = sessionGuard.invalidate()
+                invalidateChxRequests()
+                mutableSessionVersion.value = nextVersion
+                acceptedVersion = nextVersion
+            }
+            applyServicePatch(SchoolService.PORTAL, acceptedVersion, null,
+                ServiceAuthStatus.VERIFIED, null, System.currentTimeMillis())
         }
     }
 
@@ -1501,16 +1713,10 @@ class Repository(context: Context) {
             recordServiceFailure(SchoolService.PORTAL, session.version, null, e, generation)
             throw e
         }
-        val cal = sessionGuard.withCurrent(session.version) {
-            raw.copy(
-                startDate = store.termStartDate.ifBlank { raw.startDate },
-                allWeek = if (store.termWeeks > 0) store.termWeeks else raw.allWeek,
-                week = if (store.termCurrentWeek > 0) store.termCurrentWeek else raw.week,
-            )
-        }
+        val cal = sessionGuard.withCurrent(session.version) { calendarForSync(raw) }
         // 已有真实学期课表时，门户快照不参与覆盖；更新应重新读取正方学期响应。
         val imported = sessionGuard.withCurrent(session.version) {
-            if (store.scheduleSource == "zf_term") requireNotNull(store.loadCalendar()) to store.loadBlocks()
+            if (store.schoolScheduleSource == "zf_term") requireNotNull(store.loadSchoolCalendar()) to store.loadSchoolBlocks()
             else null
         }
         if (imported != null) {
@@ -1526,9 +1732,9 @@ class Repository(context: Context) {
             recordServiceFailure(SchoolService.PORTAL, session.version, null, e, generation)
             throw e
         }
+        currentCoroutineContext().ensureActive()
         sessionGuard.withCurrent(session.version) {
-            store.saveCalendar(cal)
-            store.saveBlocks(blocks)
+            store.saveSchedule(cal, blocks, "portal_week")
         }
         applyServicePatch(SchoolService.PORTAL, session.version, null, ServiceAuthStatus.VERIFIED, null,
             System.currentTimeMillis(), generation)
@@ -1586,9 +1792,17 @@ class Repository(context: Context) {
             }
         }
         checkSession()
-        val workApi = ChxApi(SessionHttpClient(ChxApi::isAllowedUrl, ::checkSession,
-            webCookieMutex = webCleanupMutex))
-        val courses = workApi.courses()
+        val identity = currentChxIdentity(version, chxVersion)
+        fun checkIdentity() = checkChxIdentity(identity)
+        chxRequests.check()
+        fun workApi(owner: Any, checkCurrent: () -> Unit) = ChxApi(SessionHttpClient(
+            ChxApi::isAllowedUrl, checkCurrent, webCookieMutex = webCleanupMutex,
+            chxRequests = chxRequests, requestOwner = owner,
+            chxBeforeRecovery = { kotlinx.coroutines.delay(1_000L) }))
+        val courses = chxRequests.read(version, ::checkSession,
+            identity = identity, checkIdentity = ::checkIdentity) { owner, checkCurrent ->
+            workApi(owner, checkCurrent).courses()
+        }
         checkSession()
         if (courses.isEmpty()) return "已读取课程列表，当前没有课程；本地待办已保留" to ChxSyncFailureCounts(0, 0)
         var added = 0
@@ -1606,20 +1820,35 @@ class Repository(context: Context) {
                     semaphore.withPermit {
                         val result = try {
                             checkSession()
-                            val tabs = workApi.courseTabs(course)
-                            val items = workApi.workList(course, tabs)
+                            val tabs = chxRequests.read(version, ::checkSession,
+                                identity = identity, checkIdentity = ::checkIdentity) { owner, checkCurrent ->
+                                workApi(owner, checkCurrent).courseTabs(course)
+                            }
+                            val items = chxRequests.read(version, ::checkSession,
+                                identity = identity, checkIdentity = ::checkIdentity) { owner, checkCurrent ->
+                                workApi(owner, checkCurrent).workList(course, tabs)
+                            }
                             val now = System.currentTimeMillis()
                             val detailed = items.map { item ->
-                                val deadline = if (item.status != "未交" || item.detailUrl.isBlank()) 0L else try {
-                                    ChxWorkParser.parseDeadlineMillis(workApi.workDetailHtml(item.detailUrl), now)
+                                val detail = if (item.status != "未交" || item.detailUrl.isBlank()) null else try {
+                                    chxRequests.read<ChxWorkDetailParseResult?>(
+                                        version, ::checkSession, validateRecovery = { it != null },
+                                        identity = identity, checkIdentity = ::checkIdentity,
+                                    ) { owner, checkCurrent ->
+                                        parseChxWorkDetail(
+                                            workApi(owner, checkCurrent).workDetailHtml(item.detailUrl), now)
+                                    }
                                 } catch (e: CancellationException) {
                                     throw e
                                 } catch (e: AuthFailed) {
                                     throw e
+                                } catch (e: ChxCourseReadException) {
+                                    if (e.pausesRequests || e is com.menglimi.chaoxing.ChxCookieWriteException) throw e
+                                    null
                                 } catch (_: Exception) {
-                                    0L
+                                    null
                                 }
-                                item to deadline
+                                item to (detail?.deadlineMillis ?: 0L)
                             }
                             Result.success(detailed)
                         } catch (e: CancellationException) {
@@ -1633,6 +1862,14 @@ class Repository(context: Context) {
             }.awaitAll()
         }
         checkSession()
+        // 任一课程/详情触发暂停时整轮不落盘，保留原有截止时间与完成态。
+        results.firstNotNullOfOrNull { (_, result) ->
+            result.exceptionOrNull()?.takeIf { failure ->
+                failure is ChxCourseReadException &&
+                    (failure.pausesRequests || failure is com.menglimi.chaoxing.ChxCookieWriteException)
+            }
+        }?.let { throw it }
+        chxRequests.check()
         for ((course, result) in results) {
             val items = result.getOrNull()
             if (items == null) {
@@ -1676,14 +1913,21 @@ class Repository(context: Context) {
             throw ChxCourseReadException(message)
         }
         if (updates.isEmpty()) {
-            val summary = if (failed == 0) "已检查 $scanned 门课程，未发现作业；本地待办已保留"
-                else "部分完成：已检查 $scanned 门课程${failSuffix(failed, failures)}；本地待办已保留"
-            return summary to ChxSyncFailureCounts(authFailures, readFailures)
+            return sessionGuard.withCurrent(version) {
+                checkSession()
+                chxRequests.withIdentity(identity, ::checkIdentity) {
+                    val summary = if (failed == 0) "已检查 $scanned 门课程，未发现作业；本地待办已保留"
+                        else "部分完成：已检查 $scanned 门课程${failSuffix(failed, failures)}；本地待办已保留"
+                    summary to ChxSyncFailureCounts(authFailures, readFailures)
+                }
+            }
         }
         var merged = 0
         sessionGuard.withCurrent(version) {
-        checkSession()
-        store.updateTodos { current ->
+            checkSession()
+            chxRequests.withIdentity(identity, ::checkIdentity) {
+                store.acceptChxSnapshotOwner(requireNotNull(identity.uid))
+                store.updateTodos { current ->
             val byId = current.associateBy { it.id }.toMutableMap()
             // 通知监听写入的条目与 web 清单是两套 id（时间戳 vs workId），但文本/课程相同；
             // 同步时按归一化文本合并，避免同一条作业出现两次。
@@ -1743,6 +1987,7 @@ class Repository(context: Context) {
             byId.values.toList()
         }
         }
+        }
         return (if (failed > 0) "部分完成" else "同步完成") + "：检查了 $scanned 门课${failSuffix(failed, failures)}，" +
             "新增 $added 条、更新 $updated 条" +
             (if (merged > 0) "、合并 $merged 条通知重复" else "") +
@@ -1751,6 +1996,27 @@ class Repository(context: Context) {
 
     private fun failSuffix(failed: Int, details: String): String =
         if (failed == 0) "" else "（$failed 门读取失败：\n$details）"
+
+    /** 网页明确“完成检查”才允许重查原受阻业务；返回、探活和刷新均不会解除暂停。 */
+    internal suspend fun checkChxRecoveryAfterWebVerification(version: Long, chxVersion: Long) =
+        withContext(Dispatchers.Main.immediate) {
+            val recoveryJob = currentCoroutineContext()[Job]
+            fun checkSession() {
+                recoveryJob?.ensureActive()
+                sessionGuard.withCurrent(version) {
+                    if (store.webLogoutPending || clearingChxSession || chxSessionVersion.value != chxVersion) {
+                        throw CancellationException("学习通登录状态已变更")
+                    }
+                }
+            }
+            chxSessionMutex.withLock {
+                checkSession()
+                val identity = currentChxIdentity(version, chxVersion)
+                chxRequests.recover(version, ::checkSession, afterWebVerification = true,
+                    identity = identity, checkIdentity = { checkChxIdentity(identity) })
+                checkSession()
+            }
+        }
 
     /** 学习通会话探活与课程读取共用实时网页 Cookie；存储快照不是独立的登录凭证。 */
     suspend fun chxSessionAlive(generation: Long? = null): Boolean? = withContext(Dispatchers.Main.immediate) {
@@ -1779,21 +2045,28 @@ class Repository(context: Context) {
                     System.currentTimeMillis(), generation)
                 return@withLock false
             }
+            val identity = currentChxIdentity(version, chxVersion)
+            chxRequests.check()
             val home = ChxSso.HOME.toHttpUrl()
-            val http = SessionHttpClient(allowedUrl = { it == home }, checkSession = ::checkSession,
-                webCookieMutex = webCleanupMutex)
             var failureRecorded = false
             val result = ChxWebSession.verifyCandidate(
                 readCookie = ChxWebSession::candidateCookie,
                 probe = {
                     try {
-                        val response = http.execute(okhttp3.Request.Builder().url(home)
-                            .header("User-Agent", "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 " +
-                                "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
-                            .get().build())
-                        ChxApi.sessionEvidence(response.status, ChxSso.HOME, response.body, response.location)
+                        chxRequests.read(version, ::checkSession, validateRecovery = { it == true },
+                            identity = identity, checkIdentity = { checkChxIdentity(identity) }) { owner, checkCurrent ->
+                            val http = SessionHttpClient(allowedUrl = { it == home }, checkSession = checkCurrent,
+                                webCookieMutex = webCleanupMutex, chxRequests = chxRequests, requestOwner = owner,
+                                chxBeforeRecovery = { kotlinx.coroutines.delay(1_000L) })
+                            val response = http.execute(okhttp3.Request.Builder().url(home)
+                                .header("User-Agent", ChxCourseApi.USER_AGENT).get().build())
+                            ChxApi.sessionEvidence(response.status, ChxSso.HOME, response.body, response.location)
+                        }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
+                    } catch (failure: ChxCourseReadException) {
+                        recordServiceFailure(SchoolService.CHX, version, chxVersion, failure, generation)
+                        throw failure
                     } catch (e: Exception) {
                         // 保留网络/读取证据，随后不覆盖为“不确定”。
                         recordServiceFailure(SchoolService.CHX, version, chxVersion, e, generation)
@@ -1823,6 +2096,7 @@ class Repository(context: Context) {
     suspend fun clearChxSession(): Boolean = withContext(NonCancellable + Dispatchers.Main.immediate) {
         clearingChxSession = true
         invalidateChxRequests()
+        chxRequests.invalidateIdentity()
         store.clearChxCookie()
         val cleared = try {
             webCleanupMutex.withLock { ChxWebSession.clear() }
@@ -1835,18 +2109,31 @@ class Repository(context: Context) {
         cleared
     }
 
-    suspend fun summarize() = api.summarize(
-        store.llmBase, store.llmKey, store.llmModel, notices(),
-    )
+    suspend fun summarize(): String {
+        val session = portalSession() ?: error("请先登录学校门户")
+        return summarize(notices(session), session)
+    }
 
-    suspend fun chat(messages: List<AiChatMessage>): String = api.complete(
-        store.llmBase, store.llmKey, store.llmModel, messages,
-    )
+    suspend fun chat(messages: List<AiChatMessage>): String {
+        val version = sessionGuard.current()
+        val result = api.complete(store.llmBase, store.llmKey, store.llmModel, messages)
+        currentCoroutineContext().ensureActive()
+        sessionGuard.withCurrent(version) { }
+        return result
+    }
 
-    internal suspend fun summarize(notices: List<Notice>, session: PortalSession): String {
-        if (session != portalSession()) throw CancellationException("登录状态已变更")
+    internal suspend fun summarize(notices: List<Notice>, session: PortalSession?): String {
+        val version = sessionGuard.current()
+        fun checkSession() = sessionGuard.withCurrent(version) {
+            if (session != portalSession()) throw CancellationException("登录状态已变更")
+        }
+        checkSession()
         val result = api.summarize(store.llmBase, store.llmKey, store.llmModel, notices)
-        if (session != portalSession()) throw CancellationException("登录状态已变更")
+        currentCoroutineContext().ensureActive()
+        checkSession()
+        sessionGuard.withCurrent(version) {
+            check(store.saveNoticeSummary(notices, result)) { "摘要已生成，但未能保存到本机。" }
+        }
         return result
     }
 
@@ -1858,8 +2145,30 @@ class Repository(context: Context) {
         return result
     }
 
+    internal fun loadGradeSnapshot(year: String, semester: String): DataSnapshot<GradeReport>? =
+        store.loadGradeSnapshot(year, semester)
+
+    internal suspend fun loadChxCourseSnapshot(): ChxCourseOverview? = withContext(Dispatchers.Main.immediate) {
+        if (store.webLogoutPending || clearingChxSession) return@withContext null
+        val version = sessionGuard.current()
+        val uid = webCleanupMutex.withLock {
+            sessionGuard.withCurrent(version) {
+                val live = android.webkit.CookieManager.getInstance().getCookie(ChxSso.HOME)
+                DataSnapshots.courseSnapshotOwner(live, store.chxCookie, store.chxCourseSnapshotOwner)
+            }
+        } ?: return@withContext null
+        sessionGuard.withCurrent(version) { store.loadChxCourseSnapshot(uid)?.data }
+    }
+
+    internal fun loadNoticeSnapshot(source: NoticeSource): DataSnapshot<List<Notice>>? =
+        store.loadNoticeSnapshot(source)
+
+    internal fun saveNoticeSnapshot(source: NoticeSource, snapshot: DataSnapshot<List<Notice>>) {
+        check(store.saveNoticeSnapshot(source, snapshot)) { "通知已读取，但未能保存到本机。" }
+    }
+
     /** 成绩只读取已建立的教务会话；不重放历史票据，失败可继续尝试同站点的网页会话。 */
-    suspend fun grades(year: String, semester: String): GradeReport = withContext(Dispatchers.Main.immediate) {
+    suspend fun grades(year: String, semester: String): DataSnapshot<GradeReport> = withContext(Dispatchers.Main.immediate) {
         val version = sessionGuard.current()
         withServiceProbe(SchoolService.TEACHING, version, null) { generation ->
         fun checkSession() = sessionGuard.withCurrent(version) {
@@ -1888,10 +2197,19 @@ class Repository(context: Context) {
                         webCookieMutex = webCleanupMutex,
                     )
                     val report = TeachingGradeApi(http, base).load(year, semester)
+                    currentCoroutineContext().ensureActive()
                     checkSession()
+                    val snapshot = DataSnapshot(report, System.currentTimeMillis())
+                    withContext(Dispatchers.IO) {
+                        currentCoroutineContext().ensureActive()
+                        sessionGuard.withCurrent(version) {
+                            checkSession()
+                            check(store.saveGradeSnapshot(year, semester, snapshot)) { "成绩已读取，但未能保存到本机。" }
+                        }
+                    }
                     applyServicePatch(SchoolService.TEACHING, version, null, ServiceAuthStatus.VERIFIED, null,
                         System.currentTimeMillis(), generation)
-                    return@withServiceProbe report
+                    return@withServiceProbe snapshot
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: GradeLoadException) {
@@ -1926,26 +2244,51 @@ class Repository(context: Context) {
                 throw CancellationException("学习通登录状态已变更")
             }
         }
-        webCleanupMutex.withLock {
+        val uid = webCleanupMutex.withLock {
             checkSession()
-            val cookie = android.webkit.CookieManager.getInstance().getCookie(ChxSso.HOME)
-            if (!ChxSso.hasSessionCookie(cookie)) {
-                val auth = if (servicesTracker.snapshot().chx.auth == ServiceAuthStatus.AUTH_REQUIRED)
-                    ServiceAuthStatus.AUTH_REQUIRED else ServiceAuthStatus.NOT_CONNECTED
-                applyServicePatch(SchoolService.CHX, version, chxVersion, auth, null,
-                    System.currentTimeMillis(), generation)
-                throw AuthFailed(401, "请先登录学习通")
-            }
+            DataSnapshots.cookieOwner(android.webkit.CookieManager.getInstance().getCookie(ChxSso.HOME))
+                ?: run {
+                    val auth = if (servicesTracker.snapshot().chx.auth == ServiceAuthStatus.AUTH_REQUIRED)
+                        ServiceAuthStatus.AUTH_REQUIRED else ServiceAuthStatus.NOT_CONNECTED
+                    applyServicePatch(SchoolService.CHX, version, chxVersion, auth, null,
+                        System.currentTimeMillis(), generation)
+                    throw AuthFailed(401, "请先登录学习通")
+                }
         }
-        val http = SessionHttpClient(ChxCourseApi::isAllowedUrl, ::checkSession,
-            webCookieMutex = webCleanupMutex)
-        val overview = try {
-            ChxCourseApi(http).load()
+        val identity = chxRequests.bindIdentity(uid)
+        chxRequests.check()
+        val current = try {
+            chxRequests.read(version, ::checkSession,
+                validateRecovery = { it.progressError == null && !it.progressAuthRequired },
+                identity = identity, checkIdentity = { checkChxIdentity(identity) }) { owner, checkCurrent ->
+                val http = SessionHttpClient(ChxCourseApi::isAllowedUrl, checkCurrent,
+                    webCookieMutex = webCleanupMutex, chxRequests = chxRequests, requestOwner = owner,
+                    chxBeforeRecovery = { kotlinx.coroutines.delay(1_000L) })
+                ChxCourseApi(http).load()
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (e: Exception) {
             recordServiceFailure(SchoolService.CHX, version, chxVersion, e, generation)
             throw e
+        }
+        currentCoroutineContext().ensureActive()
+        webCleanupMutex.withLock {
+            checkSession()
+            val live = DataSnapshots.cookieOwner(android.webkit.CookieManager.getInstance().getCookie(ChxSso.HOME))
+            if (live != null && live != uid) throw CancellationException("学习通登录状态已变更")
+        }
+        val overview = withContext(Dispatchers.IO) {
+            currentCoroutineContext().ensureActive()
+            sessionGuard.withCurrent(version) {
+                checkSession()
+                chxRequests.withIdentity(identity, { checkChxIdentity(identity) }) {
+                    val merged = DataSnapshots.mergeCourseProgress(store.loadChxCourseSnapshot(uid)?.data, current)
+                    store.acceptChxSnapshotOwner(uid)
+                    check(store.saveChxCourseSnapshot(uid, merged)) { "课程已读取，但未能保存到本机。" }
+                    merged
+                }
+            }
         }
         checkSession()
         if (overview.progressAuthRequired) {
@@ -1961,10 +2304,24 @@ class Repository(context: Context) {
         }
     }
 
-    // 水电（无需登录态）
-    suspend fun powerRooms(account: String, code: Int) = api.powerRooms(account, code)
-    suspend fun powerOdd() = api.powerOdd(store.powerAccount, store.powerCode, store.powerRoomVerify)
-    suspend fun powerDetail() = api.powerDetail(store.powerAccount, store.powerCode, store.powerRoomVerify)
+    // 水电（无需学校登录态）：宿舍列表成功落盘；详情复用前台/Worker 共用的带绑定校验缓存。
+    internal fun loadPowerRoomsSnapshot(account: String, code: Int): DataSnapshot<List<PowerRoom>>? =
+        store.loadPowerRooms(account, code)
+
+    suspend fun powerRooms(account: String, code: Int): List<PowerRoom> {
+        val version = sessionGuard.current()
+        val rooms = api.powerRooms(account, code)
+        currentCoroutineContext().ensureActive()
+        sessionGuard.withCurrent(version) {
+            check(store.savePowerRooms(account, code, rooms)) { "宿舍列表已读取，但未能保存到本机。" }
+        }
+        return rooms
+    }
+
+    suspend fun powerOdd(): Double? = powerDetail().odd
+
+    suspend fun powerDetail(): PowerDetail =
+        com.menglimi.gdust.v2.work.PowerWorker.query(app, force = true)?.detail ?: error("请先绑定宿舍")
 
     fun savePowerBinding(account: String, code: Int, room: PowerRoom) {
         store.powerAccount = account

@@ -3,6 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val releaseKeyStore = providers.gradleProperty("releaseKeyStore")
+val releaseStorePassword = providers.gradleProperty("releaseStorePassword")
+val releaseKeyAlias = providers.gradleProperty("releaseKeyAlias")
+val releaseKeyPassword = providers.gradleProperty("releaseKeyPassword")
+
 android {
     namespace = "com.menglimi.study"
     compileSdk = 37
@@ -10,8 +15,8 @@ android {
         applicationId = "cn.edu.gdust.suiren.learning"
         minSdk = 33
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.1.12"
+        versionCode = 14
+        versionName = "0.1.13"
     }
     buildFeatures {
         compose = true
@@ -23,6 +28,14 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (releaseKeyStore.isPresent) {
+                signingConfig = signingConfigs.create("release").apply {
+                    storeFile = file(releaseKeyStore.get())
+                    storePassword = releaseStorePassword.orNull
+                    keyAlias = releaseKeyAlias.get()
+                    keyPassword = releaseKeyPassword.orNull
+                }
+            }
         }
     }
     compileOptions {

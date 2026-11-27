@@ -7,10 +7,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalInspectionMode
+import com.menglimi.gdust.v2.service.LocalMcpService
 import com.menglimi.gdust.v2.widget.LocalWidgetTodoId
 import com.menglimi.gdust.v2.widget.WidgetOpenRequest
 import com.menglimi.gdust.v2.widget.WidgetRefreshScheduler
@@ -47,6 +50,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (BuildConfig.PREVIEW_TARGET) {
+            finish()
+            return
+        }
         receiveWidgetIntent(intent)
         enableEdgeToEdge()
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
@@ -71,6 +78,14 @@ class MainActivity : ComponentActivity() {
             // 小部件打开本机内容可走 App 已有的预览模式，不要求教务会话仍然有效。
             val loggedIn = rememberSaveable { mutableStateOf(widgetRequest.value != null) }
             val checked = rememberSaveable { mutableStateOf(false) }
+            val aiMessages = androidx.compose.runtime.remember { mutableStateOf(emptyList<com.menglimi.gdust.v2.ui.screens.AiChatLine>()) }
+            val inspectionMode = LocalInspectionMode.current
+            // 仅真实主入口恢复本机服务；离线预览 Activity 不经过此启动路径。
+            LaunchedEffect(inspectionMode) {
+                if (inspectionMode || !BuildConfig.MCP_ENABLED) return@LaunchedEffect
+                val enabled = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.repo.store.localMcpEnabled }
+                if (enabled) LocalMcpService.start(app)
+            }
             // 定位与 navigationVersion 一起下发，避免旧页面先消费请求后又被导航重建。
             val focusedTodo = rememberSaveable { mutableStateOf<Long?>(null) }
             val navigationVersion = rememberSaveable { mutableIntStateOf(0) }
@@ -90,7 +105,7 @@ class MainActivity : ComponentActivity() {
                     // 热启动从设置的子页面进入时，也清除 AppRoot 内部的临时页面状态。
                     key(navigationVersion.intValue) {
                         AppRoot(app.repo, tab = tab, showSettings = showSettings, loggedIn = loggedIn,
-                            checked = checked, schoolLogin = schoolLogin)
+                            checked = checked, schoolLogin = schoolLogin, aiMessages = aiMessages)
                     }
                 }
             }

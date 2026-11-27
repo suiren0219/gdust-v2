@@ -3,10 +3,16 @@ package com.menglimi.gdust.v2.ui
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -17,6 +23,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.menglimi.gdust.v2.BuildConfig
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
@@ -31,6 +45,8 @@ import com.menglimi.gdust.v2.ui.screens.LoginScreen
 import com.menglimi.gdust.v2.ui.screens.InfoDialog
 import com.menglimi.gdust.v2.ui.screens.PowerScreen
 import com.menglimi.gdust.v2.ui.screens.SettingsScreen
+import com.menglimi.gdust.v2.ui.screens.McpSettingsScreen
+import com.menglimi.gdust.v2.ui.screens.SettingsNavigation
 import com.menglimi.gdust.v2.ui.screens.TermImportScreen
 import com.menglimi.gdust.v2.ui.screens.TodayScreen
 import com.menglimi.gdust.v2.ui.screens.TodoScreen
@@ -55,6 +71,8 @@ import com.menglimi.gdust.v2.data.NoticeFeed
 import com.menglimi.gdust.v2.data.readId
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.icon.MiuixIcons
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -80,8 +98,11 @@ fun AppRoot(
     loggedIn: androidx.compose.runtime.MutableState<Boolean>,
     checked: androidx.compose.runtime.MutableState<Boolean>,
     schoolLogin: SchoolLoginHost,
+    aiMessages: androidx.compose.runtime.MutableState<List<AiChatLine>>,
 ) {
+    if (BuildConfig.PREVIEW_TARGET) return
     val scope = rememberCoroutineScope()
+    val offlinePreview = BuildConfig.PREVIEW_TARGET
     // 登录与启动状态由 MainActivity 保存，配置重建后保留。
 
     var calendar by remember { mutableStateOf<CalendarInfo?>(repo.store.loadCalendar()) }
@@ -105,21 +126,30 @@ fun AppRoot(
     var showChxCourses by remember { mutableStateOf(false) }
     var showWidgets by remember { mutableStateOf(false) }
     var showAiSettings by remember { mutableStateOf(false) }
-    var aiMessagesState by remember { mutableStateOf(emptyList<com.menglimi.gdust.v2.ui.screens.AiChatLine>()) }
-    val settingsGroup = androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
-    var webReturnVersion by remember { mutableIntStateOf(0) }
-    var schoolLoginMessage by remember { mutableStateOf<String?>(null) }
+    var showMcpSettings by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var showSchedules by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val settingsCategory = androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    val settingsPageState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val sessionVersion by repo.sessionVersion.collectAsState()
     val connections by repo.serviceConnections.collectAsState()
-    val noticeFeed = remember(repo) {
-        val publicNotices = com.menglimi.gdust.v2.data.SchoolNoticeApi()
-        NoticeFeed(repo::portalSession, repo::notices, publicNotices::notices)
+    val chatAccount = repo.store.jobNumber
+    var aiMessagesState by remember(repo, chatAccount) {
+        mutableStateOf(if (offlinePreview) emptyList() else
+            com.menglimi.gdust.v2.ui.screens.restoreAiChat(repo.store.loadAiChatJson()))
+    }
+    var webReturnVersion by remember { mutableIntStateOf(0) }
+    var schoolLoginMessage by remember { mutableStateOf<String?>(null) }
+    val publicNotices = com.menglimi.gdust.v2.data.SchoolNoticeApi()
+    val noticeAccount = repo.store.jobNumber
+    val noticeFeed = remember(repo, noticeAccount, sessionVersion) {
+        NoticeFeed(repo::portalSession, repo::notices, publicNotices::notices,
+            loadSnapshot = repo::loadNoticeSnapshot, saveSnapshot = repo::saveNoticeSnapshot)
+            .also { it.restoreInitial() }
     }
     val noticeState by noticeFeed.state.collectAsState()
     val notices = noticeState.notices
     val noticesLoading = noticeState.loading
     val noticesError = noticeState.error
-    val noticeAccount = repo.store.jobNumber
     var readNoticeIds by remember(noticeAccount) { mutableStateOf(repo.store.readNoticeIds(noticeAccount)) }
     var syncJob by remember { mutableStateOf<Job?>(null) }
     var loggingOut by remember { mutableStateOf(false) }
@@ -166,7 +196,6 @@ fun AppRoot(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
     ) { webReturnVersion++ }
     fun openServiceWeb(url: String) {
-        repo.invalidateChxRequests()
         serviceWeb.launch(android.content.Intent(context, ChxWebActivity::class.java)
             .putExtra(ChxWebActivity.EXTRA_URL, url))
     }
@@ -186,9 +215,18 @@ fun AppRoot(
     var importReport by remember { mutableStateOf<String?>(null) }
     // 设置页当前展开的编辑区（切风格重建时收起即可，不影响页面栈）
     val openSection = remember { mutableStateOf<String?>(null) }
+    val settingsGroup = settingsCategory
     val hasAccount = repo.store.hasSession || repo.store.casTicket.isNotBlank() || repo.hasTeachingSession()
 
-    fun loadNotices() { noticeFeed.refresh(scope) }
+    fun loadNotices(source: com.menglimi.gdust.v2.data.NoticeSource = noticeFeed.state.value.source) {
+        if (!offlinePreview) noticeFeed.refresh(scope, source)
+    }
+
+    fun openSettings(category: String? = null) {
+        settingsCategory.value = category
+        openSection.value = null
+        showSettings.value = true
+    }
 
     fun openCampusService(service: CampusService) {
         when (service) {
@@ -206,16 +244,21 @@ fun AppRoot(
             CampusService.CHX_LINK -> showChxEntry = true
             CampusService.CHX_NOTIFICATIONS -> showChxNotifications = true
             CampusService.SUMMARY -> { showAiSettings = true }
-            CampusService.SETTINGS -> showSettings.value = true
+            CampusService.SETTINGS -> openSettings()
         }
     }
 
 
-    fun sync(preferred: SchoolService? = null, silentIfDue: Boolean = false) {
+    fun sync(preferred: SchoolService? = null, silentIfDue: Boolean = false, targetSemester: String? = null) {
         if (syncing) return
+        if (targetSemester != null && !repo.hasTeachingSession()) {
+            syncError = "切换学期需要连接教务网页，原学期课表已保留。"
+            return
+        }
         if (silentIfDue && (repo.nextAutomaticSyncAt() ?: Long.MAX_VALUE) > System.currentTimeMillis()) return
         val service = selectScheduleService(
-            preferred, repo.serviceConnections.value, repo.store.hasSession, repo.hasTeachingSession(),
+            if (targetSemester != null) SchoolService.TEACHING else preferred,
+            repo.serviceConnections.value, repo.store.hasSession, repo.hasTeachingSession(),
         )
         if (service == null) {
             if (silentIfDue) return
@@ -237,6 +280,7 @@ fun AppRoot(
             try {
                 val result = kotlinx.coroutines.withTimeoutOrNull(60_000L) {
                     when {
+                        targetSemester != null -> repo.syncTermWithCookies(semester = targetSemester)
                         silentIfDue -> repo.syncTermSilentlyIfDue()
                         service == SchoolService.TEACHING -> repo.syncTermWithCookies()
                         else -> repo.syncSchedule()
@@ -246,8 +290,8 @@ fun AppRoot(
                     throw java.net.SocketTimeoutException("读取课表超过 60 秒，已停止等待。")
                 }
                 if (repo.isCurrentSession(version) && result != null) {
-                    calendar = result.first
-                    blocks = result.second
+                    calendar = repo.store.loadCalendar()
+                    blocks = repo.store.loadBlocks()
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -329,12 +373,18 @@ fun AppRoot(
         importReport = null
         showNotices = false
         showWebImport = false
+        aiMessagesState = emptyList()
+        aiMessages.value = emptyList()
         showChxEntry = false
         showGrades = false
         showChxCourses = false
         showProfile = false
-        aiMessagesState = emptyList()
         showAiSettings = false
+        showMcpSettings = false
+        showSchedules = false
+        settingsCategory.value = null
+        openSection.value = null
+        settingsPageState.removeState("settings")
         showSettings.value = false
         loggedIn.value = false
         scope.launch {
@@ -350,7 +400,10 @@ fun AppRoot(
         }
     }
 
-    LaunchedEffect(sessionVersion) {
+    LaunchedEffect(sessionVersion, chatAccount) {
+        aiMessagesState = if (offlinePreview) emptyList() else
+            com.menglimi.gdust.v2.ui.screens.restoreAiChat(repo.store.loadAiChatJson())
+        aiMessages.value = aiMessagesState
         if (sessionVersion != 0L && !repo.store.hasSession) {
             noticeFeed.clear()
             syncJob?.cancel()
@@ -361,6 +414,7 @@ fun AppRoot(
     }
 
     LaunchedEffect(Unit) {
+        if (offlinePreview) return@LaunchedEffect
         // App 打开即刷新桌面小组件（课程/电量可能变了）
         runCatching {
             com.menglimi.gdust.v2.widget.WidgetRefresher.refreshAll(context)
@@ -403,6 +457,8 @@ fun AppRoot(
             showAbout -> "about"
             showWidgets -> "widgets"
             showAiSettings -> "ai_settings"
+            showMcpSettings -> "mcp_settings"
+            showSchedules -> "schedule_library"
             showSettings.value -> "settings"
             showServices -> "services"
             tab.intValue == 4 -> "main"
@@ -419,6 +475,7 @@ fun AppRoot(
                     repo = repo,
                     onBack = { showWebImport = false },
                     onImported = { cal, list ->
+                        repo.store.selectSchedule(com.menglimi.gdust.v2.data.ScheduleCatalog.SCHOOL)
                         calendar = cal
                         blocks = list
                         showWebImport = false
@@ -466,11 +523,13 @@ fun AppRoot(
                     error = noticesError,
                     readIds = readNoticeIds,
                     updatedAt = noticeState.updatedAt,
-                    onMarkRead = { items -> repo.store.markNoticesRead(noticeAccount, items) },
+                    onMarkRead = { items -> if (!offlinePreview) repo.store.markNoticesRead(noticeAccount, items) },
                     onBack = { showNotices = false },
                     onRefresh = { loadNotices() },
                     source = noticeState.source,
-                    onSourceChange = { noticeFeed.refresh(scope, it) },
+                    onSourceChange = { if (!offlinePreview) loadNotices(it) },
+                    onConfigureAi = { if (!offlinePreview) { showNotices = false; showAiSettings = true } },
+                    offlinePreview = offlinePreview,
                 )
             }
             "profile" -> {
@@ -490,8 +549,16 @@ fun AppRoot(
                     repo = repo,
                     onBack = { showAiSettings = false },
                     onOpenNotices = { showNotices = true; loadNotices() },
+                    offlinePreview = offlinePreview,
                 )
             }
+            "mcp_settings" -> McpSettingsScreen(repo = repo, onBack = { showMcpSettings = false }, offlinePreview = offlinePreview, onImported = {
+                calendar = repo.store.loadCalendar(); blocks = repo.store.loadBlocks()
+                showMcpSettings = false; showSettings.value = false; tab.intValue = 1; loggedIn.value = true
+            })
+            "schedule_library" -> com.menglimi.gdust.v2.ui.screens.ScheduleLibraryScreen(repo, onBack = { showSchedules = false }, onSelected = {
+                calendar = repo.store.loadCalendar(); blocks = repo.store.loadBlocks()
+            })
             "services" -> CampusServicesScreen(
                 signedIn = hasAccount,
                 accountName = repo.store.realName,
@@ -505,11 +572,11 @@ fun AppRoot(
                     loggedIn.value = true
                     openSchoolLogin()
                 },
-                onOpenSettings = { showSettings.value = true },
+                onOpenSettings = { openSettings() },
                 onPreview = { loggedIn.value = true },
                 onSchoolLogin = ::openSchoolLogin,
             )
-            "settings" -> SettingsScreen(
+            "settings" -> settingsPageState.SaveableStateProvider("settings") { SettingsScreen(
                 repo = repo,
                 syncError = syncError,
                 onSync = { sync() },
@@ -520,14 +587,14 @@ fun AppRoot(
                 onChxEntry = { showChxEntry = true },
                 onGrades = { showGrades = true },
                 onChxCourses = { showChxCourses = true },
-                onSchoolNotices = { showNotices = true; loadNotices() },
-                onFiveEducation = { openServiceWeb("http://172.16.1.232/index") },
-                onOpenAiService = { showAiSettings = true },
+                onSchoolNotices = { if (!offlinePreview) { showNotices = true; loadNotices() } },
+                onFiveEducation = { if (!offlinePreview) openServiceWeb("http://172.16.1.232/index") },
+                onOpenAiService = { if (!offlinePreview) showAiSettings = true },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },
                 onExportBackup = exportLauncher,
                 onImportBackup = { uri ->
-                    runCatching {
+                    if (!offlinePreview) runCatching {
                         context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText().orEmpty()
                     }.map { repo.store.importBackup(it) }
                         .onSuccess { result ->
@@ -546,43 +613,55 @@ fun AppRoot(
                 onLogout = { logout() },
                 onReconnectService = ::openServiceLogin,
                 openGroupState = settingsGroup,
+                onOpenMcp = { if (!offlinePreview) showMcpSettings = true },
+                category = settingsCategory,
+                offlinePreview = offlinePreview,
+                onSchedules = { if (!offlinePreview) showSchedules = true },
+                onShareSchedule = { if (!offlinePreview) showMcpSettings = true },
                 loggedIn = connections.hasRestorableSession || repo.store.hasSession ||
                     repo.hasTeachingSession() || repo.store.hasChxSession,
                 chxSessionSaved = chxSessionSaved,
                 openSection = openSection,
                 syncing = syncing,
-                onBack = { showSettings.value = false },
-            )
+                onBack = {
+                    showSettings.value = false
+                    settingsCategory.value = null
+                    openSection.value = null
+                    settingsPageState.removeState("settings")
+                },
+            ) }
             "main" -> MainScaffold(
                 repo = repo,
                 tab = tab.intValue,
-                aiMessages = aiMessagesState,
-                onAiMessagesChange = { aiMessagesState = it },
                 onTab = { tab.intValue = it },
-                onSettings = { showSettings.value = true },
+                onSettings = { openSettings() },
                 serviceSummary = serviceConnectionSummary(connections) +
                     if (syncing) "\n${activeSyncService?.label.orEmpty()}课表同步中，可继续使用其他服务" else "",
-                onServiceConnections = { settingsGroup.value = "服务"; showSettings.value = true },
+                onServiceConnections = { openSettings(SettingsNavigation.categoryFor("profile").title) },
                 onOpenServices = { showServices = true },
                 onService = ::openCampusService,
-                onOpenAiService = { showAiSettings = true },
+                onOpenAiService = { if (!offlinePreview) showAiSettings = true },
                 settingsSelected = showSettings.value,
                 onOpenNotices = { showNotices = true; loadNotices() },
                 notices = notices,
                 unreadCount = notices.count { it.readId !in readNoticeIds },
-                onImport = { showWebImport = true },
+                offlinePreview = offlinePreview,
+                onImport = { if (!offlinePreview) showWebImport = true },
                 calendar = calendar,
                 blocks = blocks,
                 syncError = syncError,
+                aiMessages = aiMessagesState,
+                onAiMessagesChange = {
+                    if (!offlinePreview && repo.store.jobNumber == chatAccount && repo.isCurrentSession(sessionVersion)) {
+                        aiMessagesState = it
+                        aiMessages.value = it
+                        repo.store.saveAiChatJson(com.menglimi.gdust.v2.ui.screens.encodeAiChat(it))
+                    }
+                },
                 onSwitchTerm = { sem ->
                     val cal = calendar
-                    if (cal != null && sem != cal.semester) {
-                        val updated = cal.copy(semester = sem)
-                        repo.store.saveCalendar(updated)
-                        calendar = updated
-                        // 切学期后旧课表不再代表当前学期：清空再同步（失败会明确提示）
-                        blocks = emptyList()
-                        sync()
+                    if (!repo.store.isIndependentSchedule && cal != null && sem != cal.semester) {
+                        sync(targetSemester = sem)
                     }
                 },
             )
@@ -634,7 +713,7 @@ fun AppRoot(
             dismissButton = {
                 androidx.compose.material3.TextButton(onClick = {
                     schoolLoginMessage = null
-                    showSettings.value = true
+                    openSettings(SettingsNavigation.categoryFor("profile").title)
                     showChxEntry = false
                     showChxCourses = false
                     showGrades = false
@@ -715,6 +794,7 @@ private fun MainScaffold(
     onOpenNotices: () -> Unit = {},
     notices: List<Notice> = emptyList(),
     unreadCount: Int = 0,
+    offlinePreview: Boolean = false,
     calendar: CalendarInfo?,
     blocks: List<CourseBlock>,
     syncError: String?,
@@ -722,6 +802,7 @@ private fun MainScaffold(
     onImport: () -> Unit = {},
 ) {
     val ds = LocalDs.current
+    val chatSessionVersion by repo.sessionVersion.collectAsState()
     var chatInputFocused by remember { mutableStateOf(false) }
     val keyboardVisible = androidx.compose.foundation.layout.WindowInsets.ime
         .getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
@@ -746,6 +827,7 @@ private fun MainScaffold(
                     hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
                     serviceSummary = serviceSummary,
                     onServices = onServiceConnections,
+                    scheduleSource = repo.store.scheduleSource,
                 )
                 1 -> ScheduleScreen(
                     repo = repo,
@@ -755,22 +837,25 @@ private fun MainScaffold(
                     onPrevWeek = {},
                     onNextWeek = {},
                     onSwitchTerm = onSwitchTerm,
-                    fullTermImported = repo.store.scheduleSource == "zf_term",
+                    fullTermImported = repo.store.scheduleSource in setOf("zf_term", "cloud_import"),
                     onImport = onImport,
                 )
                 2 -> PowerScreen(repo)
                 3 -> TodoScreen(repo)
-                4 -> AiChatScreen(
-                    repo = repo,
-                    calendar = calendar,
-                    blocks = blocks,
-                    todos = repo.store.loadTodos(),
-                    messages = aiMessages,
-                    onMessagesChange = onAiMessagesChange,
-                    onInputFocusChanged = { chatInputFocused = it },
-                    onBack = { onTab(0) },
-                    onSettings = onOpenAiService,
-                )
+                4 -> androidx.compose.runtime.key(chatSessionVersion, repo.store.jobNumber) {
+                    AiChatScreen(
+                        repo = repo,
+                        calendar = calendar,
+                        blocks = blocks,
+                        todos = repo.store.loadTodos(),
+                        messages = aiMessages,
+                        onMessagesChange = onAiMessagesChange,
+                        onInputFocusChanged = { chatInputFocused = it },
+                        onBack = { onTab(0) },
+                        onSettings = onOpenAiService,
+                        offlinePreview = offlinePreview,
+                    )
+                }
             }
         }
         if (!chatInputFocused && !keyboardVisible) com.menglimi.gdust.v2.ui.nexio.NexioBottomBar(
@@ -781,5 +866,6 @@ private fun MainScaffold(
             onAi = if (tab != 4) ({ onTab(4) }) else null,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
+
     }
 }

@@ -115,7 +115,7 @@ internal data class GradePageForm(val pkey: String, val years: Set<String>, val 
 internal fun parseGradeForm(html: String): GradePageForm {
     if (isGradeLoginHtml(html)) throw gradeAuthFailed()
     val document = Jsoup.parse(html)
-    val keys = document.select("input#pkey[value]")
+    val keys = document.select("input#pkey")
     if (keys.size != 1) failGrade(GradeFailure.FORM)
     fun options(id: String): Set<String> {
         val selects = document.select("select#$id")
@@ -125,7 +125,7 @@ internal fun parseGradeForm(html: String): GradePageForm {
             .map { it.attr("value") }.filter { it.isNotEmpty() }.toSet()
             .ifEmpty { failGrade(GradeFailure.FORM) }
     }
-    // 空值也有效，但元素缺失不是空 pkey；每次 load 都重新读取页面。
+    // 省略 value 与 value="" 都是空值，但元素缺失不是空 pkey；每次 load 都重新读取页面。
     return GradePageForm(keys.single().attr("value"), options("xnm"), options("xqm"))
 }
 

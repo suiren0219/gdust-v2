@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import com.haooz.nexioui.button.ButtonDefaults
+import com.haooz.nexioui.cardexpand.CardExpand
 import com.haooz.nexioui.button.FlatTextButton
 import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.Composable
@@ -48,7 +49,10 @@ import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
 import java.io.IOException
+import java.text.SimpleDateFormat
 import java.time.LocalDate
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -77,7 +81,11 @@ private fun GradeContent(repo: Repository, sessionVersion: Long, onBack: () -> U
     var semester by remember { mutableStateOf(calendar?.semester?.takeIf { it == "3" || it == "12" } ?: "3") }
     val selection = GradeSelection(year, semester)
     // 仅同一学期刷新保留旧结果；切换筛选同步更换状态，不能让旧学期结果冒充新学期。
-    var report by remember(selection) { mutableStateOf<GradeReport?>(null) }
+    val cached = remember(selection) {
+        if (selection.valid) runCatching { repo.loadGradeSnapshot(year, semester) }.getOrNull() else null
+    }
+    var report by remember(selection) { mutableStateOf(cached?.data) }
+    var updatedAt by remember(selection) { mutableStateOf(cached?.updatedAt ?: 0L) }
     var selected by remember(selection) { mutableStateOf<TeachingGrade?>(null) }
     var error by remember(selection) { mutableStateOf<String?>(null) }
     var needsLogin by remember(selection) { mutableStateOf(false) }
@@ -96,7 +104,8 @@ private fun GradeContent(repo: Repository, sessionVersion: Long, onBack: () -> U
             val result = repo.grades(selection.year, selection.semester)
             currentCoroutineContext().ensureActive()
             if (repo.isCurrentSession(sessionVersion)) {
-                report = result
+                report = result.data
+                updatedAt = result.updatedAt
                 selected = null
             }
         } catch (cancelled: CancellationException) {
@@ -183,6 +192,14 @@ private fun GradeContent(repo: Repository, sessionVersion: Long, onBack: () -> U
         Text(message, fontSize = 13.sp, lineHeight = 19.sp,
             color = if (error != null && currentSession) ds.danger else ds.sub,
             modifier = Modifier.padding(vertical = 8.dp))
+
+        if (visibleReport != null && updatedAt > 0L) {
+            val time = remember(updatedAt) {
+                SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(Date(updatedAt))
+            }
+            Text("最近成功刷新 $time" + if (loading || error != null) " · 显示本地缓存" else "",
+                fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(bottom = 8.dp))
+        }
 
         CardExpand(visible = currentSession && (needsLogin || (!loading && visibleReport == null))) {
             Spacer(Modifier.height(8.dp))

@@ -78,11 +78,11 @@ internal object WidgetDataSource {
         val cachedArray = runCatching {
             JsonParser.parseString(cache.getString("blocks", null)).takeIf { it.isJsonArray }?.asJsonArray
         }.getOrNull()
-        val imported = store.scheduleSource == "zf_term" && cachedArray != null &&
-            cachedArray.size() == blocks.size && valid.size == blocks.distinct().size
+        val imported = (store.isIndependentSchedule || (store.scheduleSource == "zf_term" && cachedArray != null &&
+            cachedArray.size() == blocks.size)) && valid.size == blocks.distinct().size
         val selection = selectSchedule(valid, termStart, imported, now)
         val nowMillis = now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        val lastSyncAt = cache.getLong("last_sync_at", 0L)
+        val lastSyncAt = store.selectedIndependentSchedule?.savedAt ?: cache.getLong("last_sync_at", 0L)
         val bound = power.getString("account", "").orEmpty().isNotBlank() &&
             power.getInt("code", 0) > 0 && power.getString("verify", "").orEmpty().isNotBlank()
         // 校验缓存所属绑定，换宿舍后不能显示旧宿舍的电量。

@@ -47,6 +47,7 @@ data class CourseBlock(
 
 data class Notice(val title: String, val url: String, val type: String, val issuer: String?, val time: Long)
 data class PowerRoom(val name: String, val verify: String)
+data class AiChatMessage(val role: String, val content: String)
 
 /** 水电详情：剩余电量 + 接口自带近 7 日/今日/上月。 */
 data class PowerDetail(
@@ -58,8 +59,6 @@ data class PowerDetail(
 )
 
 data class Captcha(val imageBytes: ByteArray, val uuid: String)
-
-data class AiChatMessage(val role: String, val content: String)
 
 class AuthFailed(val code: Int, msg: String) : Exception(msg)
 
@@ -288,56 +287,26 @@ class GdustApi internal constructor(private val http: OkHttpClient) {
 
     // ── LLM（用户自填配置）──
 
-    suspend fun complete(
-        base: String, key: String, model: String, messages: List<AiChatMessage>,
-    ): String {
-        if (messages.isEmpty()) throw IllegalArgumentException("AI 对话不能为空。")
-        val endpoint = llmEndpoint(base)
-        val body = com.google.gson.Gson().toJson(
-            mapOf(
-                "model" to model,
-                "messages" to messages.map { mapOf("role" to it.role, "content" to it.content) },
-                "max_tokens" to 2048,
-                "temperature" to 0.3,
-            )
-        )
-        return llmRequest(endpoint, key, body)
-    }
+    private val llm = LlmClient(http)
 
-    private suspend fun llmRequest(endpoint: String, key: String, body: String): String = withContext(Dispatchers.IO) {
-        val req = Request.Builder()
-            .url(endpoint)
-            .header("Authorization", "Bearer $key")
-            .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
-            .build()
-        http.newCall(req).execute().use { response ->
-            val text = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw RuntimeException("LLM HTTP ${response.code}: ${text.take(120)}")
-            jsonObj(text).getAsJsonArray("choices")?.firstOrNull()?.asJsonObject
-                ?.getAsJsonObject("message")?.str("content")
-                ?: throw RuntimeException("LLM 响应缺少 content")
-        }
-    }
+    suspend fun models(base: String, key: String): List<String> = llm.models(base, key)
+
+    suspend fun probe(base: String, key: String, model: String): LlmProbeResult = llm.probe(base, key, model)
 
     suspend fun summarize(base: String, key: String, model: String, notices: List<Notice>): String {
         if (notices.isEmpty()) return "最近没有公告可总结。"
         val items = notices.take(15).joinToString("\n") { "- [${it.type}] ${it.title}" }
         val system = "你是广东科技学院的学生助手。把学校通知公告标题整理成简明中文要点：" +
             "按类别分组，每条一句话，突出停课/考试/缴费/截止等与学生相关事项，250 字以内。"
-        return complete(base, key, model, listOf(
-            AiChatMessage("system", system),
-            AiChatMessage("user", "最近的学校通知公告：\n$items"),
-        ))
+        return complete(base, key, model, listOf(AiChatMessage("system", system), AiChatMessage("user", "最近的学校通知公告：\n$items")))
     }
 
-    private fun llmEndpoint(base: String): String {
-        val root = base.trim().trimEnd('/')
-        return when {
-            root.endsWith("/chat/completions") -> root
-            root.endsWith("/v1") -> "$root/chat/completions"
-            else -> "$root/v1/chat/completions"
-        }
-    }
+    suspend fun complete(
+        base: String,
+        key: String,
+        model: String,
+        messages: List<AiChatMessage>,
+    ): String = llm.complete(base, key, model, messages)
 }
 
 /** 门户按节返回 → 数据层合并连堂：同天同课同教室同教师且节次连续且同周 → 一张整卡。 */

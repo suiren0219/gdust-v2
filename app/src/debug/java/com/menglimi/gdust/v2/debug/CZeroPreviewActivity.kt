@@ -71,11 +71,11 @@ import com.menglimi.gdust.v2.ui.screens.nexioPagePadding
 import com.menglimi.gdust.v2.ui.screens.AiChatLine
 import com.menglimi.gdust.v2.ui.screens.AiChatScreen
 import com.menglimi.gdust.v2.ui.screens.AiServiceSettingsScreen
+import com.menglimi.gdust.v2.ui.screens.LoginScreen
 import com.menglimi.gdust.v2.ui.screens.CampusService
 import com.menglimi.gdust.v2.ui.screens.CampusServicesScreen
 import com.menglimi.gdust.v2.ui.screens.ChxCoursesScreen
 import com.menglimi.gdust.v2.ui.screens.ChxEntryScreen
-import com.menglimi.gdust.v2.ui.screens.LoginScreen
 import com.menglimi.gdust.v2.ui.screens.NoticeScreen
 import com.menglimi.gdust.v2.data.Notice
 import com.menglimi.gdust.v2.data.NoticeSource
@@ -299,13 +299,14 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
                     repo, previewNotices, false, null, noticeReadIds, previewNotices.first().time,
                     { selected -> noticeReadIds = noticeReadIds + selected.map { it.readId } },
                     back, offlineAction, noticeSource, { noticeSource = it },
+                    offlinePreview = true,
                 )
                 "ai" -> AiChatScreen(
                     repo, calendar, blocks, store.loadTodos(), aiMessages, { aiMessages = it }, { chatInputFocused = it }, back,
                     { screen = "ai_settings" },
                     offlinePreview = true,
                 )
-                "ai_settings" -> AiServiceSettingsScreen(repo, back, { screen = "notices" })
+                "ai_settings" -> AiServiceSettingsScreen(repo, back, { screen = "notices" }, offlinePreview = true)
                 "history" -> PowerHistoryScreen(repo, onBack = back)
                 "widgets" -> WidgetPreviewScreen(onBack = back)
                 "identity", "identity_pending" -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -332,6 +333,7 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
                 }
                 "settings" -> SettingsScreen(
                     repo = repo,
+                    category = remember { mutableStateOf<String?>(null) },
                     syncError = null,
                     onSync = offlineAction,
                     onWebImport = offlineAction,
@@ -355,6 +357,7 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
                     onSchoolNotices = { screen = "notices" },
                     onOpenAiService = { screen = "ai_settings" },
                     onFiveEducation = offlineAction,
+                    offlinePreview = true,
                 )
             }
         }
