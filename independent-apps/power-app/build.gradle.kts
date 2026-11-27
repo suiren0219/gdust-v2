@@ -3,6 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val releaseKeyStore = providers.gradleProperty("releaseKeyStore")
+val releaseStorePassword = providers.gradleProperty("releaseStorePassword")
+val releaseKeyAlias = providers.gradleProperty("releaseKeyAlias")
+val releaseKeyPassword = providers.gradleProperty("releaseKeyPassword")
+
 android {
     namespace = "com.menglimi.dormpower"
     compileSdk = 37
@@ -10,8 +15,8 @@ android {
         applicationId = "cn.edu.gdust.suiren.power"
         minSdk = 33
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.1.8"
+        versionCode = 10
+        versionName = "0.1.9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
@@ -21,6 +26,14 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (releaseKeyStore.isPresent) {
+                signingConfig = signingConfigs.create("release").apply {
+                    storeFile = file(releaseKeyStore.get())
+                    storePassword = releaseStorePassword.orNull
+                    keyAlias = releaseKeyAlias.get()
+                    keyPassword = releaseKeyPassword.orNull
+                }
+            }
         }
     }
     compileOptions {
