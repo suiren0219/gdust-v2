@@ -22,12 +22,12 @@ data class PowerSample(val time: Long, val odd: Double)
 /** 同一绑定的最新详情；读取缓存不会重复记录采样。 */
 data class PowerReading(val detail: PowerDetail, val updatedAt: Long)
 
-/** 自定间隔用于保留升级前的选择；新的默认值是均衡。 */
+/** 自定提示间隔用于保留升级前的设置；新的默认值是均衡。 */
 enum class PowerQueryPreset(val key: String, val title: String, val description: String) {
-    MANUAL("manual", "手动", "仅手动查询，不运行后台采样；查询时仍检查低电量和掉电预警。"),
-    BALANCED("balanced", "均衡", "通常每 120 分钟查询；电量偏低、估算不足 2 天或近期掉电较快时改为 60 分钟。"),
-    LOW_POWER("low_power", "低电量关注", "通常每 60 分钟查询；电量偏低、估算不足 2 天或近期掉电较快时改为 30 分钟。"),
-    CUSTOM("custom", "自定间隔", "按所选间隔查询，保留低电量和掉电预警。"),
+    MANUAL("manual", "手动", "不自动判断数据新鲜度；仅在手动刷新和已开启的开机单次查询时联网。"),
+    BALANCED("balanced", "均衡", "约 120 分钟后将本地读数标记为“待更新”；近期掉电较快时改为 60 分钟提示。"),
+    LOW_POWER("low_power", "低电量关注", "约 60 分钟后将本地读数标记为“待更新”；低电量或掉电较快时改为 30 分钟提示。"),
+    CUSTOM("custom", "自定间隔", "按所选间隔判断本地数据是否需要更新，不会自行联网查询。"),
     ;
 
     companion object {
