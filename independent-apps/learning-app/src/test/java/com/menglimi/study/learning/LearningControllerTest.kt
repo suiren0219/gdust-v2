@@ -318,6 +318,94 @@ class LearningControllerTest {
         }
     }
 
+    @Test fun replacedTokenPreservesLatchedPauseWithoutClearingLoading() = runTest {
+        for (lane in LearningLane.entries) {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val initial = cached()
+            val store = MemoryStore(initial)
+            val stopped = com.menglimi.chaoxing.ChxRequestPause(true, 31_000L)
+            val controller = LearningController(store, { accountA }, {}, { guard, token, _ ->
+                suspend fun pauseAndReplace(): Nothing {
+                    guard.mutex.withLock {
+                        guard.requests.record(stopped.exception(), token)
+                        guard.begin(lane)
+                    }
+                    throw CancellationException("synthetic replacement after response")
+                }
+                backend(works = { pauseAndReplace() }, courses = { pauseAndReplace() })
+            }, dispatcher, dispatcher)
+            controller.reload()
+            val reading = launch {
+                if (lane == LearningLane.WORK) controller.refresh() else controller.refreshCourses()
+            }
+            reading.join()
+            assertTrue(reading.isCancelled)
+            val saved = checkNotNull(store.value)
+            assertEquals(accountA, saved.account)
+            assertEquals(stopped, saved.readControl.pause)
+            assertEquals(lane == LearningLane.COURSES, saved.readControl.progressBlocked)
+            assertEquals(if (lane == LearningLane.WORK) workCourse.cacheKey() else null, saved.readControl.blockedCourseKey)
+            assertEquals(initial.courses, saved.courses)
+            assertEquals(initial.overview, saved.overview)
+            assertEquals(saved.readControl, controller.state.value.readControl)
+            assertEquals(saved.readControl, controller.courses.value.readControl)
+            assertTrue(if (lane == LearningLane.WORK) controller.state.value.loading else controller.courses.value.loading)
+        }
+    }
+
+    @Test fun oldGenerationFinalizerCannotTouchNewSessionPauseOrLoading() = runTest {
+        for (lane in LearningLane.entries) for (changeAccount in listOf(false, true)) {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val store = MemoryStore(cached())
+            val oldStarted = CompletableDeferred<Unit>()
+            val releaseOld = CompletableDeferred<Unit>()
+            val newStarted = CompletableDeferred<Unit>()
+            val stopped = com.menglimi.chaoxing.ChxRequestPause(true, 61_000L)
+            var account = accountA
+            var calls = 0
+            val controller = LearningController(store, { account }, {}, { guard, token, _ ->
+                val old = calls++ == 0
+                suspend fun waitForResponse(): Nothing {
+                    if (old) {
+                        withContext(NonCancellable) { oldStarted.complete(Unit); releaseOld.await() }
+                        throw CancellationException("synthetic late response")
+                    }
+                    guard.requests.record(stopped.exception(), token)
+                    newStarted.complete(Unit)
+                    awaitCancellation()
+                }
+                backend(works = { waitForResponse() }, courses = { waitForResponse() })
+            }, dispatcher, dispatcher)
+            val old = launch {
+                if (lane == LearningLane.WORK) controller.refresh() else controller.refreshCourses()
+            }
+            oldStarted.await()
+            controller.disconnect()
+            if (changeAccount) account = accountB
+            val newer = launch {
+                if (lane == LearningLane.WORK) controller.refresh() else controller.refreshCourses()
+            }
+            newStarted.await()
+            val workState = controller.state.value
+            val courseState = controller.courses.value
+            val snapshot = store.value
+            val writes = store.writes
+            releaseOld.complete(Unit); old.join()
+            assertTrue(old.isCancelled)
+            assertEquals(workState, controller.state.value)
+            assertEquals(courseState, controller.courses.value)
+            assertEquals(snapshot, store.value)
+            assertEquals(writes, store.writes)
+            assertTrue(newer.isActive)
+            newer.cancelAndJoin()
+            assertEquals(account, store.value!!.account)
+            assertEquals(stopped, store.value!!.readControl.pause)
+            assertEquals(lane == LearningLane.COURSES, store.value!!.readControl.progressBlocked)
+            assertFalse(controller.state.value.loading)
+            assertFalse(controller.courses.value.loading)
+        }
+    }
+
     @Test fun noUniqueAccountKeepsOnlyMemoryAndNeverWritesSnapshot() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val store = MemoryStore(null)
@@ -425,18 +513,31 @@ class LearningControllerTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         var blocked = true
         var works = 0
-        val controller = LearningController(MemoryStore(cached()), { accountA }, {}, { _, _, _ -> backend(
+        var progressCalls = 0
+        val store = MemoryStore(cached())
+        val controller = LearningController(store, { accountA }, {}, { guard, _, _ -> backend(
             works = { works++; success("不应触发") },
-            courses = { if (blocked) ChxCourseOverview(listOf(course), "请验证",
-                requestPause = com.menglimi.chaoxing.ChxRequestPause(true)) else ChxCourseOverview(listOf(course)) }
+            courses = {
+                progressCalls++
+                if (progressCalls > 1) assertTrue(guard.requests.pause.value != null)
+                if (blocked) ChxCourseOverview(listOf(course), if (progressCalls == 1) "请验证" else null,
+                    requestPause = com.menglimi.chaoxing.ChxRequestPause(true))
+                else ChxCourseOverview(listOf(course))
+            }
         ) }, dispatcher, dispatcher)
         controller.refreshCourses(); controller.refresh()
         assertEquals(0, works)
         assertTrue(controller.courses.value.readControl.progressBlocked)
+        assertTrue(controller.verifyFromWeb(false) != null)
+        assertNull(controller.courses.value.progressError)
+        assertTrue(controller.courses.value.readControl.pause!!.verificationRequired)
+        assertTrue(store.value!!.readControl.pause!!.verificationRequired)
         blocked = false
         assertNull(controller.verifyFromWeb(false))
+        assertEquals(3, progressCalls)
         assertEquals(0, works)
         assertNull(controller.courses.value.readControl.pause)
+        assertNull(store.value!!.readControl.pause)
     }
 
     @Test fun cancellingLaterCourseKeepsEarlierResultsAndRemainingQueueOnReload() = runTest {

@@ -225,9 +225,11 @@ class LearningController internal constructor(
                 } }
             } finally {
                 withContext(NonCancellable + mainDispatcher) { guard.mutex.withLock {
-                    token?.let { guard.requests.finishRecovery(it, false) }
-                    token?.takeIf(guard::isCurrent)?.let { request ->
+                    token?.let { request ->
+                        guard.requests.finishRecovery(request, false)
                         preserveLatchedPauseLocked(request, account, readingCourse)
+                    }
+                    token?.takeIf(guard::isCurrent)?.let {
                         active.remove(LearningLane.WORK)
                         mutableState.update { value -> value.copy(loading = false, retryingCourse = null) }
                     }
@@ -264,7 +266,8 @@ class LearningController internal constructor(
                     guard.check(request)
                     checkAccount(account)
                     overview.requestPause?.let { recordPauseLocked(it.exception(), request) }
-                    if (overview.progressError == null && !overview.progressAuthRequired) {
+                    if (overview.progressError == null && !overview.progressAuthRequired &&
+                        overview.requestPause == null) {
                         guard.requests.finishRecovery(request, true)
                         if (guard.requests.pause.value == null && readControl.progressBlocked) {
                             readControl = readControl.copy(pause = null, progressBlocked = false, verificationUrl = null)
@@ -297,9 +300,11 @@ class LearningController internal constructor(
                 } }
             } finally {
                 withContext(NonCancellable + mainDispatcher) { guard.mutex.withLock {
-                    token?.let { guard.requests.finishRecovery(it, false) }
-                    token?.takeIf(guard::isCurrent)?.let { request ->
+                    token?.let { request ->
+                        guard.requests.finishRecovery(request, false)
                         preserveLatchedPauseLocked(request, account)
+                    }
+                    token?.takeIf(guard::isCurrent)?.let {
                         active.remove(LearningLane.COURSES)
                         mutableCourses.update { value -> value.copy(loading = false) }
                     }
@@ -326,6 +331,7 @@ class LearningController internal constructor(
 
     /** 响应已到达后即使调用者取消，也只为当前账号保留 gate 锁存的暂停与恢复目标。 */
     private suspend fun preserveLatchedPauseLocked(request: LearningRequest, account: String?, course: ChxWorkCourse? = null) {
+        if (guard.current() != request.generation) return
         if (accountProvider() != account) {
             accountChangedLocked()
             return
