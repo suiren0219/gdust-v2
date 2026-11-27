@@ -119,6 +119,7 @@ fun SettingsScreen(
     onShareSchedule: () -> Unit = onOpenMcp,
 ) {
     val ds = LocalDs.current
+    val preview = offlinePreview || com.menglimi.gdust.v2.BuildConfig.PREVIEW_TARGET
     val secondary = ds.sub
     val store = repo.store
     val focusManager = LocalFocusManager.current
@@ -254,16 +255,16 @@ fun SettingsScreen(
                     store.lastSyncAt > 0 -> "已同步"
                     else -> "未同步"
                 },
-                enabled = !offlinePreview && !syncing, onClick = onSync,
+                enabled = !preview && !syncing, onClick = onSync,
             ),
             SettingsEntry(
                 id = "webImport", title = "网页登录导入", summary = "在教务网页导入学期课程", icon = MiuixIcons.Import,
                 keywords = "兼容备用 教务学期导入", detail = if (store.loadWebImportPage().isNotBlank()) "已保存会话" else null,
-                enabled = !offlinePreview, onClick = onWebImport,
+                enabled = !preview, onClick = onWebImport,
             ),
             SettingsEntry(
                 id = "autoSync", title = "自动同步课表", summary = "每 4 小时在本机更新课表", icon = MiuixIcons.Refresh,
-                checked = autoSyncLocal, enabled = !offlinePreview,
+                checked = autoSyncLocal, enabled = !preview,
                 onCheckedChange = {
                     autoSyncLocal = it
                     store.autoSyncEnabled = it
@@ -386,15 +387,16 @@ fun SettingsScreen(
         SettingsSection("AI", listOf(
             SettingsEntry(
                 id = "summary", title = "生成公告总结", summary = "查看公告并按需生成或读取本机摘要",
-                keywords = "AI 缓存 总结", icon = MiuixIcons.Notes, onClick = onSchoolNotices,
+                keywords = "AI 缓存 总结", icon = MiuixIcons.Notes, enabled = !preview, onClick = onSchoolNotices,
             ),
             SettingsEntry(
                 id = "llm", title = "AI 服务", summary = "模型连接、预设与测试", keywords = "AI 模型 地址 密钥 公告 总结", icon = AiSparkleIcon,
-                detail = if (store.hasLlm) "已配置" else "未配置", onClick = onOpenAiService,
+                detail = if (preview) "离线预览" else if (store.hasLlm) "已配置" else "未配置",
+                enabled = !preview, onClick = onOpenAiService,
             ),
             SettingsEntry(
                 id = "mcp", title = "AI 与 MCP", summary = "本机只读服务 · 可选个人课表云", icon = AiSparkleIcon,
-                keywords = "AI MCP 本地服务 云端 同步课表", enabled = !offlinePreview, onClick = onOpenMcp,
+                keywords = "AI MCP 本地服务 云端 同步课表", enabled = !preview, onClick = onOpenMcp,
             ),
         )),
         SettingsSection("关于", listOf(
@@ -404,11 +406,13 @@ fun SettingsScreen(
             ),
         )),
     )
-    val allEntries = originalGroups.flatMap { it.entries } + accountEntry.copy(onClick = onProfile) + listOf(
+    val allEntries = (originalGroups.flatMap { it.entries } + accountEntry.copy(onClick = onProfile) + listOf(
         SettingsEntry("chxNotifications", "学习通通知待办", MiuixIcons.Messages, summary = "授权本机通知读取", onClick = onChxNotifications),
-        SettingsEntry("schedules", "课表切换", MiuixIcons.Months, summary = "学校课表与独立云端课表", enabled = !offlinePreview, onClick = onSchedules),
-        SettingsEntry("shareSchedule", "分享当前课表", MiuixIcons.Link, summary = "导出独立课表供其他设备导入", enabled = !offlinePreview, onClick = onShareSchedule),
-    )
+        SettingsEntry("schedules", "课表切换", MiuixIcons.Months, summary = "学校课表与独立云端课表", enabled = !preview, onClick = onSchedules),
+        SettingsEntry("shareSchedule", "分享当前课表", MiuixIcons.Link, summary = "导出独立课表供其他设备导入", enabled = !preview, onClick = onShareSchedule),
+    )).map { entry ->
+        if (preview) entry.copy(enabled = false, onClick = {}, onCheckedChange = {}, editor = null) else entry
+    }
     val groups = SettingsNavigation.categories.map { c -> SettingsSection(c.title, allEntries.filter { it.id in c.entries }) }
     val search = query.trim()
     val isDirectory = subPage == null && search.isBlank()
@@ -419,7 +423,7 @@ fun SettingsScreen(
     }
     val showServiceStatus = subPage == "账号与服务" || (!isDirectory &&
         "服务连接 登录状态 门户 教务 学习通 验证".contains(search, ignoreCase = true))
-    val showLogout = subPage == null && loggedIn &&
+    val showLogout = !preview && subPage == null && loggedIn &&
         (search.isBlank() || "退出登录 清除本机数据 账户".contains(search, ignoreCase = true))
     val scrollState = key(subPage) { rememberScrollState() }
     val backAction = {
@@ -449,8 +453,8 @@ fun SettingsScreen(
             ServiceStatusCard(
                 repo,
                 onReconnect = { service -> onReconnectService?.invoke(service) },
-                actionsEnabled = !offlinePreview,
-                offlinePreview = offlinePreview,
+                actionsEnabled = !preview,
+                offlinePreview = preview,
             )
         }
         if (isDirectory) {
@@ -489,7 +493,7 @@ fun SettingsScreen(
                 ))
             }
         }
-        val showProjectStar = subPage == null && (search.isBlank() ||
+        val showProjectStar = !preview && subPage == null && (search.isBlank() ||
             "GitHub 项目主页 star 支持 开源".contains(search, ignoreCase = true))
         if (!showServiceStatus && visibleGroups.isEmpty() && !showLogout && !isDirectory && !showProjectStar) {
             Text("没有找到相关设置", fontSize = 14.sp, color = secondary,
@@ -558,12 +562,13 @@ private fun SettingsPreference(entry: SettingsEntry) {
     when {
         entry.checked != null && entry.onCheckedChange != null -> SwitchPreference(
             title = entry.title, summary = entry.summary, titleColor = titleColors, summaryColor = summaryColors,
-            checked = entry.checked, onCheckedChange = entry.onCheckedChange,
+            checked = entry.checked, onCheckedChange = { if (entry.enabled) entry.onCheckedChange.invoke(it) },
             startAction = leading, insideMargin = margins, enabled = entry.enabled,
         )
         entry.onClick != null -> ArrowPreference(
             title = entry.title, summary = entry.summary, titleColor = titleColors, summaryColor = summaryColors,
-            startAction = leading, insideMargin = margins, onClick = entry.onClick, enabled = entry.enabled,
+            startAction = leading, insideMargin = margins,
+            onClick = { if (entry.enabled) entry.onClick.invoke() }, enabled = entry.enabled,
             endActions = { entry.detail?.let { SettingsDetail(it) } },
         )
         else -> BasicComponent(

@@ -28,6 +28,11 @@ class LocalMcpService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        if (!BuildConfig.MCP_ENABLED) {
+            LocalMcpRuntime.state.value = McpRuntimeState(error = "此构建未启用本机 MCP 服务")
+            stopSelf()
+            return
+        }
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "本机 MCP 服务", NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
@@ -47,6 +52,11 @@ class LocalMcpService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!BuildConfig.MCP_ENABLED) {
+            LocalMcpRuntime.state.value = McpRuntimeState(error = "此构建未启用本机 MCP 服务")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         if (!foregroundReady || server != null || opening?.isActive == true) return START_NOT_STICKY
         LocalMcpRuntime.state.value = McpRuntimeState(starting = true)
         opening = scope.launch {
@@ -92,6 +102,10 @@ class LocalMcpService : Service() {
         private const val ID = 0x4D43
         val url: String get() = "http://127.0.0.1:${BuildConfig.MCP_PORT}/mcp"
         fun start(context: Context) {
+            if (!BuildConfig.MCP_ENABLED) {
+                LocalMcpRuntime.state.value = McpRuntimeState(error = "此构建未启用本机 MCP 服务")
+                return
+            }
             try { context.startForegroundService(Intent(context, LocalMcpService::class.java)) }
             catch (_: Exception) {
                 runCatching { (context.applicationContext as App).repo.store.localMcpEnabled = false }

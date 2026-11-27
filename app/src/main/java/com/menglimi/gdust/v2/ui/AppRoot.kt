@@ -30,6 +30,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.menglimi.gdust.v2.BuildConfig
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
@@ -99,7 +100,9 @@ fun AppRoot(
     schoolLogin: SchoolLoginHost,
     aiMessages: androidx.compose.runtime.MutableState<List<AiChatLine>>,
 ) {
+    if (BuildConfig.PREVIEW_TARGET) return
     val scope = rememberCoroutineScope()
+    val offlinePreview = BuildConfig.PREVIEW_TARGET
     // 登录与启动状态由 MainActivity 保存，配置重建后保留。
 
     var calendar by remember { mutableStateOf<CalendarInfo?>(repo.store.loadCalendar()) }
@@ -131,7 +134,8 @@ fun AppRoot(
     val connections by repo.serviceConnections.collectAsState()
     val chatAccount = repo.store.jobNumber
     var aiMessagesState by remember(repo, chatAccount) {
-        mutableStateOf(com.menglimi.gdust.v2.ui.screens.restoreAiChat(repo.store.loadAiChatJson()))
+        mutableStateOf(if (offlinePreview) emptyList() else
+            com.menglimi.gdust.v2.ui.screens.restoreAiChat(repo.store.loadAiChatJson()))
     }
     var webReturnVersion by remember { mutableIntStateOf(0) }
     var schoolLoginMessage by remember { mutableStateOf<String?>(null) }
@@ -192,7 +196,6 @@ fun AppRoot(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
     ) { webReturnVersion++ }
     fun openServiceWeb(url: String) {
-        repo.invalidateChxRequests()
         serviceWeb.launch(android.content.Intent(context, ChxWebActivity::class.java)
             .putExtra(ChxWebActivity.EXTRA_URL, url))
     }
@@ -215,7 +218,9 @@ fun AppRoot(
     val settingsGroup = settingsCategory
     val hasAccount = repo.store.hasSession || repo.store.casTicket.isNotBlank() || repo.hasTeachingSession()
 
-    fun loadNotices() { noticeFeed.refresh(scope) }
+    fun loadNotices(source: com.menglimi.gdust.v2.data.NoticeSource = noticeFeed.state.value.source) {
+        if (!offlinePreview) noticeFeed.refresh(scope, source)
+    }
 
     fun openSettings(category: String? = null) {
         settingsCategory.value = category
@@ -396,7 +401,8 @@ fun AppRoot(
     }
 
     LaunchedEffect(sessionVersion, chatAccount) {
-        aiMessagesState = com.menglimi.gdust.v2.ui.screens.restoreAiChat(repo.store.loadAiChatJson())
+        aiMessagesState = if (offlinePreview) emptyList() else
+            com.menglimi.gdust.v2.ui.screens.restoreAiChat(repo.store.loadAiChatJson())
         aiMessages.value = aiMessagesState
         if (sessionVersion != 0L && !repo.store.hasSession) {
             noticeFeed.clear()
@@ -408,6 +414,7 @@ fun AppRoot(
     }
 
     LaunchedEffect(Unit) {
+        if (offlinePreview) return@LaunchedEffect
         // App 打开即刷新桌面小组件（课程/电量可能变了）
         runCatching {
             com.menglimi.gdust.v2.widget.WidgetRefresher.refreshAll(context)
@@ -516,12 +523,13 @@ fun AppRoot(
                     error = noticesError,
                     readIds = readNoticeIds,
                     updatedAt = noticeState.updatedAt,
-                    onMarkRead = { items -> repo.store.markNoticesRead(noticeAccount, items) },
+                    onMarkRead = { items -> if (!offlinePreview) repo.store.markNoticesRead(noticeAccount, items) },
                     onBack = { showNotices = false },
                     onRefresh = { loadNotices() },
                     source = noticeState.source,
-                    onSourceChange = { noticeFeed.refresh(scope, it) },
-                    onConfigureAi = { showNotices = false; showAiSettings = true },
+                    onSourceChange = { if (!offlinePreview) loadNotices(it) },
+                    onConfigureAi = { if (!offlinePreview) { showNotices = false; showAiSettings = true } },
+                    offlinePreview = offlinePreview,
                 )
             }
             "profile" -> {
@@ -541,9 +549,10 @@ fun AppRoot(
                     repo = repo,
                     onBack = { showAiSettings = false },
                     onOpenNotices = { showNotices = true; loadNotices() },
+                    offlinePreview = offlinePreview,
                 )
             }
-            "mcp_settings" -> McpSettingsScreen(repo = repo, onBack = { showMcpSettings = false }, onImported = {
+            "mcp_settings" -> McpSettingsScreen(repo = repo, onBack = { showMcpSettings = false }, offlinePreview = offlinePreview, onImported = {
                 calendar = repo.store.loadCalendar(); blocks = repo.store.loadBlocks()
                 showMcpSettings = false; showSettings.value = false; tab.intValue = 1; loggedIn.value = true
             })
@@ -578,14 +587,14 @@ fun AppRoot(
                 onChxEntry = { showChxEntry = true },
                 onGrades = { showGrades = true },
                 onChxCourses = { showChxCourses = true },
-                onSchoolNotices = { showNotices = true; loadNotices() },
-                onFiveEducation = { openServiceWeb("http://172.16.1.232/index") },
-                onOpenAiService = { showAiSettings = true },
+                onSchoolNotices = { if (!offlinePreview) { showNotices = true; loadNotices() } },
+                onFiveEducation = { if (!offlinePreview) openServiceWeb("http://172.16.1.232/index") },
+                onOpenAiService = { if (!offlinePreview) showAiSettings = true },
                 onProfile = { showProfile = true },
                 onAbout = { showAbout = true },
                 onExportBackup = exportLauncher,
                 onImportBackup = { uri ->
-                    runCatching {
+                    if (!offlinePreview) runCatching {
                         context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText().orEmpty()
                     }.map { repo.store.importBackup(it) }
                         .onSuccess { result ->
@@ -604,10 +613,11 @@ fun AppRoot(
                 onLogout = { logout() },
                 onReconnectService = ::openServiceLogin,
                 openGroupState = settingsGroup,
-                onOpenMcp = { showMcpSettings = true },
+                onOpenMcp = { if (!offlinePreview) showMcpSettings = true },
                 category = settingsCategory,
-                onSchedules = { showSchedules = true },
-                onShareSchedule = { showMcpSettings = true },
+                offlinePreview = offlinePreview,
+                onSchedules = { if (!offlinePreview) showSchedules = true },
+                onShareSchedule = { if (!offlinePreview) showMcpSettings = true },
                 loggedIn = connections.hasRestorableSession || repo.store.hasSession ||
                     repo.hasTeachingSession() || repo.store.hasChxSession,
                 chxSessionSaved = chxSessionSaved,
@@ -630,18 +640,19 @@ fun AppRoot(
                 onServiceConnections = { openSettings(SettingsNavigation.categoryFor("profile").title) },
                 onOpenServices = { showServices = true },
                 onService = ::openCampusService,
-                onOpenAiService = { showAiSettings = true },
+                onOpenAiService = { if (!offlinePreview) showAiSettings = true },
                 settingsSelected = showSettings.value,
                 onOpenNotices = { showNotices = true; loadNotices() },
                 notices = notices,
                 unreadCount = notices.count { it.readId !in readNoticeIds },
-                onImport = { showWebImport = true },
+                offlinePreview = offlinePreview,
+                onImport = { if (!offlinePreview) showWebImport = true },
                 calendar = calendar,
                 blocks = blocks,
                 syncError = syncError,
                 aiMessages = aiMessagesState,
                 onAiMessagesChange = {
-                    if (repo.store.jobNumber == chatAccount && repo.isCurrentSession(sessionVersion)) {
+                    if (!offlinePreview && repo.store.jobNumber == chatAccount && repo.isCurrentSession(sessionVersion)) {
                         aiMessagesState = it
                         aiMessages.value = it
                         repo.store.saveAiChatJson(com.menglimi.gdust.v2.ui.screens.encodeAiChat(it))
@@ -783,6 +794,7 @@ private fun MainScaffold(
     onOpenNotices: () -> Unit = {},
     notices: List<Notice> = emptyList(),
     unreadCount: Int = 0,
+    offlinePreview: Boolean = false,
     calendar: CalendarInfo?,
     blocks: List<CourseBlock>,
     syncError: String?,
@@ -841,6 +853,7 @@ private fun MainScaffold(
                         onInputFocusChanged = { chatInputFocused = it },
                         onBack = { onTab(0) },
                         onSettings = onOpenAiService,
+                        offlinePreview = offlinePreview,
                     )
                 }
             }

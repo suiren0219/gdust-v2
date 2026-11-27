@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <activity
+            android:name=".debug.CZeroPreviewActivity"
+            android:label="Nexio 离线预览"
+            tools:replace="android:label" />
+        <activity android:name=".debug.DndVerificationActivity" tools:node="remove" />
+        <activity android:name=".debug.WebViewProbeActivity" tools:node="remove" />
+    </application>
+</manifest>

@@ -32,7 +32,24 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun McpSettingsScreen(repo: Repository, onBack: () -> Unit, onImported: () -> Unit = {}) {
+fun McpSettingsScreen(
+    repo: Repository,
+    onBack: () -> Unit,
+    onImported: () -> Unit = {},
+    offlinePreview: Boolean = false,
+) {
+    val preview = offlinePreview || com.menglimi.gdust.v2.BuildConfig.PREVIEW_TARGET ||
+        !com.menglimi.gdust.v2.BuildConfig.MCP_ENABLED
+    if (preview) {
+        SettingSubPage("MCP", "离线预览 · 本机服务与云端操作已禁用。", onBack) {
+            SectionHeader("离线预览")
+            SettingGroup {
+                Text("不会读取或保存 MCP 配置，不会启动本机服务，也不会发送远程请求。",
+                    color = LocalDs.current.sub, fontSize = 13.sp)
+            }
+        }
+        return
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val runtime by LocalMcpRuntime.status.collectAsState()
@@ -91,7 +108,7 @@ fun McpSettingsScreen(repo: Repository, onBack: () -> Unit, onImported: () -> Un
                 PrivateMcpField(token, { if (it.length <= 4096) token = it }, "不填写则不校验 Token",
                     enabled = !localBusy && !localEnabled && !runtime.running && !runtime.starting)
                 Text("先关闭服务再修改 Token；填写后所有请求必须提供 Authorization: Bearer Token。", color = LocalDs.current.sub, fontSize = 13.sp)
-                Button(if (localDirty) "保存 Token" else "Token 已保存", enabled = localDirty && !localBusy && !localEnabled && !runtime.running) {
+                NexioActionButton(if (localDirty) "保存 Token" else "Token 已保存", enabled = localDirty && !localBusy && !localEnabled && !runtime.running) {
                     localBusy = true
                     scope.launch {
                         try {
@@ -119,30 +136,30 @@ fun McpSettingsScreen(repo: Repository, onBack: () -> Unit, onImported: () -> Un
                 PrivateMcpField(page.draft.token, { if (it.length <= 4096) controller.edit(page.draft.copy(token = it)) },
                     "仅加密保存于本机，不进入备份", !page.busy)
                 McpActions {
-                    Box(Modifier.weight(1f)) { Button(if (page.dirty) "保存配置" else "已保存", !page.busy && page.dirty) { controller.save() } }
-                    Box(Modifier.weight(1f)) { Button("测试连接", page.canRequest) { controller.inspect() } }
+                    Box(Modifier.weight(1f)) { NexioActionButton(if (page.dirty) "保存配置" else "已保存", !page.busy && page.dirty) { controller.save() } }
+                    Box(Modifier.weight(1f)) { NexioActionButton("测试连接", page.canRequest) { controller.inspect() } }
                 }
                 Text(page.error ?: page.message, color = if (page.error == null) LocalDs.current.sub else LocalDs.current.danger,
                     fontSize = 13.sp, lineHeight = 19.sp)
                 Text("上传当前课表", color = LocalDs.current.text, fontSize = 16.sp)
                 Text("先生成预览，确认后才写云端。若云端已有课表，确认会替换那一份。", color = LocalDs.current.sub, fontSize = 13.sp)
-                Button("预览上传", page.canRequest) { controller.previewUpload() }
+                NexioActionButton("预览上传", page.canRequest) { controller.previewUpload() }
                 page.upload?.let { preview ->
                     Text("${preview.courseCount} 门 · 基于云端版本 ${preview.baseRevision}\n${if (preview.replaces) "确认将替换个人云已有课表" else "确认将在个人云新建课表"}",
                         color = LocalDs.current.sub, fontSize = 13.sp)
                     McpActions {
-                        Box(Modifier.weight(1f)) { Button("取消预览", !page.busy) { controller.cancelPreview() } }
-                        Box(Modifier.weight(1f)) { Button("确认上传", page.canRequest) { controller.confirmUpload() } }
+                        Box(Modifier.weight(1f)) { NexioActionButton("取消预览", !page.busy) { controller.cancelPreview() } }
+                        Box(Modifier.weight(1f)) { NexioActionButton("确认上传", page.canRequest) { controller.confirmUpload() } }
                     }
                 }
                 Text("下载为独立课表", color = LocalDs.current.text, fontSize = 16.sp)
                 Text("确认后新建并切换一张本地课表；学校课表和已有独立课表均保留。重名自动加后缀。", color = LocalDs.current.sub, fontSize = 13.sp)
-                Button("预览下载", page.canRequest) { controller.previewDownload() }
+                NexioActionButton("预览下载", page.canRequest) { controller.previewDownload() }
                 page.download?.let { preview ->
                     Text("${preview.scheduleName} · ${preview.courseCount} 门 · 云端版本 ${preview.revision}", color = LocalDs.current.sub, fontSize = 13.sp)
                     McpActions {
-                        Box(Modifier.weight(1f)) { Button("取消预览", !page.busy) { controller.cancelPreview() } }
-                        Box(Modifier.weight(1f)) { Button("确认导入", page.canRequest) { controller.confirmDownload() } }
+                        Box(Modifier.weight(1f)) { NexioActionButton("取消预览", !page.busy) { controller.cancelPreview() } }
+                        Box(Modifier.weight(1f)) { NexioActionButton("确认导入", page.canRequest) { controller.confirmDownload() } }
                     }
                 }
                 Text("首版支持广科 4＋4＋2 节固定作息。不支持的自定义作息、假期调休、教学周重组和单日例外会明确拒绝，不会静默丢弃。", color = LocalDs.current.sub, fontSize = 13.sp, lineHeight = 19.sp)
@@ -165,7 +182,7 @@ private fun PrivateMcpField(value: String, onChange: (String) -> Unit, hint: Str
     LaunchedEffect(shown) { if (shown) { delay(30_000); shown = false } }
     LaunchedEffect(windowFocused, enabled) { if (!windowFocused || !enabled) shown = false }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        InputField(value, onChange, hint, modifier = Modifier.weight(1f).onFocusChanged {
+        NexioField(value, onChange, hint, modifier = Modifier.weight(1f).onFocusChanged {
             if (focused && !it.isFocused) shown = false
             focused = it.isFocused
         }, visual = if (shown) VisualTransformation.None else PasswordVisualTransformation(), enabled = enabled)

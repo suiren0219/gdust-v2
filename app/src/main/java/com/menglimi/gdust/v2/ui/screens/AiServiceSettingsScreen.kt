@@ -75,11 +75,12 @@ fun AiServiceSettingsScreen(
     val theme = NexioTheme.colorScheme
     val focus = LocalFocusManager.current
     val haptic = LocalHapticFeedback.current
-    var base by rememberSaveable { mutableStateOf(repo.store.llmBase) }
+    val preview = offlinePreview || com.menglimi.gdust.v2.BuildConfig.PREVIEW_TARGET
+    var base by remember(preview) { mutableStateOf(if (preview) "" else repo.store.llmBase) }
     // 密钥只留在当前组合的内存中，不写入 saved state，输入始终遮罩。
-    var key by remember { mutableStateOf(repo.store.llmKey) }
-    var model by rememberSaveable { mutableStateOf(repo.store.llmModel) }
-    var configured by rememberSaveable { mutableStateOf(repo.store.hasLlm) }
+    var key by remember(preview) { mutableStateOf(if (preview) "" else repo.store.llmKey) }
+    var model by remember(preview) { mutableStateOf(if (preview) "" else repo.store.llmModel) }
+    var configured by remember(preview) { mutableStateOf(!preview && repo.store.hasLlm) }
     var saved by rememberSaveable { mutableStateOf(false) }
     val api = remember { GdustApi() }
     val scope = rememberCoroutineScope()
@@ -113,7 +114,7 @@ fun AiServiceSettingsScreen(
     }
 
     fun startRequest(fetchModels: Boolean) {
-        if (offlinePreview) return
+        if (preview) return
         cancelPending()
         val version = requestVersion
         val snapshot = Triple(base, key, model)
@@ -162,12 +163,12 @@ fun AiServiceSettingsScreen(
         }
     }
 
-    DisposableEffect(offlinePreview) {
-        if (offlinePreview) cancelPending()
+    DisposableEffect(preview) {
+        if (preview) cancelPending()
         onDispose { requestJob?.cancel() }
     }
 
-    val canSave = !offlinePreview && base.isNotBlank() && key.isNotBlank() && model.isNotBlank()
+    val canSave = !preview && base.isNotBlank() && key.isNotBlank() && model.isNotBlank()
     val primaryColors = ButtonDefaults.buttonColorsPrimary()
     val secondaryBase = if (theme.background.luminance() < 0.5f) Color.White else Color.Black
     val secondaryColors = ButtonDefaults.textButtonColors(
@@ -221,14 +222,14 @@ fun AiServiceSettingsScreen(
                 placeholder = "例如 gpt-4o-mini",
                 imeAction = ImeAction.Done,
             )
-            if (offlinePreview) {
+            if (preview) {
                 Text("离线预览 · 网络请求与配置保存已禁用。", fontSize = 13.sp, color = ds.sub,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
             SettingEditor {
                 NexioActionButton(
                     if (busy == "models") "正在获取模型…" else "获取模型列表",
-                    enabled = !offlinePreview && busy == null && base.isNotBlank() && key.isNotBlank(),
+                    enabled = !preview && busy == null && base.isNotBlank() && key.isNotBlank(),
                 ) { startRequest(fetchModels = true) }
                 modelsStatus?.let {
                     Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub)
@@ -262,7 +263,7 @@ fun AiServiceSettingsScreen(
                     fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub)
                 NexioActionButton(
                     if (busy == "probe") "正在测试连接…" else "测试连接（可能计费）",
-                    enabled = !offlinePreview && busy == null && base.isNotBlank() && key.isNotBlank() && model.isNotBlank(),
+                    enabled = !preview && busy == null && base.isNotBlank() && key.isNotBlank() && model.isNotBlank(),
                 ) { startRequest(fetchModels = false) }
                 if (busy != null) {
                     NexioActionButton("取消请求") {
@@ -301,7 +302,7 @@ fun AiServiceSettingsScreen(
                 )
                 NexioButton(
                     onClick = {
-                        if (offlinePreview) return@NexioButton
+                        if (preview) return@NexioButton
                         saveError = null
                         try {
                             validateLlmConfiguration(base, key, model)
@@ -346,7 +347,7 @@ fun AiServiceSettingsScreen(
                 title = "公告总结",
                 subtitle = "对当前获取的公告标题生成简短摘要",
                 detail = if (configured) "已就绪" else "需配置",
-                onClick = onOpenNotices,
+                onClick = { if (!preview) onOpenNotices() },
             )
         }
     }

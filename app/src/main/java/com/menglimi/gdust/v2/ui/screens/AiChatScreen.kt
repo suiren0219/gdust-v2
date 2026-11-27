@@ -100,6 +100,9 @@ fun AiChatScreen(
     offlinePreview: Boolean = false,
 ) {
     val ds = LocalDs.current
+    val preview = offlinePreview || com.menglimi.gdust.v2.BuildConfig.PREVIEW_TARGET
+    val configured = !preview && repo.store.hasLlm
+    val chatMessages = if (preview) emptyList() else messages
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -113,22 +116,22 @@ fun AiChatScreen(
         .getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
     LaunchedEffect(keyboardVisible) { onInputFocusChanged(keyboardVisible) }
     DisposableEffect(Unit) { onDispose { onInputFocusChanged(false) } }
-    var nextId by remember(messages) { mutableStateOf(messages.maxOfOrNull { it.id } ?: 0L) }
-    var latestTodos by remember(repo) { mutableStateOf(todos) }
-    DisposableEffect(repo) {
-        val stop = repo.store.observeTodos { latestTodos = repo.store.loadTodos() }
-        onDispose { stop() }
+    var nextId by remember(chatMessages) { mutableStateOf(chatMessages.maxOfOrNull { it.id } ?: 0L) }
+    var latestTodos by remember(repo, preview) { mutableStateOf(if (preview) emptyList() else todos) }
+    DisposableEffect(repo, preview) {
+        val stop = if (preview) null else repo.store.observeTodos { latestTodos = repo.store.loadTodos() }
+        onDispose { stop?.invoke() }
     }
 
     fun sendMessage(text: String = draft) {
         val question = text.trim()
-        if (offlinePreview || question.isEmpty() || busy || !repo.store.hasLlm) return
+        if (preview || question.isEmpty() || busy || !configured) return
         draft = ""
         keyboard?.hide()
         focus.clearFocus()
         error = ""
         val conversation = messages + AiChatLine(++nextId, "user", question)
-        onMessagesChange(conversation)
+        if (!preview) onMessagesChange(conversation)
         val contextText = if (includeContext) {
             buildStudentContext(calendar, blocks, latestTodos, System.currentTimeMillis())
         } else ""
@@ -148,7 +151,7 @@ fun AiChatScreen(
                 throw cancelled
             } catch (e: Exception) {
                 error = when {
-                    !repo.store.hasLlm -> "AI 服务未配置，请先设置模型地址、密钥和模型名。"
+                    !configured -> "AI 服务未配置，请先设置模型地址、密钥和模型名。"
                     else -> (e as? LlmException)?.message ?: "请求失败，请检查网络与 AI 服务配置。"
                 }
             } finally {
@@ -158,10 +161,10 @@ fun AiChatScreen(
     }
 
     BackHandler { onBack() }
-    LaunchedEffect(messages.size, busy, error) {
-        val introItems = if (messages.isEmpty()) 2 else 0
+    LaunchedEffect(chatMessages.size, busy, error) {
+        val introItems = if (chatMessages.isEmpty()) 2 else 0
         val extraItems = (if (busy) 1 else 0) + (if (error.isNotBlank()) 1 else 0)
-        val last = introItems + messages.size + extraItems - 1
+        val last = introItems + chatMessages.size + extraItems - 1
         if (last >= 0) listState.animateScrollToItem(last)
     }
 
@@ -174,7 +177,7 @@ fun AiChatScreen(
         color = secondaryBase,
         disabledColor = secondaryBase.copy(alpha = 0.06f),
     )
-    val canSend = !offlinePreview && !busy && draft.isNotBlank() && repo.store.hasLlm
+    val canSend = !preview && !busy && draft.isNotBlank() && configured
     val term = calendar?.let { "${it.year} · 第${it.semester}学期" } ?: "未导入学期"
 
     Column(
@@ -201,8 +204,8 @@ fun AiChatScreen(
             }
             FlatTextButton(
                 text = "清空",
-                onClick = { onMessagesChange(emptyList()); error = ""; draft = "" },
-                enabled = !busy && messages.isNotEmpty(),
+                onClick = { if (!preview) onMessagesChange(emptyList()); error = ""; draft = "" },
+                enabled = !busy && chatMessages.isNotEmpty(),
                 modifier = Modifier.semantics { contentDescription = "清空对话" },
                 cornerRadius = 100.dp,
                 minWidth = 64.dp,
@@ -213,7 +216,7 @@ fun AiChatScreen(
             )
         }
 
-        if (offlinePreview) {
+        if (preview) {
             Text("离线预览 · 网络发送已禁用。", fontSize = 13.sp, color = ds.sub,
                 modifier = Modifier.padding(horizontal = pagePadding, vertical = 8.dp))
         }
@@ -254,7 +257,7 @@ fun AiChatScreen(
             contentPadding = PaddingValues(start = pagePadding, end = pagePadding, top = 12.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (messages.isEmpty()) {
+            if (chatMessages.isEmpty()) {
                 item(key = "welcome") {
                     AppCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
@@ -285,7 +288,7 @@ fun AiChatScreen(
                     }
                 }
             }
-            itemsIndexed(messages, key = { _, line -> line.id }) { _, line ->
+            itemsIndexed(chatMessages, key = { _, line -> line.id }) { _, line ->
                 val mine = line.role == "user"
                 Column(
                     Modifier.fillMaxWidth(),
@@ -324,7 +327,7 @@ fun AiChatScreen(
             }
         }
 
-        if (!repo.store.hasLlm) {
+        if (!configured && !preview) {
             AppCard(
                 Modifier.fillMaxWidth().padding(horizontal = pagePadding).padding(bottom = 12.dp),
                 color = ds.accentSoft,
@@ -344,7 +347,7 @@ fun AiChatScreen(
                     }
                     FlatTextButton(
                         text = "去配置",
-                        onClick = onSettings,
+                        onClick = { if (!preview) onSettings() },
                         cornerRadius = 100.dp,
                         minWidth = 64.dp,
                         minHeight = 44.dp,

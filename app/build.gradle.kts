@@ -16,7 +16,7 @@ android {
     compileSdk = 37
 
     // 版本标识单一来源：versionName 直接带构建号，装的是不是最新一眼可见
-    val vCode = 25
+    val vCode = 26
     val vName = "2.0.0-alpha.$vCode"
 
     defaultConfig {
@@ -26,6 +26,8 @@ android {
         targetSdk = 35
         versionCode = vCode
         versionName = vName
+        buildConfigField("boolean", "PREVIEW_TARGET", "false")
+        buildConfigField("boolean", "MCP_ENABLED", "true")
     }
 
     // 正式应用与隔离离线预览分别构建，预览包不生成 Release。
@@ -33,10 +35,14 @@ android {
     productFlavors {
         create("production") {
             dimension = "previewTarget"
+            buildConfigField("boolean", "PREVIEW_TARGET", "false")
+            buildConfigField("boolean", "MCP_ENABLED", "true")
         }
         create("preview") {
             dimension = "previewTarget"
             applicationIdSuffix = ".preview"
+            buildConfigField("boolean", "PREVIEW_TARGET", "true")
+            buildConfigField("boolean", "MCP_ENABLED", "false")
         }
     }
     buildFeatures { buildConfig = true }

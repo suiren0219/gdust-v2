@@ -10,10 +10,5 @@
             android:name=".debug.WebViewProbeActivity"
             android:exported="true"
             android:label="WebView 探针" />
-        <activity
-            android:name=".debug.CZeroPreviewActivity"
-            android:exported="true"
-            android:label="Nexio UI 视觉预览"
-            android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>

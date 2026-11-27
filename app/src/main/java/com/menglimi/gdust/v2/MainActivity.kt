@@ -50,6 +50,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (BuildConfig.PREVIEW_TARGET) {
+            finish()
+            return
+        }
         receiveWidgetIntent(intent)
         enableEdgeToEdge()
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
@@ -78,7 +82,7 @@ class MainActivity : ComponentActivity() {
             val inspectionMode = LocalInspectionMode.current
             // 仅真实主入口恢复本机服务；离线预览 Activity 不经过此启动路径。
             LaunchedEffect(inspectionMode) {
-                if (inspectionMode) return@LaunchedEffect
+                if (inspectionMode || !BuildConfig.MCP_ENABLED) return@LaunchedEffect
                 val enabled = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.repo.store.localMcpEnabled }
                 if (enabled) LocalMcpService.start(app)
             }

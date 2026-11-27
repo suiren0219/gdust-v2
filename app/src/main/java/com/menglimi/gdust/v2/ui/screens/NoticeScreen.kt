@@ -75,7 +75,9 @@ fun NoticeScreen(
     source: NoticeSource,
     onSourceChange: (NoticeSource) -> Unit,
     onConfigureAi: () -> Unit = {},
+    offlinePreview: Boolean = false,
 ) {
+    val preview = offlinePreview || com.menglimi.gdust.v2.BuildConfig.PREVIEW_TARGET
     val sessionVersion by repo.sessionVersion.collectAsState()
     // 换号或切换来源后销毁旧界面状态与协程，摘要、错误不会串到下一份列表。
     key(repo, sessionVersion, source) {
@@ -84,7 +86,9 @@ fun NoticeScreen(
         val context = LocalContext.current
         val store = repo.store
         var summarizing by remember(notices) { mutableStateOf(false) }
-        var summary by remember(notices) { mutableStateOf(store.loadNoticeSummary(notices)) }
+        var summary by remember(notices, preview) {
+            mutableStateOf(if (preview) null else store.loadNoticeSummary(notices))
+        }
         var summaryError by remember(notices) { mutableStateOf("") }
         var summaryJob by remember(notices) { mutableStateOf<Job?>(null) }
         var openErrors by remember(notices) { mutableStateOf<Map<Notice, String>>(emptyMap()) }
@@ -120,7 +124,7 @@ fun NoticeScreen(
                     NoticeSource.CAMPUS to "官网",
                 ),
                 selected = source,
-                onSelect = { if (it != source) onSourceChange(it) },
+                onSelect = { if (!preview && it != source) onSourceChange(it) },
             )
             Text(
                 when (source) {
@@ -171,7 +175,8 @@ fun NoticeScreen(
                         )
                     }
                 }
-                SettingActionText(text = if (loading) "更新中…" else "刷新", enabled = !loading, onClick = onRefresh)
+                SettingActionText(text = if (loading) "更新中…" else "刷新", enabled = !preview && !loading,
+                    onClick = { if (!preview) onRefresh() })
             }
             Spacer(Modifier.height(12.dp))
 
@@ -179,14 +184,15 @@ fun NoticeScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("AI 总结", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)
                     Text(
-                        if (store.hasLlm) "将当前来源的 ${notices.size} 条公告标题交给你配置的模型"
+                        if (preview) "离线预览 · AI 请求、配置读取与摘要读取均已禁用。"
+                        else if (store.hasLlm) "将当前来源的 ${notices.size} 条公告标题交给你配置的模型"
                         else "配置 AI 服务后，可总结当前来源的公告标题。",
                         fontSize = 13.sp,
                         lineHeight = 20.sp,
                         color = ds.sub,
                     )
-                    if (!store.hasLlm) {
-                        Button(text = "配置 AI 服务", onClick = onConfigureAi)
+                    if (!preview && !store.hasLlm) {
+                        NexioActionButton(text = "配置 AI 服务", onClick = { if (!preview) onConfigureAi() })
                     }
                     summary?.let { Text(it, fontSize = 15.sp, lineHeight = 23.sp, color = ds.text) }
                     if (summaryError.isNotEmpty()) {
@@ -194,8 +200,9 @@ fun NoticeScreen(
                     }
                     NexioActionButton(
                         text = if (summarizing) "总结中…" else if (summary == null) "AI 总结当前公告" else "重新总结",
-                        enabled = store.hasLlm && !summarizing && !loading && notices.isNotEmpty(),
+                        enabled = !preview && store.hasLlm && !summarizing && !loading && notices.isNotEmpty(),
                     ) {
+                        if (preview) return@NexioActionButton
                         val session = repo.portalSession()
                         if (repo.sessionVersion.value == sessionVersion) {
                             val snapshot = notices.toList()
@@ -264,7 +271,8 @@ fun NoticeScreen(
                     )
                     if (unreadCount > 0) {
                         Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                            SettingActionText(text = "全部标为已读", onClick = { onMarkRead(notices) })
+                            SettingActionText(text = "全部标为已读", enabled = !preview,
+                                onClick = { if (!preview) onMarkRead(notices) })
                         }
                         Spacer(Modifier.height(8.dp))
                     }
@@ -272,8 +280,10 @@ fun NoticeScreen(
                         val unread = notice.readId !in readIds
                         GlassCard(
                             modifier = Modifier.padding(bottom = 12.dp),
-                            onClick = {
-                                val url = noticeWebUrl(notice.url)
+                    onClick = {
+                        if (preview) return@GlassCard
+                        val url = noticeWebUrl(notice.url)
+
                                 val failure = if (url == null) {
                                     "原文链接无效，无法打开。"
                                 } else {
