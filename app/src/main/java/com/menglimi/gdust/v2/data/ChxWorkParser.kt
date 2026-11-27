@@ -25,6 +25,8 @@ data class ChxWorkTabs(
     val t: String,
     val userId: String,
     val moocDomain: String,
+    val workListEndpoint: String = "",
+    val coursePageUrl: String = "",
 )
 
 /** 作业列表的一条作业。 */
@@ -39,6 +41,15 @@ data class ChxWorkItem(
 )
 
 object ChxWorkParser {
+    // 保持公共读取异常不变，用类型化原因区分可继续导航的缺字段与不可忽略的冲突。
+    private class MissingCourseField(val field: String) : Exception()
+
+    internal fun missingField(failure: ChxCourseReadException): String? =
+        (failure.cause as? MissingCourseField)?.field
+
+    private fun missingCourseField(name: String): ChxCourseReadException =
+        ChxCourseReadException("课程页缺少字段 $name，请在网页打开该课程后重试。")
+            .apply { initCause(MissingCourseField(name)) }
 
     /** 与课程展示共用身份和入口校验，未知版式或不完整卡片不能当成没有课程。 */
     fun parseCourses(html: String): List<ChxWorkCourse> = ChxCourseApi.parseCourses(html).map {
@@ -52,18 +63,29 @@ object ChxWorkParser {
         null
     }
 
-    /** 实际课程页使用小写 courseid/clazzid，并在页头与正文重复同值身份字段。 */
-    internal fun readCourseTabs(html: String, expectedCourse: ChxWorkCourse? = null): ChxWorkTabs {
+    /** 课程身份须来自实际正文或落地 URL 的显式证据，不能由入口请求参数自行冒充。 */
+    internal fun readCourseTabs(
+        html: String,
+        expectedCourse: ChxWorkCourse? = null,
+        pageUrl: String? = null,
+    ): ChxWorkTabs {
         val document = Jsoup.parse(html)
-        val inputs = document.select("input[type=hidden]")
+        document.select("script, style, template").remove()
+        val inputs = document.select("input").filter {
+            !it.hasAttr("type") || it.attr("type").equals("hidden", ignoreCase = true)
+        }
+        val missing = mutableListOf<String>()
+        fun fields(ids: Array<out String>) = inputs.filter { input ->
+            ids.any { it.equals(input.id(), ignoreCase = true) || it.equals(input.attr("name"), ignoreCase = true) }
+        }
         fun field(vararg ids: String, required: Boolean = true, repeated: Boolean = false): String {
-            val fields = inputs.filter { it.id() in ids }
-            if (fields.isEmpty()) {
-                if (required) throw ChxCourseReadException("课程页缺少字段 ${ids.first()}，请在网页打开该课程后重试。")
+            val matches = fields(ids)
+            if (matches.isEmpty()) {
+                if (required) missing += ids.first()
                 return ""
             }
-            val values = fields.map { it.attr("value").trim() }.distinct()
-            if ((!repeated && fields.size != 1) || values.size != 1) {
+            val values = matches.map { it.attr("value").trim() }.distinct()
+            if ((!repeated && matches.size != 1) || values.size != 1) {
                 throw ChxCourseReadException("课程页字段 ${ids.first()} 存在冲突，未读取其他课程的作业。")
             }
             return values.single().also {
@@ -71,21 +93,50 @@ object ChxWorkParser {
             }
         }
         if (expectedCourse != null) {
-            val identities = listOf(
-                "courseid" to (field("courseid", "courseId", repeated = true) to expectedCourse.courseId),
-                "clazzid" to (field("clazzid", "classId", repeated = true) to expectedCourse.classId),
-                "cpi" to (field("cpi", repeated = true) to expectedCourse.cpi),
-            )
-            identities.forEach { (name, pair) ->
-                if (pair.first != pair.second.toString()) {
-                    throw ChxCourseReadException("课程页标识 $name 与所选课程不符，已停止读取。")
+            val landing = pageUrl?.let(ChxApi::trustedUrl)
+            fun identity(expected: Long, vararg names: String) {
+                val values = mutableListOf<String>()
+                val identityFields = fields(names)
+                if (identityFields.isNotEmpty()) values += field(*names, repeated = true)
+                landing?.queryParameterNames?.filter { key -> names.any { it.equals(key, ignoreCase = true) } }
+                    ?.forEach { key ->
+                        val parameters = landing.queryParameterValues(key)
+                        if (parameters.size != 1) throw ChxCourseReadException("课程页标识 ${names.first()} 参数重复，已停止读取。")
+                        values += parameters.single().orEmpty()
+                    }
+                if (values.isEmpty()) missing += names.first()
+                if (values.any { value ->
+                        value.isBlank() || value.any { it !in '0'..'9' } || value.toLongOrNull() != expected || expected <= 0
+                    }) {
+                    throw ChxCourseReadException("课程页标识 ${names.first()} 与所选课程不符，已停止读取。")
                 }
             }
+            identity(expectedCourse.courseId, "courseid")
+            identity(expectedCourse.classId, "clazzid", "classid")
+            identity(expectedCourse.cpi, "cpi")
         }
-        return ChxWorkTabs(
+        val domain = field("moocDomainName")
+        val base = pageUrl?.let(ChxApi::trustedUrl) ?: ChxApi.trustedUrl(domain)
+        val menuLinks = document.select("a[data-url], a[href], [data-url]").flatMap { element ->
+            listOf("data-url", "href").filter(element::hasAttr).map { element.attr(it).trim() }
+        }.filter { link ->
+            runCatching {
+                java.net.URI(link).path.orEmpty().trimEnd('/').let { it.endsWith("/work/list") || it.endsWith("/work/list.html") }
+            }.getOrDefault(false)
+        }.distinct()
+        val endpoints = menuLinks.map { link ->
+            base?.let { ChxApi.redirectTarget(it, link) }?.takeIf { ChxApi.isWorkList(it) }?.toString()
+                ?: throw ChxCourseReadException("课程页作业入口无法识别，未请求其他地址。")
+        }.distinct()
+        if (endpoints.size > 1) throw ChxCourseReadException("课程页作业入口存在冲突，已停止读取。")
+        val tabs = ChxWorkTabs(
             field("enc"), field("workEnc"), field("examEnc", required = false),
-            field("t"), field("userId", required = false), field("moocDomainName"),
+            field("t"), field("userId", required = false), domain,
+            workListEndpoint = endpoints.singleOrNull().orEmpty(),
+            coursePageUrl = pageUrl.orEmpty(),
         )
+        missing.firstOrNull()?.let { throw missingCourseField(it) }
+        return tabs
     }
 
     /** 无可核实的空列表协议；维护页、未知结构或缺字段都不能当成“没有作业”。 */
@@ -123,13 +174,19 @@ object ChxWorkParser {
                 if (values.size > 1) unknown("$name 字段冲突")
                 return values.singleOrNull() ?: if (required) unknown("缺少 $name 字段") else ""
             }
-            // 不执行 onclick；入口必须由可校验的 URL 提供，并且所有声明的入口一致。
+            // 不执行 onclick；忽略已确认的统计链接，其余详情入口必须都一致。
+            val hasPrimaryLink = row.select("[data], [data-url]").any { element ->
+                listOf("data", "data-url").any { key -> element.hasAttr(key) && element.attr(key).isNotBlank() }
+            }
             val links = row.select("[data], [data-url], a[href]").flatMap { element ->
-                listOf("data", "data-url", "href").filter { element.hasAttr(it) }.map { element.attr(it).trim() }
+                listOf("data", "data-url", "href").filter { element.hasAttr(it) }.mapNotNull { key ->
+                    val value = element.attr(key).trim()
+                    value.takeUnless { key == "href" && hasPrimaryLink && isStatisticsLink(it) }
+                }
             }.distinct()
             if (links.isEmpty() || links.any { it.isBlank() }) unknown("缺少详情地址 data/data-url/href")
             val details = links.map { link ->
-                ChxApi.redirectTarget(base, link)?.takeIf(ChxApi::isWorkDetail)
+                ChxApi.workDetailTarget(base, link)
                     ?: unknown("详情地址不可信或路径不支持")
             }.distinct()
             if (details.size != 1) unknown("详情地址冲突")
@@ -139,8 +196,9 @@ object ChxWorkParser {
                 if (values.size != 1) unknown("$name 参数缺失或重复")
                 return values.single()?.takeIf { it.isNotBlank() } ?: unknown("$name 参数为空")
             }
-            fun id(name: String): Long = parameter(name).let { value ->
-                value.takeIf { it.all { char -> char in '0'..'9' } }?.toLongOrNull()?.takeIf { it > 0 }
+            fun id(name: String, allowZero: Boolean = false): Long = parameter(name).let { value ->
+                value.takeIf { it.all { char -> char in '0'..'9' } }?.toLongOrNull()
+                    ?.takeIf { if (allowZero) it >= 0 else it > 0 }
                     ?: unknown("$name 参数无效")
             }
             val courseId = id("courseId")
@@ -154,16 +212,27 @@ object ChxWorkParser {
             val title = field(".overHidden2, .work-title, .task-title", "标题", titleAttribute = true)
             val status = when (field(".status, .work-status, .task-status", "status")) {
                 "未交", "未提交" -> "未交"
-                "已完成", "已提交" -> "已完成"
+                "已完成", "已提交", "待批阅", "已批阅" -> "已完成"
                 else -> unknown("status 字段不支持")
             }
-            val item = ChxWorkItem(title, status, detail.toString(), id("workId"), id("answerId"), parameter("enc"),
+            val item = ChxWorkItem(title, status, detail.toString(), id("workId"), id("answerId", allowZero = true), parameter("enc"),
                 field(".time, .work-time, .task-time", "time", required = false))
             val previous = out.putIfAbsent(item.workId, item)
             if (previous != null && previous != item) unknown("workId 重复且条目冲突")
         }
         return out.values.toList()
     }
+
+    /** 精确过滤真实作业卡片旁的统计入口；绝不请求、导航或读取统计站点。 */
+    private fun isStatisticsLink(value: String): Boolean = runCatching {
+        val uri = java.net.URI(value)
+        uri.scheme == "https" && uri.host == "stat2-ans.chaoxing.com" && uri.port in setOf(-1, 443) &&
+            uri.rawUserInfo == null && uri.rawFragment == null && uri.rawPath == "/study-knowledge/ans" &&
+            value.none { it.code <= 32 || it.code == 127 || it == '\\' } &&
+            uri.rawQuery.orEmpty().split('&').none {
+                it.substringBefore('=').lowercase(java.util.Locale.ROOT) in setOf("workid", "answerid", "enc")
+            }
+    }.getOrDefault(false)
 
     /** stu-job-info 返回任务点计数，不是作业数量；不能据此跳过任何课程的作业列表。 */
     fun parseJobInfo(json: String): Map<Long, Pair<Int, Int>> {

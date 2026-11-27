@@ -3,10 +3,16 @@ package com.menglimi.gdust.v2.ui
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -17,6 +23,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
@@ -55,6 +68,8 @@ import com.menglimi.gdust.v2.data.NoticeFeed
 import com.menglimi.gdust.v2.data.readId
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.icon.MiuixIcons
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -80,6 +95,7 @@ fun AppRoot(
     loggedIn: androidx.compose.runtime.MutableState<Boolean>,
     checked: androidx.compose.runtime.MutableState<Boolean>,
     schoolLogin: SchoolLoginHost,
+    aiMessages: androidx.compose.runtime.MutableState<List<AiChatLine>>,
 ) {
     val scope = rememberCoroutineScope()
     // 登录与启动状态由 MainActivity 保存，配置重建后保留。
@@ -105,21 +121,25 @@ fun AppRoot(
     var showChxCourses by remember { mutableStateOf(false) }
     var showWidgets by remember { mutableStateOf(false) }
     var showAiSettings by remember { mutableStateOf(false) }
-    var aiMessagesState by remember { mutableStateOf(emptyList<com.menglimi.gdust.v2.ui.screens.AiChatLine>()) }
-    val settingsGroup = androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
-    var webReturnVersion by remember { mutableIntStateOf(0) }
-    var schoolLoginMessage by remember { mutableStateOf<String?>(null) }
     val sessionVersion by repo.sessionVersion.collectAsState()
     val connections by repo.serviceConnections.collectAsState()
-    val noticeFeed = remember(repo) {
-        val publicNotices = com.menglimi.gdust.v2.data.SchoolNoticeApi()
-        NoticeFeed(repo::portalSession, repo::notices, publicNotices::notices)
+    val chatAccount = repo.store.jobNumber
+    var aiMessagesState by remember(repo, chatAccount) {
+        mutableStateOf(com.menglimi.gdust.v2.ui.screens.restoreAiChat(repo.store.loadAiChatJson()))
+    }
+    var webReturnVersion by remember { mutableIntStateOf(0) }
+    var schoolLoginMessage by remember { mutableStateOf<String?>(null) }
+    val publicNotices = com.menglimi.gdust.v2.data.SchoolNoticeApi()
+    val noticeAccount = repo.store.jobNumber
+    val noticeFeed = remember(repo, noticeAccount, sessionVersion) {
+        NoticeFeed(repo::portalSession, repo::notices, publicNotices::notices,
+            loadSnapshot = repo::loadNoticeSnapshot, saveSnapshot = repo::saveNoticeSnapshot)
+            .also { it.restoreInitial() }
     }
     val noticeState by noticeFeed.state.collectAsState()
     val notices = noticeState.notices
     val noticesLoading = noticeState.loading
     val noticesError = noticeState.error
-    val noticeAccount = repo.store.jobNumber
     var readNoticeIds by remember(noticeAccount) { mutableStateOf(repo.store.readNoticeIds(noticeAccount)) }
     var syncJob by remember { mutableStateOf<Job?>(null) }
     var loggingOut by remember { mutableStateOf(false) }
@@ -186,6 +206,7 @@ fun AppRoot(
     var importReport by remember { mutableStateOf<String?>(null) }
     // 设置页当前展开的编辑区（切风格重建时收起即可，不影响页面栈）
     val openSection = remember { mutableStateOf<String?>(null) }
+    val settingsGroup = androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     val hasAccount = repo.store.hasSession || repo.store.casTicket.isNotBlank() || repo.hasTeachingSession()
 
     fun loadNotices() { noticeFeed.refresh(scope) }
@@ -206,16 +227,21 @@ fun AppRoot(
             CampusService.CHX_LINK -> showChxEntry = true
             CampusService.CHX_NOTIFICATIONS -> showChxNotifications = true
             CampusService.SUMMARY -> { showAiSettings = true }
-            CampusService.SETTINGS -> showSettings.value = true
+            CampusService.SETTINGS -> { settingsGroup.value = null; showSettings.value = true }
         }
     }
 
 
-    fun sync(preferred: SchoolService? = null, silentIfDue: Boolean = false) {
+    fun sync(preferred: SchoolService? = null, silentIfDue: Boolean = false, targetSemester: String? = null) {
         if (syncing) return
+        if (targetSemester != null && !repo.hasTeachingSession()) {
+            syncError = "切换学期需要连接教务网页，原学期课表已保留。"
+            return
+        }
         if (silentIfDue && (repo.nextAutomaticSyncAt() ?: Long.MAX_VALUE) > System.currentTimeMillis()) return
         val service = selectScheduleService(
-            preferred, repo.serviceConnections.value, repo.store.hasSession, repo.hasTeachingSession(),
+            if (targetSemester != null) SchoolService.TEACHING else preferred,
+            repo.serviceConnections.value, repo.store.hasSession, repo.hasTeachingSession(),
         )
         if (service == null) {
             if (silentIfDue) return
@@ -237,6 +263,7 @@ fun AppRoot(
             try {
                 val result = kotlinx.coroutines.withTimeoutOrNull(60_000L) {
                     when {
+                        targetSemester != null -> repo.syncTermWithCookies(semester = targetSemester)
                         silentIfDue -> repo.syncTermSilentlyIfDue()
                         service == SchoolService.TEACHING -> repo.syncTermWithCookies()
                         else -> repo.syncSchedule()
@@ -329,11 +356,12 @@ fun AppRoot(
         importReport = null
         showNotices = false
         showWebImport = false
+        aiMessagesState = emptyList()
+        aiMessages.value = emptyList()
         showChxEntry = false
         showGrades = false
         showChxCourses = false
         showProfile = false
-        aiMessagesState = emptyList()
         showAiSettings = false
         showSettings.value = false
         loggedIn.value = false
@@ -350,7 +378,9 @@ fun AppRoot(
         }
     }
 
-    LaunchedEffect(sessionVersion) {
+    LaunchedEffect(sessionVersion, chatAccount) {
+        aiMessagesState = com.menglimi.gdust.v2.ui.screens.restoreAiChat(repo.store.loadAiChatJson())
+        aiMessages.value = aiMessagesState
         if (sessionVersion != 0L && !repo.store.hasSession) {
             noticeFeed.clear()
             syncJob?.cancel()
@@ -471,6 +501,7 @@ fun AppRoot(
                     onRefresh = { loadNotices() },
                     source = noticeState.source,
                     onSourceChange = { noticeFeed.refresh(scope, it) },
+                    onConfigureAi = { showNotices = false; showAiSettings = true },
                 )
             }
             "profile" -> {
@@ -505,7 +536,7 @@ fun AppRoot(
                     loggedIn.value = true
                     openSchoolLogin()
                 },
-                onOpenSettings = { showSettings.value = true },
+                onOpenSettings = { settingsGroup.value = null; showSettings.value = true },
                 onPreview = { loggedIn.value = true },
                 onSchoolLogin = ::openSchoolLogin,
             )
@@ -556,8 +587,6 @@ fun AppRoot(
             "main" -> MainScaffold(
                 repo = repo,
                 tab = tab.intValue,
-                aiMessages = aiMessagesState,
-                onAiMessagesChange = { aiMessagesState = it },
                 onTab = { tab.intValue = it },
                 onSettings = { showSettings.value = true },
                 serviceSummary = serviceConnectionSummary(connections) +
@@ -574,15 +603,18 @@ fun AppRoot(
                 calendar = calendar,
                 blocks = blocks,
                 syncError = syncError,
+                aiMessages = aiMessagesState,
+                onAiMessagesChange = {
+                    if (repo.store.jobNumber == chatAccount && repo.isCurrentSession(sessionVersion)) {
+                        aiMessagesState = it
+                        aiMessages.value = it
+                        repo.store.saveAiChatJson(com.menglimi.gdust.v2.ui.screens.encodeAiChat(it))
+                    }
+                },
                 onSwitchTerm = { sem ->
                     val cal = calendar
                     if (cal != null && sem != cal.semester) {
-                        val updated = cal.copy(semester = sem)
-                        repo.store.saveCalendar(updated)
-                        calendar = updated
-                        // 切学期后旧课表不再代表当前学期：清空再同步（失败会明确提示）
-                        blocks = emptyList()
-                        sync()
+                        sync(targetSemester = sem)
                     }
                 },
             )
@@ -722,6 +754,7 @@ private fun MainScaffold(
     onImport: () -> Unit = {},
 ) {
     val ds = LocalDs.current
+    val chatSessionVersion by repo.sessionVersion.collectAsState()
     var chatInputFocused by remember { mutableStateOf(false) }
     val keyboardVisible = androidx.compose.foundation.layout.WindowInsets.ime
         .getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
@@ -746,6 +779,7 @@ private fun MainScaffold(
                     hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
                     serviceSummary = serviceSummary,
                     onServices = onServiceConnections,
+                    scheduleSource = repo.store.scheduleSource,
                 )
                 1 -> ScheduleScreen(
                     repo = repo,
@@ -760,17 +794,19 @@ private fun MainScaffold(
                 )
                 2 -> PowerScreen(repo)
                 3 -> TodoScreen(repo)
-                4 -> AiChatScreen(
-                    repo = repo,
-                    calendar = calendar,
-                    blocks = blocks,
-                    todos = repo.store.loadTodos(),
-                    messages = aiMessages,
-                    onMessagesChange = onAiMessagesChange,
-                    onInputFocusChanged = { chatInputFocused = it },
-                    onBack = { onTab(0) },
-                    onSettings = onOpenAiService,
-                )
+                4 -> androidx.compose.runtime.key(chatSessionVersion, repo.store.jobNumber) {
+                    AiChatScreen(
+                        repo = repo,
+                        calendar = calendar,
+                        blocks = blocks,
+                        todos = repo.store.loadTodos(),
+                        messages = aiMessages,
+                        onMessagesChange = onAiMessagesChange,
+                        onInputFocusChanged = { chatInputFocused = it },
+                        onBack = { onTab(0) },
+                        onSettings = onOpenAiService,
+                    )
+                }
             }
         }
         if (!chatInputFocused && !keyboardVisible) com.menglimi.gdust.v2.ui.nexio.NexioBottomBar(
@@ -781,5 +817,6 @@ private fun MainScaffold(
             onAi = if (tab != 4) ({ onTab(4) }) else null,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
+
     }
 }

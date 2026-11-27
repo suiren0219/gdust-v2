@@ -69,6 +69,7 @@ import com.menglimi.gdust.v2.data.AiChatMessage
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.data.LlmException
 import com.menglimi.gdust.v2.data.Todo
 import com.menglimi.gdust.v2.data.UniversityKnowledge
 import com.menglimi.gdust.v2.data.buildStudentContext
@@ -148,7 +149,7 @@ fun AiChatScreen(
             } catch (e: Exception) {
                 error = when {
                     !repo.store.hasLlm -> "AI 服务未配置，请先设置模型地址、密钥和模型名。"
-                    else -> "请求失败：${e.message ?: "请检查网络与 AI 服务配置"}"
+                    else -> (e as? LlmException)?.message ?: "请求失败，请检查网络与 AI 服务配置。"
                 }
             } finally {
                 busy = false

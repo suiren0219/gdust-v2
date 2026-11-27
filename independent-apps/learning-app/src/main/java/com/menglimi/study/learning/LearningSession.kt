@@ -14,9 +14,9 @@ import com.menglimi.chaoxing.ChxResponse
 import com.menglimi.chaoxing.ChxSso
 import com.menglimi.chaoxing.ChxWorkCourse
 import com.menglimi.chaoxing.ChxWorkReader
+import com.menglimi.chaoxing.requestPause
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -71,7 +71,9 @@ internal class LearningSessionHttpClient(
                     .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }.build()
             }
         }
-        val received = ChxHttpExchange(client, checkSession = ::checkSession).execute(authenticated)
+        val received = ChxHttpExchange(client, checkSession = ::checkSession, onResponseReceived = { response ->
+            if (guard.isCurrent(token)) response.requestPause()?.let { guard.requests.record(it.exception(), token) }
+        }).execute(authenticated)
         checkSession()
         withContext(Dispatchers.Main.immediate) {
             guard.mutex.withLock {
@@ -79,19 +81,10 @@ internal class LearningSessionHttpClient(
                 checkAccount()
                 if (received.cookies.isNotEmpty()) {
                     val manager = CookieManager.getInstance()
-                    try {
-                        received.cookies.forEach { cookie ->
-                            checkSession()
-                            // 写入交给 WebView 后等回调，退出在同锁下随后清除。
-                            withContext(NonCancellable) {
-                                suspendCancellableCoroutine<Unit> { continuation ->
-                                    manager.setCookie(request.url.toString(), cookie) {
-                                        if (continuation.isActive) continuation.resume(Unit)
-                                    }
-                                }
-                            }
-                        }
-                    } finally { manager.flush() }
+                    commitLearningResponseCookies(received, ::checkSession,
+                        writeCookie = { cookie, callback ->
+                            manager.setCookie(request.url.toString(), cookie) { callback(it) }
+                        }, flush = { manager.flush() })
                 }
                 checkSession()
                 checkAccount()

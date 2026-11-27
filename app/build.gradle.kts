@@ -28,9 +28,12 @@ android {
         versionName = vName
     }
 
-    // 独立安装的离线预览 flavor：复用 debug build type（Compose、assets 与 test）。
+    // 正式应用与隔离离线预览分别构建，预览包不生成 Release。
     flavorDimensions += "previewTarget"
     productFlavors {
+        create("production") {
+            dimension = "previewTarget"
+        }
         create("preview") {
             dimension = "previewTarget"
             applicationIdSuffix = ".preview"
@@ -116,6 +119,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation(project(":chaoxing-core"))
     // 学习通作业页是服务端渲染 HTML：用 Jsoup 解析（纯 Java，单测也能跑）
     implementation("org.jsoup:jsoup:1.17.2")
     // 只取二维码矩阵生成（Canvas 自绘，不引完整扫码 SDK）

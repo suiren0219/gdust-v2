@@ -15,6 +15,10 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +52,13 @@ import com.haooz.nexioui.cardexpand.CardExpand
 import com.haooz.nexioui.text.NexioText as Text
 import com.haooz.nexioui.theme.NexioTheme
 import com.menglimi.gdust.v2.data.Repository
+import com.menglimi.gdust.v2.data.GdustApi
+import com.menglimi.gdust.v2.data.LlmException
+import com.menglimi.gdust.v2.data.validateLlmConfiguration
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import com.menglimi.gdust.v2.ui.AiSparkleIcon
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.LocalDs
@@ -58,6 +69,7 @@ fun AiServiceSettingsScreen(
     repo: Repository,
     onBack: () -> Unit,
     onOpenNotices: () -> Unit,
+    offlinePreview: Boolean = false,
 ) {
     val ds = LocalDs.current
     val theme = NexioTheme.colorScheme
@@ -69,7 +81,93 @@ fun AiServiceSettingsScreen(
     var model by rememberSaveable { mutableStateOf(repo.store.llmModel) }
     var configured by rememberSaveable { mutableStateOf(repo.store.hasLlm) }
     var saved by rememberSaveable { mutableStateOf(false) }
-    val canSave = base.isNotBlank() && key.isNotBlank() && model.isNotBlank()
+    val api = remember { GdustApi() }
+    val scope = rememberCoroutineScope()
+    var requestJob by remember { mutableStateOf<Job?>(null) }
+    var requestVersion by remember { mutableStateOf(0L) }
+    var busy by remember { mutableStateOf<String?>(null) }
+    var models by remember { mutableStateOf<List<String>>(emptyList()) }
+    var showModels by remember { mutableStateOf(false) }
+    var modelsStatus by remember { mutableStateOf<String?>(null) }
+    var probeStatus by remember { mutableStateOf<String?>(null) }
+    var probeFailed by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
+
+    fun cancelPending() {
+        requestVersion++
+        requestJob?.cancel()
+        requestJob = null
+        busy = null
+    }
+
+    fun inputChanged(clearModels: Boolean) {
+        cancelPending()
+        saved = false
+        saveError = null
+        probeStatus = null
+        if (clearModels) {
+            models = emptyList()
+            showModels = false
+            modelsStatus = null
+        }
+    }
+
+    fun startRequest(fetchModels: Boolean) {
+        if (offlinePreview) return
+        cancelPending()
+        val version = requestVersion
+        val snapshot = Triple(base, key, model)
+        busy = if (fetchModels) "models" else "probe"
+        if (fetchModels) modelsStatus = null else probeStatus = null
+        requestJob = scope.launch {
+            fun current() = version == requestVersion && snapshot == Triple(base, key, model)
+            try {
+                if (fetchModels) {
+                    val result = api.models(snapshot.first, snapshot.second)
+                    ensureActive()
+                    if (current()) {
+                        models = result
+                        showModels = result.isNotEmpty()
+                        modelsStatus = if (result.isEmpty()) "服务未返回可选模型，仍可手动填写。"
+                            else "已获取 ${result.size} 个模型，选择后仍可手动修改。"
+                    }
+                } else {
+                    val result = api.probe(snapshot.first, snapshot.second, snapshot.third)
+                    ensureActive()
+                    if (current()) {
+                        probeFailed = !result.success
+                        probeStatus = if (result.success) "连接成功 · ${result.latencyMs} ms（含生成耗时）"
+                            else "测试失败 · ${result.latencyMs} ms\n${result.error ?: "请检查服务配置。"}"
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                ensureActive()
+                if (current()) {
+                    val hint = (error as? LlmException)?.message ?: "请求失败，请检查网络与服务配置。"
+                    if (fetchModels) {
+                        modelsStatus = "$hint\n仍可手动填写模型名称。"
+                    } else {
+                        probeFailed = true
+                        probeStatus = hint
+                    }
+                }
+            } finally {
+                if (current()) {
+                    busy = null
+                    requestJob = null
+                }
+            }
+        }
+    }
+
+    DisposableEffect(offlinePreview) {
+        if (offlinePreview) cancelPending()
+        onDispose { requestJob?.cancel() }
+    }
+
+    val canSave = !offlinePreview && base.isNotBlank() && key.isNotBlank() && model.isNotBlank()
     val primaryColors = ButtonDefaults.buttonColorsPrimary()
     val secondaryBase = if (theme.background.luminance() < 0.5f) Color.White else Color.Black
     val secondaryColors = ButtonDefaults.textButtonColors(
@@ -77,7 +175,7 @@ fun AiServiceSettingsScreen(
         disabledColor = secondaryBase.copy(alpha = 0.06f),
     )
 
-    SettingSubPage("AI 服务", "连接兼容 OpenAI Chat Completions 的模型", onBack) {
+    SettingSubPage("AI 服务", "连接兼容 OpenAI Chat Completions 的模型", { cancelPending(); onBack() }) {
         AppCard(Modifier.fillMaxWidth()) {
             Row(
                 Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
@@ -101,7 +199,7 @@ fun AiServiceSettingsScreen(
         SettingGroup {
             AiConfigField(
                 value = base,
-                onValueChange = { base = it; saved = false },
+                onValueChange = { inputChanged(clearModels = true); base = it },
                 label = "API 地址",
                 placeholder = "https://api.example.com/v1",
                 keyboardType = KeyboardType.Uri,
@@ -109,7 +207,7 @@ fun AiServiceSettingsScreen(
             SettingDivider()
             AiConfigField(
                 value = key,
-                onValueChange = { key = it; saved = false },
+                onValueChange = { inputChanged(clearModels = true); key = it },
                 label = "API Key",
                 placeholder = "输入服务密钥",
                 keyboardType = KeyboardType.Password,
@@ -118,11 +216,69 @@ fun AiServiceSettingsScreen(
             SettingDivider()
             AiConfigField(
                 value = model,
-                onValueChange = { model = it; saved = false },
+                onValueChange = { inputChanged(clearModels = false); model = it },
                 label = "模型名称",
                 placeholder = "例如 gpt-4o-mini",
                 imeAction = ImeAction.Done,
             )
+            if (offlinePreview) {
+                Text("离线预览 · 网络请求与配置保存已禁用。", fontSize = 13.sp, color = ds.sub,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
+            SettingEditor {
+                NexioActionButton(
+                    if (busy == "models") "正在获取模型…" else "获取模型列表",
+                    enabled = !offlinePreview && busy == null && base.isNotBlank() && key.isNotBlank(),
+                ) { startRequest(fetchModels = true) }
+                modelsStatus?.let {
+                    Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub)
+                }
+            }
+            if (models.isNotEmpty()) {
+                SettingOption(
+                    title = "可选模型",
+                    subtitle = "列表不代表模型一定支持对话，选定后可测试连接。",
+                    detail = if (showModels) "收起" else "展开 ${models.size} 项",
+                    onClick = { showModels = !showModels },
+                )
+                if (showModels) {
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 240.dp)) {
+                        items(models, key = { it }) { item ->
+                            SettingOption(
+                                title = item,
+                                detail = if (model.trim() == item) "已选择" else null,
+                                onClick = {
+                                    inputChanged(clearModels = false)
+                                    model = item
+                                    showModels = false
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            SettingEditor {
+                Text("测试连接会向当前地址的所选模型发送少量合成测试内容，可能产生费用；不会发送课表、公告或聊天记录。",
+                    fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub)
+                NexioActionButton(
+                    if (busy == "probe") "正在测试连接…" else "测试连接（可能计费）",
+                    enabled = !offlinePreview && busy == null && base.isNotBlank() && key.isNotBlank() && model.isNotBlank(),
+                ) { startRequest(fetchModels = false) }
+                if (busy != null) {
+                    NexioActionButton("取消请求") {
+                        val wasModels = busy == "models"
+                        cancelPending()
+                        if (wasModels) modelsStatus = "已取消获取模型，仍可手动填写。"
+                        else {
+                            probeFailed = false
+                            probeStatus = "已取消等待；已发送的测试仍可能计费。"
+                        }
+                    }
+                }
+                probeStatus?.let {
+                    Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = if (probeFailed) ds.danger else ds.sub)
+                }
+            }
             Text(
                 "保存仅更新本机配置，不会自动验证连接。密钥始终以掩码显示。",
                 fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub,
@@ -135,7 +291,7 @@ fun AiServiceSettingsScreen(
             ) {
                 FlatTextButton(
                     text = "返回",
-                    onClick = onBack,
+                    onClick = { cancelPending(); onBack() },
                     cornerRadius = 100.dp,
                     minWidth = 64.dp,
                     minHeight = 44.dp,
@@ -145,13 +301,21 @@ fun AiServiceSettingsScreen(
                 )
                 NexioButton(
                     onClick = {
-                        repo.store.llmBase = base.trim()
-                        repo.store.llmKey = key.trim()
-                        repo.store.llmModel = model.trim()
-                        configured = repo.store.hasLlm
-                        saved = true
-                        focus.clearFocus()
-                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                        if (offlinePreview) return@NexioButton
+                        saveError = null
+                        try {
+                            validateLlmConfiguration(base, key, model)
+                            repo.store.llmBase = base.trim()
+                            repo.store.llmKey = key.trim()
+                            repo.store.llmModel = model.trim()
+                            configured = repo.store.hasLlm
+                            saved = true
+                            focus.clearFocus()
+                            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                        } catch (error: Exception) {
+                            saved = false
+                            saveError = (error as? LlmException)?.message ?: "无法保存配置，请稍后重试。"
+                        }
                     },
                     enabled = canSave,
                     cornerRadius = 100.dp,
@@ -167,9 +331,10 @@ fun AiServiceSettingsScreen(
                     )
                 }
             }
+            saveError?.let { Text(it, fontSize = 13.sp, color = ds.danger, modifier = Modifier.padding(horizontal = 16.dp)) }
             CardExpand(visible = saved) {
                 Text(
-                    "已保存到本机，尚未验证连接。",
+                    "已保存到本机；保存不会联网，连接状态请参考测试结果。",
                     fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub,
                     modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 14.dp),
                 )

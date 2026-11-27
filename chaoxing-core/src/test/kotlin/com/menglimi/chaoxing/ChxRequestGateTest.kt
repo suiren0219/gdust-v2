@@ -60,6 +60,29 @@ class ChxRequestGateTest {
         assertFalse(gate.causedPause("progress"))
     }
 
+    @Test fun failedCookieCommitPausesQueuedRequestsBeforeAnotherCall() = runBlocking {
+        val gate = ChxRequestGate(intervalMillis = 0)
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val failure = ChxCookieWriteException(verificationRequired = true, retryAt = 30_000L)
+        var calls = 0
+        val first = async { runCatching { gate.execute("work", {}) {
+            calls++; started.complete(Unit); release.await(); throw failure
+        } } }
+        started.await()
+        val queued = async { runCatching { gate.execute("progress", {}) { calls++; ChxResponse(200, "") } } }
+        yield()
+        release.complete(Unit)
+        assertTrue(first.await().exceptionOrNull() === failure)
+        val blocked = queued.await().exceptionOrNull() as ChxCourseReadException
+        assertTrue(blocked.verificationRequired)
+        assertEquals(30_000L, blocked.retryAt)
+        assertEquals(1, calls)
+        assertEquals(ChxRequestPause(true, 30_000L), gate.pause.value)
+        assertTrue(gate.causedPause("work"))
+        assertFalse(gate.causedPause("progress"))
+    }
+
     @Test fun cooldownRequiresManualRecoveryAndFailedCheckKeepsThePause() = runBlocking {
         var now = 10_000L
         val gate = ChxRequestGate({ now }, intervalMillis = 0)
@@ -76,6 +99,34 @@ class ChxRequestGateTest {
         gate.execute("again", {}) { ChxResponse(200, "") }
         gate.finishRecovery("again", true)
         assertNull(gate.pause.value)
+    }
+
+    @Test fun rateLimitAndVerificationRequireBothCooldownAndExplicitRecovery() = runBlocking {
+        var now = 10_000L
+        val gate = ChxRequestGate({ now }, intervalMillis = 0)
+        val stopped = ChxResponse(429,
+            """<form><p>安全验证，请输入验证码</p><input name="ucode"></form>""",
+            retryAfter = "2").requestPause(now)!!
+        assertTrue(stopped.verificationRequired)
+        assertEquals(12_000L, stopped.retryAt)
+        gate.restore(stopped)
+        assertThrows(ChxCourseReadException::class.java) { gate.beginRecovery("early", true) }
+        now = 12_000L
+        assertThrows(ChxCourseReadException::class.java) { gate.beginRecovery("refresh", false) }
+        var calls = 0
+        assertThrows(ChxCourseReadException::class.java) { runBlocking {
+            gate.execute("queued", {}) { calls++; ChxResponse(200, "") }
+        } }
+        assertEquals(0, calls)
+        gate.beginRecovery("verified", true)
+        gate.execute("verified", {}) { calls++; ChxResponse(200, "") }
+        gate.finishRecovery("verified", false)
+        assertEquals(stopped, gate.pause.value)
+        gate.beginRecovery("verified-again", true)
+        gate.execute("verified-again", {}) { calls++; ChxResponse(200, "") }
+        gate.finishRecovery("verified-again", true)
+        assertNull(gate.pause.value)
+        assertEquals(2, calls)
     }
 
     @Test fun verificationCannotBeClearedByRefreshOrAFailedVerification() = runBlocking {

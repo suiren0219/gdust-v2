@@ -1,13 +1,10 @@
 package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.Composable
@@ -30,17 +26,11 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.menglimi.gdust.v2.R
 import com.menglimi.gdust.v2.data.Repository
-import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.ui.pageBackground
@@ -86,31 +76,9 @@ internal fun ProjectStarEntry() {
 /** 设置二级页通用骨架：同款左缘右滑返回手势。 */
 @Composable
 internal fun SettingSubPage(title: String, subtitle: String, onBack: () -> Unit, content: @Composable () -> Unit) {
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val threshold = with(density) { 96.dp.toPx() }
-    val backEdge = with(density) { 32.dp.toPx() }
-    var backPx by remember { mutableStateOf(0f) }
     androidx.activity.compose.BackHandler { onBack() }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .pointerInput(onBack, threshold, backEdge) {
-                detectHorizontalDragGestures(
-                    onDragStart = { start -> backPx = if (start.x < backEdge) 0f else Float.NaN },
-                    onDragEnd = {
-                        if (!backPx.isNaN() && backPx >= threshold) onBack()
-                        backPx = 0f
-                    },
-                    onDragCancel = { backPx = 0f },
-                ) { change, dragAmount ->
-                    if (!backPx.isNaN()) {
-                        backPx += dragAmount
-                        change.consume()
-                    }
-                }
-            },
-    ) {
+    Box(Modifier.fillMaxSize().settingsEdgeBack(onBack)) {
     Column(
         Modifier
             .fillMaxSize()
@@ -130,7 +98,7 @@ internal fun SettingSubPage(title: String, subtitle: String, onBack: () -> Unit,
 
 /** 个人信息：本机身份快照（不做任何编辑上传，全部只读展示）。 */
 @Composable
-fun ProfileScreen(repo: Repository, onBack: () -> Unit) {
+fun ProfileScreen(repo: Repository, onBack: () -> Unit, offlinePreview: Boolean = false) {
     val ds = LocalDs.current
     val store = repo.store
     val context = LocalContext.current
@@ -142,19 +110,22 @@ fun ProfileScreen(repo: Repository, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var birthdayReading by remember { mutableStateOf(false) }
     var birthdayStatus by remember { mutableStateOf(if (store.birthdayMonthDay.isBlank()) "尚未从教务获取" else "已保存生日月日") }
-    SettingSubPage("个人信息", "本机账号与数据快照", onBack) {
+    SettingSubPage("个人信息", "账号与本机数据", onBack) {
         SectionHeader("身份")
         AccountIdentityCard(repo)
         SettingGroup {
-            SettingOption(title = "生日祝福", subtitle = "仅保存教务返回的月日，生日当天显示一次；不推算年龄。", detail = birthdayStatus)
+            SettingOption(title = "生日祝福", subtitle = "仅保存教务返回的月日，生日当天祝福一次；不推算年龄。", detail = birthdayStatus)
             SettingEditor {
-                NexioActionButton(if (birthdayReading) "正在读取…" else "从教务读取生日", enabled = !birthdayReading) {
+                NexioActionButton(if (birthdayReading) "正在读取…" else "从教务读取生日", enabled = !offlinePreview && !birthdayReading) {
+                    if (offlinePreview) return@NexioActionButton
                     birthdayReading = true
                     scope.launch {
                         try {
                             birthdayStatus = if (repo.refreshTeachingBirthday()) "已保存生日月日" else "教务未提供可识别的出生日期"
                         } catch (cancelled: CancellationException) {
                             throw cancelled
+                        } catch (failure: Exception) {
+                            birthdayStatus = "读取失败，请检查教务登录状态后重试。"
                         } finally {
                             birthdayReading = false
                         }
@@ -162,7 +133,6 @@ fun ProfileScreen(repo: Repository, onBack: () -> Unit) {
                 }
             }
         }
-        Spacer(Modifier.height(10.dp))
         SectionHeader("数据")
         SettingGroup {
             SettingOption(title = "课表来源", detail = when (store.scheduleSource) {
@@ -178,7 +148,6 @@ fun ProfileScreen(repo: Repository, onBack: () -> Unit) {
                 detail = if (store.hasPowerBinding) store.powerRoomName else "未绑定",
             )
         }
-        Spacer(Modifier.height(10.dp))
         SectionHeader("隐私")
         SettingGroup {
             Text(
@@ -187,7 +156,6 @@ fun ProfileScreen(repo: Repository, onBack: () -> Unit) {
                 modifier = Modifier.padding(AppUiTokens.CardPadding),
             )
         }
-        Spacer(Modifier.height(10.dp))
         Text(
             "版本 $version · 作者 $APP_AUTHOR",
             fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub,
@@ -216,7 +184,7 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
             SettingDivider()
             SettingOption(
                 title = "项目主页",
-                subtitle = "GitHub · suiren0219/gdust-v2",
+                subtitle = "GitHub · 源码、反馈与 Star 支持",
                 onClick = { openProjectHomepage(hostContext) },
             )
             SettingDivider()
@@ -226,23 +194,19 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
                 onClick = { openSchoolSite(hostContext) },
             )
             SettingDivider()
-            SettingOption(title = "当前版本", detail = versionName)
-            SettingDivider()
-            SettingOption(title = "内部版本号", detail = versionCode.toString())
-            SettingDivider()
-            SettingOption(title = "数据链路", detail = "本机直连")
+            SettingOption(title = "当前版本", detail = "$versionName ($versionCode)")
         }
-        Spacer(Modifier.height(10.dp))
         SectionHeader("本版更新")
         SettingGroup {
             Column(Modifier.padding(AppUiTokens.CardPadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 UpdateItem("真实学期课表", "教务学期导入按每门课的实际周次保存，分段开课、单双周、调课独立保留")
                 UpdateItem("电量图表", "走势图加坐标轴刻度与时间轴、预警阈值虚线，点按查看任意采样点")
                 UpdateItem("登录一次保持", "门户与教务会话本机加密保存；断网不掉登录，只有学校端失效才要求重登")
-                UpdateItem("交互", "课表左右滑翻周、设置左滑返回、电费下拉刷新、启动页自选")
+                UpdateItem("AI 服务", "手动配置兼容模型，获取模型列表并按需测试连接；对话历史保存在本机")
+                UpdateItem("本机缓存", "成绩、学习通课程与公告保留最近成功结果，刷新失败时仍可查看")
+                UpdateItem("交互", "课表左右滑翻周、设置右滑返回、电费下拉刷新、启动页自选")
             }
         }
-        Spacer(Modifier.height(10.dp))
         SectionHeader("数据链路")
         SettingGroup {
             Text(
@@ -266,8 +230,6 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
             fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub,
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp).wrapContentSize(Alignment.Center),
         )
-        Spacer(Modifier.height(16.dp))
-        ProjectStarEntry()
     }
 }
 
