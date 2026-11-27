@@ -12,7 +12,8 @@ class App : Application() {
     lateinit var repo: Repository
         private set
 
-    private val scheduleKeys = setOf("calendar", "blocks", "schedule_source", "term_start", "term_weeks", "term_week")
+    private val scheduleKeys = setOf("calendar", "blocks", "schedule_source", "term_start", "term_weeks", "term_week",
+        com.menglimi.gdust.v2.data.ScheduleLibrary.KEY)
     private val widgetKeys = scheduleKeys + setOf(
         "todos", "samples", "warn_th", "widget_power_range", "ui_style", "monet_enabled", "last_sync_at",
     )

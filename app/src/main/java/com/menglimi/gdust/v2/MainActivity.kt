@@ -7,10 +7,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalInspectionMode
+import com.menglimi.gdust.v2.service.LocalMcpService
 import com.menglimi.gdust.v2.widget.LocalWidgetTodoId
 import com.menglimi.gdust.v2.widget.WidgetOpenRequest
 import com.menglimi.gdust.v2.widget.WidgetRefreshScheduler
@@ -72,6 +75,13 @@ class MainActivity : ComponentActivity() {
             val loggedIn = rememberSaveable { mutableStateOf(widgetRequest.value != null) }
             val checked = rememberSaveable { mutableStateOf(false) }
             val aiMessages = androidx.compose.runtime.remember { mutableStateOf(emptyList<com.menglimi.gdust.v2.ui.screens.AiChatLine>()) }
+            val inspectionMode = LocalInspectionMode.current
+            // 仅真实主入口恢复本机服务；离线预览 Activity 不经过此启动路径。
+            LaunchedEffect(inspectionMode) {
+                if (inspectionMode) return@LaunchedEffect
+                val enabled = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.repo.store.localMcpEnabled }
+                if (enabled) LocalMcpService.start(app)
+            }
             // 定位与 navigationVersion 一起下发，避免旧页面先消费请求后又被导航重建。
             val focusedTodo = rememberSaveable { mutableStateOf<Long?>(null) }
             val navigationVersion = rememberSaveable { mutableIntStateOf(0) }

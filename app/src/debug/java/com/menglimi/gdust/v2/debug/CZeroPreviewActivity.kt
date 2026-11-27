@@ -332,6 +332,7 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
                 }
                 "settings" -> SettingsScreen(
                     repo = repo,
+                    category = remember { mutableStateOf<String?>(null) },
                     syncError = null,
                     onSync = offlineAction,
                     onWebImport = offlineAction,

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- EncryptedSharedPreferences uses a device-bound Android Keystore key; restoring its ciphertext is unusable. -->
+    <exclude domain="sharedpref" path="gdust_secure.xml" />
+</full-backup-content>

@@ -113,6 +113,10 @@ fun SettingsScreen(
     onFiveEducation: () -> Unit = {},
     onReconnectService: ((com.menglimi.gdust.v2.data.SchoolService) -> Unit)? = null,
     offlinePreview: Boolean = false,
+    onOpenMcp: () -> Unit = {},
+    category: MutableState<String?> = openGroupState,
+    onSchedules: () -> Unit = {},
+    onShareSchedule: () -> Unit = onOpenMcp,
 ) {
     val ds = LocalDs.current
     val secondary = ds.sub
@@ -120,6 +124,7 @@ fun SettingsScreen(
     val focusManager = LocalFocusManager.current
     val context = androidx.compose.ui.platform.LocalContext.current
     var query by rememberSaveable { mutableStateOf("") }
+    var subPage by category
 
     var thresholdText by remember { mutableStateOf(store.warnThreshold.toInt().toString()) }
     var dropText by remember { mutableStateOf(store.warnDropRate.toInt().toString()) }
@@ -161,7 +166,7 @@ fun SettingsScreen(
         id = "profile", title = "个人信息", summary = "广东科技学院 · 本机数据与偏好",
         keywords = "账户 账号 学校 学号 姓名 登录 验证 隐私", icon = MiuixIcons.ContactsCircle,
     )
-    val groups = listOf(
+    val originalGroups = listOf(
         SettingsSection("通用", listOf(
             SettingsEntry(
                 id = "startTab", title = "启动页", summary = "下次打开时默认显示", icon = MiuixIcons.Home,
@@ -189,7 +194,8 @@ fun SettingsScreen(
         )),
         SettingsSection("课表", listOf(
             SettingsEntry(
-                id = "term", title = "学期设置", summary = "开学日期、总周数与当前周", icon = MiuixIcons.Months,
+                id = "term", title = "学期设置", summary = if (store.isIndependentSchedule) "独立课表沿用导入的学期，请切回学校课表再修改"
+                    else "开学日期、总周数与当前周", icon = MiuixIcons.Months, enabled = !store.isIndependentSchedule,
                 keywords = "校历 开学日期 总周数 当前周", detail = termStartLocal.ifBlank { "跟随校历" },
                 onClick = { toggle("term") },
                 editor = {
@@ -386,6 +392,10 @@ fun SettingsScreen(
                 id = "llm", title = "AI 服务", summary = "模型连接、预设与测试", keywords = "AI 模型 地址 密钥 公告 总结", icon = AiSparkleIcon,
                 detail = if (store.hasLlm) "已配置" else "未配置", onClick = onOpenAiService,
             ),
+            SettingsEntry(
+                id = "mcp", title = "AI 与 MCP", summary = "本机只读服务 · 可选个人课表云", icon = AiSparkleIcon,
+                keywords = "AI MCP 本地服务 云端 同步课表", enabled = !offlinePreview, onClick = onOpenMcp,
+            ),
         )),
         SettingsSection("关于", listOf(
             SettingsEntry(
@@ -394,139 +404,84 @@ fun SettingsScreen(
             ),
         )),
     )
+    val allEntries = originalGroups.flatMap { it.entries } + accountEntry.copy(onClick = onProfile) + listOf(
+        SettingsEntry("chxNotifications", "学习通通知待办", MiuixIcons.Messages, summary = "授权本机通知读取", onClick = onChxNotifications),
+        SettingsEntry("schedules", "课表切换", MiuixIcons.Months, summary = "学校课表与独立云端课表", enabled = !offlinePreview, onClick = onSchedules),
+        SettingsEntry("shareSchedule", "分享当前课表", MiuixIcons.Link, summary = "导出独立课表供其他设备导入", enabled = !offlinePreview, onClick = onShareSchedule),
+    )
+    val groups = SettingsNavigation.categories.map { c -> SettingsSection(c.title, allEntries.filter { it.id in c.entries }) }
     val search = query.trim()
-    val visibleGroups = groups.mapNotNull { group ->
+    val isDirectory = subPage == null && search.isBlank()
+    val sourceGroups = if (subPage == null) groups else groups.filter { it.title == subPage }
+    val visibleGroups = sourceGroups.mapNotNull { group ->
         group.copy(entries = group.entries.filter { it.matches(search, group.title) })
             .takeIf { it.entries.isNotEmpty() }
     }
-    val showAccount = accountEntry.matches(search, "账户")
-    val showServiceStatus = search.isBlank() ||
-        "服务连接 登录状态 门户 教务 学习通 验证".contains(search, ignoreCase = true)
-    val showLogout = loggedIn && (search.isBlank() || "退出登录 清除本机数据 账户".contains(search, ignoreCase = true))
-    // 二级分类：首页只列分类，具体开关与表单进分组页，避免设置页无限变长。
-    var openGroup by openGroupState
-
-    BackHandler {
-        when {
-            openGroup != null -> { openGroup = null; focusManager.clearFocus() }
-            query.isNotEmpty() -> { query = ""; focusManager.clearFocus() }
-            else -> onBack()
+    val showServiceStatus = subPage == "账号与服务" || (!isDirectory &&
+        "服务连接 登录状态 门户 教务 学习通 验证".contains(search, ignoreCase = true))
+    val showLogout = subPage == null && loggedIn &&
+        (search.isBlank() || "退出登录 清除本机数据 账户".contains(search, ignoreCase = true))
+    val scrollState = key(subPage) { rememberScrollState() }
+    val backAction = {
+        when (SettingsNavigation.back(subPage, query)) {
+            SettingsBack.CLEAR_SEARCH -> { query = ""; focusManager.clearFocus() }
+            SettingsBack.DIRECTORY -> { subPage = null; openSection.value = null }
+            SettingsBack.EXIT -> onBack()
         }
     }
-    val groupHints = mapOf(
-        "通用" to "启动与桌面",
-        "课表" to "学期与显示",
-        "提醒" to "课程与待办",
-        "同步" to "课表导入与维护提示",
-        "电量" to "查询与预警",
-        "数据" to "缓存 · 备份与恢复",
-        "服务" to "成绩 · 通知 · 学习通 · 五育",
-        "AI" to "模型连接 · 测试 · 公告总结",
-        "关于" to "版本与项目",
-    )
-    val groupIcons = mapOf(
-        "通用" to MiuixIcons.Home,
-        "课表" to MiuixIcons.Months,
-        "提醒" to MiuixIcons.Alarm,
-        "同步" to MiuixIcons.Refresh,
-        "电量" to MiuixIcons.BankCards,
-        "数据" to MiuixIcons.Backup,
-        "服务" to MiuixIcons.Messages,
-        "AI" to AiSparkleIcon,
-        "关于" to MiuixIcons.Info,
-    )
-    val currentGroup = visibleGroups.firstOrNull { it.title == openGroup }
+    BackHandler { backAction() }
 
     Box(Modifier.fillMaxSize()) {
     Column(
         Modifier
             .fillMaxSize()
             .background(pageBackground())
-            .settingsEdgeBack {
-                focusManager.clearFocus()
-                when {
-                    openGroup != null -> openGroup = null
-                    query.isNotEmpty() -> query = ""
-                    else -> onBack()
-                }
-            }
+            .settingsEdgeBack { backAction() }
             .statusBarsPadding()
             .imePadding()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
             .padding(horizontal = nexioPagePadding()),
     ) {
         Spacer(Modifier.height(24.dp))
-        if (currentGroup == null) {
-            PageTitle(title = "设置", onBack = onBack)
-            SettingsSearchField(query = query, onQueryChange = { query = it })
-            if (showAccount) {
-                AccountIdentityCard(repo, onOpenProfile = onProfile)
-            }
-            if (search.isBlank()) {
-                ServiceStatusCard(
-                    repo,
-                    onReconnect = { service -> onReconnectService?.invoke(service) },
-                    actionsEnabled = !offlinePreview,
-                    offlinePreview = offlinePreview,
-                )
-                SectionHeader("设置")
-                SettingGroup {
-                    groups.forEachIndexed { index, group ->
-                        if (index > 0) SettingDivider()
-                        key(group.title) {
-                            SettingsPreference(SettingsEntry(
-                                id = "group-${group.title}",
-                                title = group.title,
-                                summary = groupHints[group.title],
-                                icon = groupIcons.getValue(group.title),
-                                onClick = { openGroup = group.title },
-                            ))
-                        }
-                    }
-                }
-            } else {
-                if (showServiceStatus) {
-                    SectionHeader("服务连接")
-                    ServiceStatusCard(
-                        repo,
-                        onReconnect = { service -> onReconnectService?.invoke(service) },
-                        actionsEnabled = !offlinePreview,
-                        offlinePreview = offlinePreview,
-                    )
-                }
-                visibleGroups.forEach { group ->
-                    key(group.title) {
-                        SectionHeader(group.title)
-                        SettingGroup {
-                            group.entries.forEachIndexed { index, entry ->
-                                if (index > 0) SettingDivider()
-                                key(entry.id) { SettingsGroupEntryWithEditor(entry, openSection, syncError) }
-                            }
-                        }
+        PageTitle(title = subPage ?: "设置", onBack = backAction)
+        SettingsSearchField(query = query, onQueryChange = { query = it })
+        if (showServiceStatus || isDirectory) {
+            ServiceStatusCard(
+                repo,
+                onReconnect = { service -> onReconnectService?.invoke(service) },
+                actionsEnabled = !offlinePreview,
+                offlinePreview = offlinePreview,
+            )
+        }
+        if (isDirectory) {
+            SettingGroup {
+                groups.forEachIndexed { index, group ->
+                    if (index > 0) SettingDivider()
+                    val destination = group.title
+                    key(destination) {
+                        SettingsPreference(SettingsEntry(
+                            id = "category-$destination", title = destination,
+                            summary = SettingsNavigation.categories.single { it.title == destination }.summary,
+                            icon = group.entries.first().icon,
+                            onClick = { focusManager.clearFocus(); subPage = destination; query = ""; openSection.value = null },
+                        ))
                     }
                 }
             }
         } else {
-            PageTitle(title = currentGroup.title, subtitle = groupHints[currentGroup.title], onBack = { openGroup = null })
-            if (offlinePreview && currentGroup.title == "服务") {
-                Text("离线演示 · 状态为虚构数据，连接操作已禁用。", fontSize = 13.sp, color = secondary)
-            }
-            if (currentGroup.title == "服务") {
-                ServiceStatusCard(
-                    repo,
-                    onReconnect = { service -> onReconnectService?.invoke(service) },
-                    actionsEnabled = !offlinePreview,
-                    offlinePreview = offlinePreview,
-                )
-            }
-            SettingGroup {
-                currentGroup.entries.forEachIndexed { index, entry ->
-                    if (index > 0) SettingDivider()
-                    key(entry.id) { SettingsGroupEntryWithEditor(entry, openSection, syncError) }
+            visibleGroups.forEach { group ->
+                key(group.title) {
+                    if (subPage == null) SectionHeader(group.title)
+                    SettingGroup {
+                        group.entries.forEachIndexed { index, entry ->
+                            if (index > 0) SettingDivider()
+                            key(entry.id) { SettingsGroupEntryWithEditor(entry, openSection, syncError) }
+                        }
+                    }
                 }
             }
         }
-        if (showLogout && currentGroup == null) {
+        if (showLogout) {
             SettingGroup {
                 SettingsPreference(SettingsEntry(
                     id = "logout", title = "退出登录", summary = "同时清除本机数据", icon = MiuixIcons.Unlock,
@@ -534,15 +489,13 @@ fun SettingsScreen(
                 ))
             }
         }
-        val showProjectStar = search.isBlank() ||
-            "GitHub 项目主页 star 支持 开源".contains(search, ignoreCase = true)
-        if (currentGroup == null && search.isNotBlank() && visibleGroups.isEmpty() &&
-            !showAccount && !showServiceStatus && !showLogout && !showProjectStar
-        ) {
+        val showProjectStar = subPage == null && (search.isBlank() ||
+            "GitHub 项目主页 star 支持 开源".contains(search, ignoreCase = true))
+        if (!showServiceStatus && visibleGroups.isEmpty() && !showLogout && !isDirectory && !showProjectStar) {
             Text("没有找到相关设置", fontSize = 14.sp, color = secondary,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
         }
-        if (currentGroup == null && showProjectStar) ProjectStarEntry()
+        if (showProjectStar) ProjectStarEntry()
         Spacer(Modifier.navigationBarsPadding().height(110.dp))
     }
     if (showWidgetPicker) {
