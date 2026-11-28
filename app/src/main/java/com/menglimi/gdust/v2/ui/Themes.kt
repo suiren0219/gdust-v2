@@ -79,7 +79,7 @@ fun NexioAppTheme(content: @Composable () -> Unit) {
         ) {
             WithTypography(ds) {
                 NexioTheme(isDark = dark, colorScheme = nexioColors(dark)) {
-                    Box(Modifier.fillMaxSize().background(ds.bg)) { content() }
+                    Box(Modifier.fillMaxSize().background(Color.Transparent)) { content() }
                 }
             }
         }

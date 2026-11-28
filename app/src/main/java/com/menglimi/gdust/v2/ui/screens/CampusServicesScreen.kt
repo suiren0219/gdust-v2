@@ -93,7 +93,7 @@ fun CampusServicesScreen(
         if (query.isNotEmpty()) { query = ""; focus.clearFocus() } else onBack()
     }
     LazyColumn(
-        modifier = Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().imePadding(),
+        modifier = Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding().imePadding(),
         contentPadding = PaddingValues(
             start = nexioPagePadding(), end = nexioPagePadding(), top = topPadding, bottom = 12.dp,
         ),

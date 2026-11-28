@@ -303,7 +303,7 @@ fun TermImportScreen(
     }
 
     Column(
-        Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().navigationBarsPadding().imePadding()
+        Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding().navigationBarsPadding().imePadding()
             .verticalScroll(rememberScrollState()).padding(horizontal = pagePadding),
     ) {
         Spacer(Modifier.height(if (isTablet) 24.dp else 12.dp))

@@ -32,6 +32,9 @@ object AppUiTokens {
     val ItemCorner = 16.dp
     val CardGap = 12.dp
     val CardPadding = 16.dp
+    val PreferenceRowMinHeight = 56.dp
+    val PreferenceHorizontalPadding = 16.dp
+    val PreferenceVerticalPadding = 14.dp
 }
 
 @Composable
@@ -54,16 +57,20 @@ fun AppCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val ds = LocalDs.current
+    val wallpaper = LocalWallpaperState.current
+    val translucent = wallpaper?.bitmap != null && color == ds.card
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val base = color.compositeOver(ds.card)
+    val base = if (translucent) color.copy(alpha = if (ds.isDark) 0.78f else 0.82f) else color.compositeOver(ds.card)
     val surface = if (pressed) ds.accent.copy(alpha = 0.07f).compositeOver(base) else base
+    val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
+    val wallpaperBackground = if (translucent) Modifier.clip(shape).background(surface) else Modifier
     CompositionLocalProvider(
         LocalContentColor provides ds.text,
         androidx.compose.material3.LocalContentColor provides ds.text,
     ) {
         Card(
-            modifier = modifier.then(
+            modifier = modifier.then(wallpaperBackground).then(
                 if (onClick != null) Modifier.clickable(
                     interactionSource = interaction,
                     indication = null,
@@ -73,7 +80,10 @@ fun AppCard(
             ),
             cornerRadius = cornerRadius,
             insideMargin = insideMargin,
-            colors = CardDefaults.defaultColors(color = surface, contentColor = ds.text),
+            colors = CardDefaults.defaultColors(
+                color = if (translucent) Color.Transparent else surface,
+                contentColor = ds.text,
+            ),
             content = content,
         )
     }

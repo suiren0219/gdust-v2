@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -163,7 +164,7 @@ fun ScheduleScreen(
         val blocksByWeek = remember(validBlocks) { validBlocks.groupBy { it.week } }
         val ds = LocalDs.current
 
-        Column(Modifier.fillMaxSize().background(ds.bg).statusBarsPadding()) {
+        Column(Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding()) {
             ScheduleHeader(
                 week = displayWeek,
                 currentWeek = currentWeek,

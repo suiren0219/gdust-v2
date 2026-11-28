@@ -181,7 +181,7 @@ fun AiChatScreen(
     val term = calendar?.let { "${it.year} · 第${it.semester}学期" } ?: "未导入学期"
 
     Column(
-        Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().imePadding()
+        Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding().imePadding()
             .padding(bottom = if (keyboardVisible) 0.dp else 94.dp),
     ) {
         Row(
