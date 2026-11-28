@@ -78,15 +78,15 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Close
-import top.yukonga.miuix.kmp.icon.extended.Refresh
+import androidx.compose.material3.Icon
+import com.haooz.nexioui.button.Button
+import com.haooz.nexioui.button.ButtonDefaults
+import com.haooz.nexioui.button.FlatIconButton
+import com.haooz.nexioui.button.FlatTextButton as TextButton
+import com.haooz.nexioui.icon.NexioIcons
+import com.haooz.nexioui.icon.extended.Close
+import com.haooz.nexioui.icon.extended.Refresh
+import com.haooz.nexioui.text.NexioText as Text
 import kotlin.coroutines.resume
 
 /**
@@ -234,12 +234,12 @@ class SchoolLoginActivity : ComponentActivity() {
                             Text("学校统一登录", color = ds.text, fontSize = 18.sp, fontWeight = FontWeight.Medium)
                             Text(host.ifBlank { "门户 · 教务 · 学习通" }, color = ds.sub, fontSize = 12.sp, maxLines = 1)
                         }
-                        IconButton(onClick = ::retryService, enabled = initialized,
-                            modifier = Modifier.size(48.dp)) {
-                            Icon(MiuixIcons.Refresh, "重试当前服务", Modifier.size(24.dp), tint = ds.text)
+                        FlatIconButton(onClick = ::retryService, enabled = initialized,
+                            minWidth = 44.dp, minHeight = 44.dp) {
+                            Icon(NexioIcons.Refresh, "重试当前服务", Modifier.size(22.dp), tint = ds.text)
                         }
-                        IconButton(onClick = ::finishFlow, modifier = Modifier.size(48.dp)) {
-                            Icon(MiuixIcons.Close, "关闭登录", Modifier.size(24.dp), tint = ds.text)
+                        FlatIconButton(onClick = ::finishFlow, minWidth = 44.dp, minHeight = 44.dp) {
+                            Icon(NexioIcons.Close, "关闭登录", Modifier.size(22.dp), tint = ds.text)
                         }
                     }
                     SchoolLoginProgress(

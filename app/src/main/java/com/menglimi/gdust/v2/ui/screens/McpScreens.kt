@@ -7,8 +7,8 @@ import android.content.Context
 import android.os.PersistableBundle
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.haooz.nexioui.button.FlatTextButton
+import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -102,7 +102,7 @@ fun McpSettingsScreen(
                 Text("五个只读工具：按周、日期或关键词查课，读取学期与待办。没有修改课表或联网同步工具。", color = LocalDs.current.sub, fontSize = 13.sp)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(LocalMcpService.url, color = LocalDs.current.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { copySensitive(context, LocalMcpService.url) }) { Text("复制") }
+                    FlatTextButton(text = "复制", onClick = { copySensitive(context, LocalMcpService.url) }, cornerRadius = 100.dp, minHeight = 36.dp)
                 }
                 Text("访问 Token（可选）", color = LocalDs.current.text, fontSize = 14.sp)
                 PrivateMcpField(token, { if (it.length <= 4096) token = it }, "不填写则不校验 Token",
@@ -186,7 +186,7 @@ private fun PrivateMcpField(value: String, onChange: (String) -> Unit, hint: Str
             if (focused && !it.isFocused) shown = false
             focused = it.isFocused
         }, visual = if (shown) VisualTransformation.None else PasswordVisualTransformation(), enabled = enabled)
-        TextButton(onClick = { shown = !shown }, enabled = enabled) { Text(if (shown) "隐藏" else "显示") }
+        FlatTextButton(text = if (shown) "隐藏" else "显示", onClick = { shown = !shown }, enabled = enabled, cornerRadius = 100.dp, minHeight = 36.dp)
     }
 }
 

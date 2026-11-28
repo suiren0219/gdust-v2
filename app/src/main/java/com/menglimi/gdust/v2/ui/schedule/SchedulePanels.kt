@@ -1,4 +1,4 @@
-// Nexio schedule controls share the application theme and continuous surfaces.
+// Nexio schedule controls share the application theme and continuous SoftGlass surfaces.
 // Week selection, course aggregation and GDUST display preferences stay local to the schedule.
 package com.menglimi.gdust.v2.ui.schedule
 
@@ -13,8 +13,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -22,10 +22,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,37 +37,42 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import com.haooz.nexioui.blurbottomsheet.BlurBottomSheet
+import com.haooz.nexioui.button.Button
+import com.haooz.nexioui.button.ButtonDefaults
+import com.haooz.nexioui.button.FlatTextButton
+import com.haooz.nexioui.icon.NexioIcons
+import com.haooz.nexioui.icon.basic.ArrowUpDown
+import com.haooz.nexioui.icon.basic.Check
+import com.haooz.nexioui.icon.basic.FastForward
+import com.haooz.nexioui.icon.extended.Background
+import com.haooz.nexioui.icon.extended.Backup
+import com.haooz.nexioui.icon.extended.ConvertFile
+import com.haooz.nexioui.icon.extended.More
+import com.haooz.nexioui.overlaydialog.OverlayDialog
+import com.haooz.nexioui.switchpreference.SwitchPreference
+import com.haooz.nexioui.text.NexioText as Text
+import com.haooz.softglass.backdrop.GlassBackdrop
+import com.haooz.softglass.shape.ContinuousRoundedRectangle
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
-import java.time.LocalDate
+import com.menglimi.gdust.v2.ui.NexioTopBarGlassIconButton
+import com.menglimi.gdust.v2.ui.currentPageBackdrop
+import com.menglimi.gdust.v2.ui.screens.SegmentedChoice
+import com.menglimi.gdust.v2.ui.screens.SettingDivider
 import com.menglimi.gdust.v2.ui.screens.nexioPagePadding
-import com.haooz.nexioui.button.Button
-import com.haooz.nexioui.button.ButtonDefaults as NexioButtonDefaults
-import com.haooz.nexioui.text.NexioText as Text
-import com.haooz.nexioui.switch.Switch
-import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.basic.ArrowUpDown
-import top.yukonga.miuix.kmp.icon.basic.Check
-import top.yukonga.miuix.kmp.icon.basic.FastForward
-import top.yukonga.miuix.kmp.icon.extended.Background
-import top.yukonga.miuix.kmp.icon.extended.Backup
-import top.yukonga.miuix.kmp.icon.extended.ConvertFile
-import top.yukonga.miuix.kmp.icon.extended.More
-import top.yukonga.miuix.kmp.window.WindowBottomSheet
-import top.yukonga.miuix.kmp.window.WindowDialog
+import java.time.LocalDate
 
 @Composable
 internal fun ScheduleHeader(
@@ -77,6 +80,7 @@ internal fun ScheduleHeader(
     currentWeek: Int,
     totalWeeks: Int,
     weekStart: LocalDate?,
+    backdrop: GlassBackdrop = currentPageBackdrop(),
     onChooseWeek: () -> Unit,
     onCurrentWeek: () -> Unit,
     onSwitchTerm: () -> Unit,
@@ -85,22 +89,80 @@ internal fun ScheduleHeader(
 ) {
     val ds = LocalDs.current
     var showMenu by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(horizontal = nexioPagePadding()).padding(top = 12.dp, bottom = 12.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "课表",
-                fontSize = AppUiTokens.TitleSize,
-                fontWeight = AppUiTokens.TitleWeight,
-                color = ds.text,
-                modifier = Modifier.weight(1f),
-            )
-            HeaderActionButton(onClick = onChooseWeek) {
-                Icon(MiuixIcons.Basic.ArrowUpDown, contentDescription = "选择周次", modifier = Modifier.size(24.dp), tint = ds.text)
-            }
-            Box {
-                HeaderActionButton(onClick = { showMenu = true }) {
-                    Icon(MiuixIcons.More, contentDescription = "课表菜单", modifier = Modifier.size(26.dp), tint = ds.text)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = nexioPagePadding())
+            .padding(top = 10.dp, bottom = 10.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .scheduleClickable(Color.Transparent, onChooseWeek)
+                    .padding(vertical = 2.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        "第 $week 周",
+                        fontSize = 26.sp,
+                        lineHeight = 32.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = ds.text,
+                    )
+                    Text(
+                        when {
+                            currentWeek < 1 -> "未开学"
+                            currentWeek > totalWeeks -> "已结束"
+                            week == currentWeek -> "本周"
+                            else -> "非本周"
+                        },
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (week == currentWeek) ds.accent else ds.sub,
+                    )
                 }
+                val weekEnd = weekStart?.plusDays(6)
+                Text(
+                    if (weekStart != null && weekEnd != null) {
+                        "${weekStart.monthValue}月${weekStart.dayOfMonth}日 – ${weekEnd.monthValue}月${weekEnd.dayOfMonth}日"
+                    } else "点此选择周次查看课程",
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    color = ds.sub,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            if (currentWeek in 1..totalWeeks && week != currentWeek) {
+                FlatTextButton(
+                    text = "回本周",
+                    onClick = onCurrentWeek,
+                    minHeight = 38.dp,
+                    cornerRadius = 100.dp,
+                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+            NexioTopBarGlassIconButton(
+                icon = NexioIcons.Basic.ArrowUpDown,
+                contentDescription = "选择周次",
+                onClick = onChooseWeek,
+                backdrop = backdrop,
+            )
+            Box {
+                NexioTopBarGlassIconButton(
+                    icon = NexioIcons.More,
+                    contentDescription = "课表菜单",
+                    onClick = { showMenu = true },
+                    backdrop = backdrop,
+                )
                 if (showMenu) {
                     ScheduleMenu(
                         onChooseWeek = { showMenu = false; onChooseWeek() },
@@ -112,55 +174,7 @@ internal fun ScheduleHeader(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(
-                Modifier.weight(1f).scheduleClickable(ds.bg, onChooseWeek).padding(vertical = 6.dp),
-            ) {
-                Text("第 $week 周", fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
-                val weekEnd = weekStart?.plusDays(6)
-                Text(
-                    if (weekStart != null && weekEnd != null) {
-                        "${weekStart.monthValue}月${weekStart.dayOfMonth}日 – ${weekEnd.monthValue}月${weekEnd.dayOfMonth}日"
-                    } else "选择周次查看课程",
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp,
-                    color = ds.sub,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-            if (currentWeek in 1..totalWeeks && week != currentWeek) {
-                TextButton(
-                    text = "回本周",
-                    onClick = onCurrentWeek,
-                    minHeight = 44.dp,
-                    insideMargin = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                    colors = ButtonDefaults.textButtonColors(color = ds.accent, textColor = ds.text, alpha = 0.12f),
-                    textStyle = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium),
-                )
-            } else {
-                Text(
-                    when {
-                        currentWeek < 1 -> "学期尚未开始"
-                        currentWeek > totalWeeks -> "学期已结束"
-                        else -> "本周"
-                    },
-                    fontSize = 13.sp,
-                    color = ds.sub,
-                    modifier = Modifier.padding(start = 12.dp),
-                )
-            }
-        }
     }
-}
-
-@Composable
-private fun HeaderActionButton(onClick: () -> Unit, content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
-    val ds = LocalDs.current
-    Box(
-        Modifier.size(48.dp).scheduleClickable(ds.bg, onClick),
-        contentAlignment = Alignment.Center,
-        content = content,
-    )
 }
 
 /** 按下仅增加轻微 tint，页头不增加常驻底衬。 */
@@ -169,12 +183,13 @@ private fun Modifier.scheduleClickable(background: Color, onClick: () -> Unit): 
     val ds = LocalDs.current
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    return clip(RoundedCornerShape(14.dp))
-        .background(if (pressed) ds.accent.copy(alpha = 0.07f).compositeOver(background) else background)
+    val shape = remember { ContinuousRoundedRectangle(14.dp) }
+    return clip(shape)
+        .background(if (pressed) ds.accent.copy(alpha = 0.08f).compositeOver(background) else background)
         .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
 }
 
-/** 菜单固定锚定右上角，使用统一的不透明卡片。 */
+/** 菜单固定锚定右上角，使用 NexioUI 连续圆角卡。 */
 @Composable
 private fun ScheduleMenu(
     onChooseWeek: () -> Unit,
@@ -183,21 +198,22 @@ private fun ScheduleMenu(
     onImport: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    androidx.compose.ui.window.Popup(
+    val density = LocalDensity.current
+    Popup(
         alignment = Alignment.TopEnd,
-        offset = androidx.compose.ui.unit.IntOffset(0, with(density) { 54.dp.roundToPx() }),
+        offset = IntOffset(0, with(density) { 52.dp.roundToPx() }),
         onDismissRequest = onDismiss,
-        properties = androidx.compose.ui.window.PopupProperties(focusable = true),
+        properties = PopupProperties(focusable = true),
     ) {
         AppCard(
-            modifier = Modifier.width(220.dp),
-            insideMargin = PaddingValues(vertical = 8.dp),
+            modifier = Modifier.width(216.dp),
+            cornerRadius = 20.dp,
+            insideMargin = PaddingValues(vertical = 6.dp),
         ) {
-            ScheduleMenuItem("选择周次", MiuixIcons.Basic.FastForward, onChooseWeek)
-            ScheduleMenuItem("显示设置", MiuixIcons.Background, onDisplaySettings)
-            ScheduleMenuItem("切换学期", MiuixIcons.Normal.ConvertFile, onSwitchTerm)
-            ScheduleMenuItem("导入课表", MiuixIcons.Backup, onImport)
+            ScheduleMenuItem("选择周次", NexioIcons.Basic.FastForward, onChooseWeek)
+            ScheduleMenuItem("显示设置", NexioIcons.Background, onDisplaySettings)
+            ScheduleMenuItem("切换学期", NexioIcons.Normal.ConvertFile, onSwitchTerm)
+            ScheduleMenuItem("导入课表", NexioIcons.Backup, onImport)
         }
     }
 }
@@ -206,12 +222,15 @@ private fun ScheduleMenu(
 private fun ScheduleMenuItem(label: String, icon: ImageVector, onClick: () -> Unit) {
     val ds = LocalDs.current
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 50.dp).scheduleClickable(ds.card, onClick)
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .scheduleClickable(Color.Transparent, onClick)
             .padding(horizontal = AppUiTokens.CardPadding, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp), tint = ds.text)
+        Icon(icon, contentDescription = null, modifier = Modifier.size(21.dp), tint = ds.text)
         Text(label, fontSize = 15.sp, color = ds.text)
     }
 }
@@ -233,12 +252,11 @@ internal fun WeekPickerDialog(
     LaunchedEffect(show, totalWeeks) {
         if (show) gridState.scrollToItem((selectedWeek - 1).coerceIn(0, totalWeeks - 1))
     }
-    WindowDialog(
+    OverlayDialog(
         show = show,
         title = "选择周次",
         summary = "共 $totalWeeks 周",
         onDismissRequest = onDismiss,
-        backgroundColor = ds.card,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             LazyVerticalGrid(
@@ -262,7 +280,12 @@ internal fun WeekPickerDialog(
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            Text("第 $week 周", fontSize = 13.sp, fontWeight = if (picked) FontWeight.Bold else FontWeight.Medium, color = ds.text)
+                            Text(
+                                "第 $week 周",
+                                fontSize = 13.sp,
+                                fontWeight = if (picked) FontWeight.Bold else FontWeight.Medium,
+                                color = ds.text,
+                            )
                             Text(
                                 when {
                                     week == currentWeek -> "本周"
@@ -271,18 +294,24 @@ internal fun WeekPickerDialog(
                                     else -> "未获取"
                                 },
                                 fontSize = 12.sp,
-                                color = ds.sub,
+                                color = if (week == currentWeek) ds.accent else ds.sub,
                             )
                         }
                     }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                TextButton("取消", onClick = onDismiss, modifier = Modifier.weight(1f))
+                FlatTextButton(
+                    text = "取消",
+                    onClick = onDismiss,
+                    cornerRadius = 100.dp,
+                    modifier = Modifier.weight(1f),
+                )
                 Button(
                     onClick = { onPick(currentWeek) },
                     enabled = currentWeek in 1..totalWeeks,
-                    colors = NexioButtonDefaults.buttonColorsPrimary(), cornerRadius = 100.dp,
+                    colors = ButtonDefaults.buttonColorsPrimary(),
+                    cornerRadius = 100.dp,
                     modifier = Modifier.weight(1f),
                 ) { Text("回本周") }
             }
@@ -300,16 +329,21 @@ internal fun ScheduleLessonSheet(
     onDismissFinished: () -> Unit,
 ) {
     val ds = LocalDs.current
-    WindowBottomSheet(
+    LaunchedEffect(show) {
+        if (!show) onDismissFinished()
+    }
+    BlurBottomSheet(
         show = show,
         title = "课程详情",
-        backgroundColor = ds.bg,
-        cornerRadius = AppUiTokens.CardCorner,
+        dimBackground = true,
         onDismissRequest = onDismiss,
-        onDismissFinished = onDismissFinished,
     ) {
         Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding(),
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("第 $week 周 · 此时段及其他周次的实际排课", color = ds.sub, fontSize = 13.sp)
@@ -323,7 +357,9 @@ internal fun ScheduleLessonSheet(
                 ) {
                     Text(lesson.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
                     Text(
-                        formatScheduleWeeks(lesson.weeks, allWeeks), fontSize = 13.sp, lineHeight = 19.sp,
+                        formatScheduleWeeks(lesson.weeks, allWeeks),
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
                         color = ds.sub,
                         modifier = Modifier.padding(top = 6.dp),
                     )
@@ -334,13 +370,24 @@ internal fun ScheduleLessonSheet(
                             append("第 ${lesson.startSection}–${lesson.endSection} 节")
                             if (start.isNotEmpty() && end.isNotEmpty()) append(" · $start–$end")
                         },
-                        fontSize = 13.sp, color = ds.text, modifier = Modifier.padding(top = 8.dp),
+                        fontSize = 13.sp,
+                        color = ds.text,
+                        modifier = Modifier.padding(top = 8.dp),
                     )
-                    if (lesson.room.isNotBlank()) Text(lesson.room, fontSize = 13.sp, color = ds.text, modifier = Modifier.padding(top = 3.dp))
-                    if (lesson.teacher.isNotBlank()) Text(lesson.teacher, fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(top = 3.dp))
+                    if (lesson.room.isNotBlank()) {
+                        Text(lesson.room, fontSize = 13.sp, color = ds.text, modifier = Modifier.padding(top = 3.dp))
+                    }
+                    if (lesson.teacher.isNotBlank()) {
+                        Text(lesson.teacher, fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(top = 3.dp))
+                    }
                 }
             }
-            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), colors = NexioButtonDefaults.buttonColorsPrimary(), cornerRadius = 100.dp) { Text("知道了") }
+            Button(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                colors = ButtonDefaults.buttonColorsPrimary(),
+                cornerRadius = 100.dp,
+            ) { Text("知道了") }
         }
     }
 }
@@ -365,34 +412,73 @@ internal fun ScheduleDisplayDialog(
     onDismiss: () -> Unit,
 ) {
     val ds = LocalDs.current
-    WindowBottomSheet(
+    BlurBottomSheet(
         show = show,
-        title = "显示设置",
-        backgroundColor = ds.card,
-        cornerRadius = AppUiTokens.CardCorner,
+        title = "课表显示设置",
+        dimBackground = true,
         onDismissRequest = onDismiss,
     ) {
         Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            ScheduleChoice(
-                "卡片字号", listOf(0.85f to "小", 1f to "标准", 1.15f to "大", 1.3f to "特大"),
-                listOf(0.85f, 1f, 1.15f, 1.3f).minBy { kotlin.math.abs(it - textScale) }, onScale,
-            )
-            ScheduleChoice(
-                "卡片高度 · ${rowHeight}dp", listOf(48 to "紧凑", 54 to "标准", 64 to "宽松"),
-                listOf(48, 54, 64).minBy { kotlin.math.abs(it - rowHeight) }, onRowHeight,
-            )
-            ScheduleChoice(
-                "卡片圆角", listOf(6 to "小", 10 to "中", 14 to "大"),
-                listOf(6, 10, 14).minBy { kotlin.math.abs(it - corner) }, onCorner,
-            )
-            ScheduleChoice("内容对齐", listOf(false to "左对齐", true to "居中"), alignCenter, onAlignCenter)
-            ScheduleToggle("显示地点", showClassroom, onClassroom)
-            ScheduleToggle("显示教师", showTeacher, onTeacher)
-            ScheduleToggle("智能隐藏无课周末", smartWeekend, onSmartWeekend)
-            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), colors = NexioButtonDefaults.buttonColorsPrimary(), cornerRadius = 100.dp) { Text("完成") }
+            AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    ScheduleChoice(
+                        "卡片字号",
+                        listOf(0.85f to "小", 1f to "标准", 1.15f to "大", 1.3f to "特大"),
+                        listOf(0.85f, 1f, 1.15f, 1.3f).minBy { kotlin.math.abs(it - textScale) },
+                        onScale,
+                    )
+                    ScheduleChoice(
+                        "卡片高度 · ${rowHeight}dp",
+                        listOf(48 to "紧凑", 54 to "标准", 64 to "宽松"),
+                        listOf(48, 54, 64).minBy { kotlin.math.abs(it - rowHeight) },
+                        onRowHeight,
+                    )
+                    ScheduleChoice(
+                        "卡片圆角",
+                        listOf(6 to "小", 10 to "中", 14 to "大"),
+                        listOf(6, 10, 14).minBy { kotlin.math.abs(it - corner) },
+                        onCorner,
+                    )
+                    ScheduleChoice(
+                        "内容对齐",
+                        listOf(false to "左对齐", true to "居中"),
+                        alignCenter,
+                        onAlignCenter,
+                    )
+                }
+            }
+            AppCard(Modifier.fillMaxWidth()) {
+                SwitchPreference(
+                    checked = showClassroom,
+                    onCheckedChange = onClassroom,
+                    title = "显示教室地点",
+                )
+                SettingDivider()
+                SwitchPreference(
+                    checked = showTeacher,
+                    onCheckedChange = onTeacher,
+                    title = "显示授课教师",
+                )
+                SettingDivider()
+                SwitchPreference(
+                    checked = smartWeekend,
+                    onCheckedChange = onSmartWeekend,
+                    title = "智能隐藏无课周末",
+                )
+            }
+            Button(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColorsPrimary(),
+                cornerRadius = 100.dp,
+            ) { Text("完成") }
         }
     }
 }
@@ -402,53 +488,23 @@ private fun <T> ScheduleChoice(label: String, options: List<Pair<T, String>>, se
     val ds = LocalDs.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, fontSize = 13.sp, color = ds.sub)
-        Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            options.forEach { (value, text) ->
-                val picked = value == selected
-                AppCard(
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics {
-                        this.selected = picked
-                        role = Role.RadioButton
-                    },
-                    cornerRadius = 14.dp,
-                    color = if (picked) ds.accent.copy(alpha = 0.18f).compositeOver(ds.card) else ds.bg,
-                    insideMargin = PaddingValues(horizontal = 4.dp, vertical = 12.dp),
-                    onClick = { onSelect(value) },
-                ) {
-                    Text(
-                        text,
-                        color = ds.text,
-                        fontSize = 13.sp,
-                        fontWeight = if (picked) FontWeight.SemiBold else FontWeight.Normal,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-        }
+        SegmentedChoice(options = options, selected = selected, onSelect = onSelect)
     }
 }
 
 @Composable
-private fun ScheduleToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun ScheduleTermDialog(
+    show: Boolean,
+    year: String,
+    current: String,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val ds = LocalDs.current
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, fontSize = 14.sp, color = ds.text, modifier = Modifier.weight(1f).padding(end = 10.dp))
-        Switch(checked = checked, onCheckedChange = null)
-    }
-}
-
-@Composable
-internal fun ScheduleTermDialog(show: Boolean, year: String, current: String, onPick: (String) -> Unit, onDismiss: () -> Unit) {
-    val ds = LocalDs.current
-    WindowDialog(
+    OverlayDialog(
         show = show,
         title = "切换学期",
         summary = if (year.isNotBlank()) "$year 学年" else "选择学期",
-        backgroundColor = ds.card,
         onDismissRequest = onDismiss,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -462,12 +518,29 @@ internal fun ScheduleTermDialog(show: Boolean, year: String, current: String, on
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(label, fontSize = 15.sp, color = ds.text, modifier = Modifier.weight(1f))
-                        if (picked) Icon(MiuixIcons.Basic.Check, contentDescription = "当前学期", tint = ds.accent, modifier = Modifier.size(20.dp))
+                        if (picked) {
+                            Icon(
+                                NexioIcons.Basic.Check,
+                                contentDescription = "当前学期",
+                                tint = ds.accent,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                     }
                 }
             }
-            Text("切换后会重新同步该学期课表。同步失败时可从课表菜单重新导入。", fontSize = 12.sp, lineHeight = 17.sp, color = ds.sub)
-            TextButton("取消", onClick = onDismiss, modifier = Modifier.fillMaxWidth())
+            Text(
+                "切换后会重新同步该学期课表。同步失败时可从课表菜单重新导入。",
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                color = ds.sub,
+            )
+            FlatTextButton(
+                text = "取消",
+                onClick = onDismiss,
+                cornerRadius = 100.dp,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

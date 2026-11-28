@@ -37,10 +37,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.haooz.nexioui.numberpicker.NumberPicker
+import com.haooz.nexioui.numberpicker.NumberPickerDefaults
+import com.haooz.nexioui.overlaydialog.OverlayDialog
 import com.menglimi.gdust.v2.ui.LocalDs
-import top.yukonga.miuix.kmp.basic.NumberPicker
-import top.yukonga.miuix.kmp.basic.NumberPickerDefaults
-import top.yukonga.miuix.kmp.window.WindowDialog
 import java.time.DayOfWeek
 import java.time.LocalDate
 import kotlin.math.roundToInt
@@ -97,13 +97,10 @@ private fun TermDateDialog(
     val years = minOf(thisYear - 10, initial.year, date.year)..maxOf(thisYear + 10, initial.year, date.year)
     val itemHeight = (44f * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
     val monday = date.dayOfWeek == DayOfWeek.MONDAY
-    WindowDialog(
+    OverlayDialog(
         show = true,
         title = "开学日期",
         summary = "选择第一周的周一，用于计算课表周次。",
-        backgroundColor = ds.card,
-        titleColor = ds.text,
-        summaryColor = ds.sub,
         onDismissRequest = onDismiss,
     ) {
         Column(

@@ -15,8 +15,8 @@ android {
         applicationId = "cn.edu.gdust.suiren.power"
         minSdk = 33
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.1.9"
+        versionCode = 11
+        versionName = "0.1.10"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }

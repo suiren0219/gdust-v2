@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -45,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -74,7 +76,14 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import com.haooz.nexioui.button.Button
 import com.haooz.nexioui.button.ButtonDefaults
+import com.haooz.nexioui.overscroll.overScrollVertical
+import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
 import com.haooz.nexioui.text.NexioText as Text
+import com.haooz.softglass.backdrop.backdrops.layerBackdrop
+import com.haooz.softglass.shape.ContinuousRoundedRectangle
+import com.menglimi.gdust.v2.ui.AppWallpaperLayer
+import com.menglimi.gdust.v2.ui.LocalWallpaperState
+import com.menglimi.gdust.v2.ui.rememberAppBackdrop
 
 internal object ScheduleLayout {
     val RowHeight = 54.dp
@@ -162,67 +171,77 @@ fun ScheduleScreen(
         val weekCounts = remember(validBlocks) { validBlocks.groupingBy { it.week }.eachCount() }
         val blocksByWeek = remember(validBlocks) { validBlocks.groupBy { it.week } }
         val ds = LocalDs.current
+        val scheduleBackdrop = rememberAppBackdrop(ds.bg)
 
-        Column(Modifier.fillMaxSize().background(ds.bg).statusBarsPadding()) {
-            ScheduleHeader(
-                week = displayWeek,
-                currentWeek = currentWeek,
-                totalWeeks = totalWeeks,
-                weekStart = ScheduleTimes.dateAt(termStart, displayWeek, 1),
-                onChooseWeek = { showWeekPicker = true },
-                onCurrentWeek = { jumpToWeek(currentWeek) },
-                onSwitchTerm = { showTermSwitch = true },
-                onDisplaySettings = { showDisplaySettings = true },
-                onImport = onImport,
-            )
-            if (syncError != null) {
-                AppCard(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = pagePadding, vertical = 6.dp),
-                    insideMargin = PaddingValues(AppUiTokens.CardPadding),
-                    onClick = onImport,
-                ) {
-                    Text("同步失败", color = ds.danger, fontSize = 17.sp, fontWeight = FontWeight.Medium)
-                    Text(
-                        "$syncError · 点击重新导入",
-                        color = ds.sub,
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
+        Box(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().layerBackdrop(scheduleBackdrop)) {
+                AppWallpaperLayer()
+                Column(Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding()) {
+                    Spacer(Modifier.height(74.dp))
+                    if (syncError != null) {
+                        AppCard(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = pagePadding, vertical = 6.dp),
+                            insideMargin = PaddingValues(AppUiTokens.CardPadding),
+                            onClick = onImport,
+                        ) {
+                            Text("同步失败", color = ds.danger, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                "$syncError · 点击重新导入",
+                                color = ds.sub,
+                                fontSize = 13.sp,
+                                lineHeight = 18.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
+                    }
+                    HorizontalPager(
+                        state = pager,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
+                        key = { it },
+                    ) { page ->
+                        val week = page + 1
+                        val weekBlocks = blocksByWeek[week].orEmpty()
+                        WeekGrid(
+                            week = week,
+                            termStart = termStart,
+                            blocks = weekBlocks,
+                            allBlocks = validBlocks,
+                            now = now,
+                            textScale = textScale,
+                            showTeacher = showTeacher,
+                            showClassroom = showClassroom,
+                            rowHeight = rowHeight.dp * systemFontScale,
+                            cornerRadius = corner.coerceIn(6, 14).dp,
+                            alignCenter = alignCenter,
+                            smartHideWeekend = smartWeekend,
+                            emptyTitle = when {
+                                validBlocks.isEmpty() && !fullTermImported -> "还没有课表"
+                                fullTermImported -> "第 $week 周暂无课程"
+                                else -> "第 $week 周尚未导入"
+                            },
+                            emptyMessage = if (fullTermImported) "教务当前返回的课表中没有本周排课。调课后可重新导入核对。"
+                                else "导入教务学期课表，查看实际排课与完整周次。",
+                            onImport = onImport,
+                            onLessonClick = { selected = it; showLesson = true },
+                        )
+                    }
                 }
             }
-            HorizontalPager(
-                state = pager,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-                key = { it },
-            ) { page ->
-                val week = page + 1
-                val weekBlocks = blocksByWeek[week].orEmpty()
-                WeekGrid(
-                    week = week,
-                    termStart = termStart,
-                    blocks = weekBlocks,
-                    allBlocks = validBlocks,
-                    now = now,
-                    textScale = textScale,
-                    showTeacher = showTeacher,
-                    showClassroom = showClassroom,
-                    rowHeight = rowHeight.dp * systemFontScale,
-                    cornerRadius = corner.coerceIn(6, 14).dp,
-                    alignCenter = alignCenter,
-                    smartHideWeekend = smartWeekend,
-                    emptyTitle = when {
-                        validBlocks.isEmpty() && !fullTermImported -> "还没有课表"
-                        fullTermImported -> "第 $week 周暂无课程"
-                        else -> "第 $week 周尚未导入"
-                    },
-                    emptyMessage = if (fullTermImported) "教务当前返回的课表中没有本周排课。调课后可重新导入核对。"
-                        else "导入教务学期课表，查看实际排课与完整周次。",
+            Box(Modifier.fillMaxWidth().align(Alignment.TopCenter).statusBarsPadding()) {
+                ScheduleHeader(
+                    week = displayWeek,
+                    currentWeek = currentWeek,
+                    totalWeeks = totalWeeks,
+                    weekStart = ScheduleTimes.dateAt(termStart, displayWeek, 1),
+                    backdrop = scheduleBackdrop,
+                    onChooseWeek = { showWeekPicker = true },
+                    onCurrentWeek = { jumpToWeek(currentWeek) },
+                    onSwitchTerm = { showTermSwitch = true },
+                    onDisplaySettings = { showDisplaySettings = true },
                     onImport = onImport,
-                    onLessonClick = { selected = it; showLesson = true },
                 )
             }
         }
@@ -324,6 +343,7 @@ private fun WeekGrid(
             return@BoxWithConstraints
         }
     Column(Modifier.fillMaxSize().padding(horizontal = 4.dp)) {
+        val hasWallpaper = LocalWallpaperState.current?.bitmap != null
         Row(Modifier.fillMaxWidth().height(dateHeight).padding(end = 2.dp)) {
             Box(Modifier.width(sectionWidth).height(dateHeight), contentAlignment = Alignment.Center) {
                 Text(dates.values.firstOrNull()?.let { "${it.monthValue}月" }.orEmpty(), fontSize = 11.sp, color = ds.sub)
@@ -334,8 +354,12 @@ private fun WeekGrid(
                 Box(Modifier.weight(1f).height(dateHeight).padding(horizontal = 2.dp), contentAlignment = Alignment.Center) {
                     Column(
                         Modifier.fillMaxSize().background(
-                            if (isToday) ds.accent.copy(alpha = 0.14f).compositeOver(ds.bg) else ds.bg,
-                            RoundedCornerShape(12.dp),
+                            when {
+                                isToday -> ds.accent.copy(alpha = if (hasWallpaper) 0.24f else 0.14f).compositeOver(if (hasWallpaper) ds.card.copy(alpha = 0.72f) else ds.bg)
+                                hasWallpaper -> ds.card.copy(alpha = 0.42f)
+                                else -> ds.bg
+                            },
+                            ContinuousRoundedRectangle(12.dp),
                         ),
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -345,7 +369,7 @@ private fun WeekGrid(
                             fontSize = 13.sp,
                             lineHeight = 17.sp,
                             fontWeight = if (isToday) FontWeight.SemiBold else FontWeight.Normal,
-                            color = ds.text,
+                            color = if (isToday) ds.accent else ds.text,
                             maxLines = 1,
                         )
                         if (date != null) {
@@ -356,7 +380,7 @@ private fun WeekGrid(
             }
         }
         Column(
-            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+            Modifier.weight(1f).fillMaxWidth().overScrollVertical().scrollEndHaptic().verticalScroll(rememberScrollState())
                 .padding(top = 2.dp, bottom = ScheduleLayout.BottomClearance + bottomInset),
         ) {
             if (blocks.isEmpty()) {

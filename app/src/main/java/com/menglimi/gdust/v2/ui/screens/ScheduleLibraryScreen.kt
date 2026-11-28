@@ -1,7 +1,7 @@
 package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
+import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp

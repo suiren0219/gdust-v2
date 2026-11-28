@@ -55,8 +55,12 @@ import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.data.Store
 import com.menglimi.gdust.v2.data.Todo
 import com.menglimi.gdust.v2.data.TodoKind
-import com.menglimi.gdust.v2.ui.NexioAppTheme
+import com.haooz.nexioui.overlaydialog.LocalOverlayDialogBackdrop
+import com.haooz.nexioui.scaffold.Scaffold as NexioScaffold
+import com.haooz.softglass.backdrop.backdrops.layerBackdrop
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.NexioAppTheme
+import com.menglimi.gdust.v2.ui.rememberAppBackdrop
 import com.menglimi.gdust.v2.ui.nexio.NexioBottomBar
 import com.menglimi.gdust.v2.ui.schedule.ScheduleScreen
 import com.menglimi.gdust.v2.ui.screens.AboutScreen
@@ -216,8 +220,18 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
     }
 
     BackHandler(enabled = screen !in mainPages, onBack = back)
-    Box(Modifier.fillMaxSize().background(LocalDs.current.bg)) {
-        key(screen) {
+    val previewBackdrop = rememberAppBackdrop(LocalDs.current.bg)
+    CompositionLocalProvider(
+        LocalOverlayDialogBackdrop provides previewBackdrop,
+    ) {
+        NexioScaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = LocalDs.current.bg,
+            contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
+        ) {
+            Box(Modifier.fillMaxSize().background(LocalDs.current.bg)) {
+                Box(Modifier.fillMaxSize().layerBackdrop(previewBackdrop)) {
+                    key(screen) {
             when (screen) {
                 "today" -> TodayScreen(
                     repo = repo,
@@ -361,14 +375,18 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
                 )
             }
         }
+                }
         if ((screen in mainPages || screen == "ai") && !chatInputFocused) {
             NexioBottomBar(
                 selectedTab = if (screen == "ai") 4 else tab,
                 onTabSelected = { tab = it; screen = mainPages[it] },
                 onSettings = { screen = "settings" },
+                backdrop = previewBackdrop,
                 onAi = if (screen == "ai") null else ({ screen = "ai" }),
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+        }
+            }
         }
     }
 }

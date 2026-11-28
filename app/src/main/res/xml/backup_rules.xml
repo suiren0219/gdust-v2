@@ -2,4 +2,7 @@
 <full-backup-content>
     <!-- EncryptedSharedPreferences uses a device-bound Android Keystore key; restoring its ciphertext is unusable. -->
     <exclude domain="sharedpref" path="gdust_secure.xml" />
+    <!-- Custom wallpapers are local-only and must not be uploaded by Android Auto Backup. -->
+    <exclude domain="file" path="app_wallpaper_image" />
+    <exclude domain="file" path="app_wallpaper_image.bak" />
 </full-backup-content>

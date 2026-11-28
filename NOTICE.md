@@ -29,10 +29,8 @@
 
 | 依赖 | 许可 |
 |---|---|
-| [Miuix](https://github.com/miuix-kotlin-multiplatform/miuix) | Apache-2.0 |
 | [HyperNotification](https://github.com/xzakota/HyperNotification) | Apache-2.0 |
 | [MaterialKolor](https://github.com/jordond/MaterialKolor) | MIT |
 | AndroidX / Jetpack Compose / Material3 | Apache-2.0 |
 | OkHttp / OkHttp-SSE / Gson | Apache-2.0 |
 | ZXing core | Apache-2.0 |
-| [capsule](https://github.com/Kyant0/capsule) / [shapes](https://github.com/Kyant0/shapes)（vendor Miuix 仍使用） | Apache-2.0 |

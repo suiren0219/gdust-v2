@@ -48,7 +48,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.glance.appwidget.compose
+import com.haooz.nexioui.overscroll.overScrollVertical
+import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.NexioPageScaffold
 import com.menglimi.gdust.v2.widget.WidgetPreset
 import com.menglimi.gdust.v2.widget.WidgetPresets
 import com.menglimi.gdust.v2.widget.WidgetStyle
@@ -61,19 +64,30 @@ import kotlinx.coroutines.launch
 fun WidgetPreviewScreen(onBack: () -> Unit) {
     val ds = LocalDs.current
     BackHandler { onBack() }
-    Column(
-        Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().navigationBarsPadding()
-            .verticalScroll(rememberScrollState()).padding(horizontal = nexioPagePadding()),
-    ) {
-        Spacer(Modifier.height(24.dp))
-        PageTitle(title = "桌面小部件", onBack = onBack)
-        M3Text("课表、电量与待办，随时抬眼可见。点按预览添加到桌面。",
-            fontSize = 13.sp, color = ds.sub, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
-        WidgetPresets.ALL.groupBy { it.category }.forEach { (category, presets) ->
-            SectionLabel(category)
-            presets.forEach { preset -> PresetRow(preset, preset.previewSize) }
+    NexioPageScaffold(
+        title = "桌面小部件",
+        onBack = onBack,
+    ) { scaffoldPadding, _, _ ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .overScrollVertical()
+                .scrollEndHaptic()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = nexioPagePadding())
+                .padding(top = scaffoldPadding.calculateTopPadding(), bottom = scaffoldPadding.calculateBottomPadding()),
+        ) {
+            M3Text(
+                "课表、电量与待办，随时抬眼可见。点按预览添加到桌面。",
+                fontSize = 13.sp,
+                color = ds.sub,
+                modifier = Modifier.padding(horizontal = 4.dp).padding(bottom = 12.dp),
+            )
+            WidgetPresets.ALL.groupBy { it.category }.forEach { (category, presets) ->
+                SectionLabel(category)
+                presets.forEach { preset -> PresetRow(preset, preset.previewSize) }
+            }
         }
-        Spacer(Modifier.height(24.dp))
     }
 }
 
