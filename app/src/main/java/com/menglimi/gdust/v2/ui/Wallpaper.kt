@@ -183,6 +183,26 @@ class WallpaperState internal constructor(
 
 val LocalWallpaperState = androidx.compose.runtime.staticCompositionLocalOf<WallpaperState?> { null }
 
+/** 仅绘制主题底色与自定义壁纸图层，便于在单页 SoftGlass 采样层内复用，避免顶栏渐进模糊丢失壁纸背景。 */
+@Composable
+fun AppWallpaperLayer(
+    state: WallpaperState? = LocalWallpaperState.current,
+    modifier: Modifier = Modifier,
+) {
+    val ds = LocalDs.current
+    Box(modifier.fillMaxSize().background(ds.bg)) {
+        state?.bitmap?.let { image ->
+            Image(
+                bitmap = image,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().blur(state.blur.dp.coerceIn(0.dp, 40.dp)),
+            )
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = state.dim.coerceIn(0f, 0.85f))))
+        }
+    }
+}
+
 /** Background image layer. With no custom image the normal theme surface stays fully functional. */
 @Composable
 fun AppWallpaperBackground(
@@ -190,18 +210,9 @@ fun AppWallpaperBackground(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val ds = LocalDs.current
     CompositionLocalProvider(LocalWallpaperState provides state) {
-        Box(modifier.fillMaxSize().background(ds.bg)) {
-            state.bitmap?.let { image ->
-                Image(
-                    bitmap = image,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().blur(state.blur.dp.coerceIn(0.dp, 40.dp)),
-                )
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = state.dim.coerceIn(0f, 0.85f))))
-            }
+        Box(modifier.fillMaxSize()) {
+            AppWallpaperLayer(state)
             content()
         }
     }

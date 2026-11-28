@@ -69,13 +69,17 @@ import com.menglimi.gdust.v2.data.ChxSso
 import com.menglimi.gdust.v2.data.Notice
 import com.menglimi.gdust.v2.data.NoticeFeed
 import com.menglimi.gdust.v2.data.readId
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.icon.MiuixIcons
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.haooz.nexioui.overlaydialog.LocalOverlayDialogBackdrop
+import com.haooz.nexioui.overlaydialog.OverlayDialog
+import com.haooz.nexioui.scaffold.Scaffold as NexioScaffold
+import com.haooz.softglass.backdrop.backdrops.layerBackdrop
+import com.menglimi.gdust.v2.ui.screens.NexioConfirmDialog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -104,6 +108,8 @@ fun AppRoot(
     val scope = rememberCoroutineScope()
     val offlinePreview = BuildConfig.PREVIEW_TARGET
     val wallpaperState = rememberWallpaperState(repo.store)
+    val rootBackdrop = rememberAppBackdrop(LocalDs.current.bg)
+    LaunchedEffect(repo) { applyNexioMaterial(repo.store.uiStyle) }
     // 登录与启动状态由 MainActivity 保存，配置重建后保留。
 
     var calendar by remember { mutableStateOf<CalendarInfo?>(repo.store.loadCalendar()) }
@@ -443,33 +449,43 @@ fun AppRoot(
         }
     }
 
-    Crossfade(
-        targetState = when {
-            !checked.value -> "loading"
-            showWebImport -> "web_import"
-            showGrades -> "grades"
-            showChxCourses -> "chx_courses"
-            showNotices -> "notices"
-            showReminder -> "reminder"
-            showTodoReminder -> "todo_reminder"
-            showChxNotifications -> "chx_notifications"
-            showChxEntry -> "chx_entry"
-            showProfile -> "profile"
-            showAbout -> "about"
-            showWidgets -> "widgets"
-            showAiSettings -> "ai_settings"
-            showMcpSettings -> "mcp_settings"
-            showSchedules -> "schedule_library"
-            showSettings.value -> "settings"
-            showServices -> "services"
-            tab.intValue == 4 -> "main"
-            !loggedIn.value -> "login"
-            else -> "main"
-        },
-        animationSpec = tween(220),
-        label = "root",
-    ) { state ->
-        AppWallpaperBackground(wallpaperState) {
+    CompositionLocalProvider(
+        LocalPageBackdrop provides rootBackdrop,
+        LocalOverlayDialogBackdrop provides rootBackdrop,
+    ) {
+        NexioScaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        ) {
+            Box(Modifier.fillMaxSize().layerBackdrop(rootBackdrop)) {
+                Crossfade(
+                    targetState = when {
+                        !checked.value -> "loading"
+                        showWebImport -> "web_import"
+                        showGrades -> "grades"
+                        showChxCourses -> "chx_courses"
+                        showNotices -> "notices"
+                        showReminder -> "reminder"
+                        showTodoReminder -> "todo_reminder"
+                        showChxNotifications -> "chx_notifications"
+                        showChxEntry -> "chx_entry"
+                        showProfile -> "profile"
+                        showAbout -> "about"
+                        showWidgets -> "widgets"
+                        showAiSettings -> "ai_settings"
+                        showMcpSettings -> "mcp_settings"
+                        showSchedules -> "schedule_library"
+                        showSettings.value -> "settings"
+                        showServices -> "services"
+                        tab.intValue == 4 -> "main"
+                        !loggedIn.value -> "login"
+                        else -> "main"
+                    },
+                    animationSpec = tween(220),
+                    label = "root",
+                ) { state ->
+                    AppWallpaperBackground(wallpaperState) {
         when (state) {
             "web_import" -> {
                 androidx.activity.compose.BackHandler { showWebImport = false }
@@ -670,113 +686,91 @@ fun AppRoot(
             else -> Box(Modifier.fillMaxSize().background(LocalDs.current.bg))
         }
         }
-    }
+                }
+            }
 
-    if (logoutFailed && !loggingOut) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { logoutFailed = false },
-            title = { androidx.compose.material3.Text("退出未完全完成") },
-            text = { androidx.compose.material3.Text("本机账号数据已隔离，但网页会话清理未确认。可重试清理，不影响重新登录。") },
-            confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { logoutFailed = false; logout() }) {
-                    androidx.compose.material3.Text("重试清理")
-                }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { logoutFailed = false }) {
-                    androidx.compose.material3.Text("稍后处理")
-                }
-            },
-        )
-    }
-    if (syncing && !syncInBackground && !showWebImport && schoolLoginMessage == null) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { syncInBackground = true }) {
-            com.menglimi.gdust.v2.ui.screens.ScheduleLoadingCard(
-                title = "正在同步课表",
-                detail = if (activeSyncService == SchoolService.TEACHING) "正在读取教务课程与周次，原课表会保留到读取成功。"
-                    else "正在读取学校门户课表，原课表会保留到读取成功。",
-                onCancel = { syncJob?.cancel(); syncJob = null; syncing = false; activeSyncService = null },
-                onContinue = { syncInBackground = true },
+            NexioConfirmDialog(
+                show = logoutFailed && !loggingOut,
+                title = "退出未完全完成",
+                message = "本机账号数据已隔离，但网页会话清理未确认。可重试清理，不影响重新登录。",
+                confirmText = "重试清理",
+                dismissText = "稍后处理",
+                onConfirm = { logoutFailed = false; logout() },
+                onDismiss = { logoutFailed = false },
             )
-        }
-    }
-    com.menglimi.gdust.v2.ui.screens.BirthdayCelebration(repo,
-        enabled = loggedIn.value && !loggingOut && !disclaimerShown && schoolLoginMessage == null &&
-            webImportReport == null && importReport == null && syncError == null && !showWebImport)
-    if (schoolLoginMessage != null) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { schoolLoginMessage = null },
-            title = { androidx.compose.material3.Text("学校服务连接") },
-            text = { androidx.compose.material3.Text("$schoolLoginMessage\n\n已连接的服务可继续使用，其他服务可在设置中单独补连。") },
-            confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { schoolLoginMessage = null }) {
-                    androidx.compose.material3.Text("继续使用")
-                }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(onClick = {
+            OverlayDialog(
+                show = syncing && !syncInBackground && !showWebImport && schoolLoginMessage == null,
+                onDismissRequest = { syncInBackground = true },
+            ) {
+                com.menglimi.gdust.v2.ui.screens.ScheduleLoadingCard(
+                    title = "正在同步课表",
+                    detail = if (activeSyncService == SchoolService.TEACHING) "正在读取教务课程与周次，原课表会保留到读取成功。"
+                        else "正在读取学校门户课表，原课表会保留到读取成功。",
+                    onCancel = { syncJob?.cancel(); syncJob = null; syncing = false; activeSyncService = null },
+                    onContinue = { syncInBackground = true },
+                )
+            }
+            com.menglimi.gdust.v2.ui.screens.BirthdayCelebration(repo,
+                enabled = loggedIn.value && !loggingOut && !disclaimerShown && schoolLoginMessage == null &&
+                    webImportReport == null && importReport == null && syncError == null && !showWebImport)
+            NexioConfirmDialog(
+                show = schoolLoginMessage != null,
+                title = "学校服务连接",
+                message = "${schoolLoginMessage.orEmpty()}\n\n已连接的服务可继续使用，其他服务可在设置中单独补连。",
+                confirmText = "继续使用",
+                dismissText = "管理连接",
+                onConfirm = { schoolLoginMessage = null },
+                onDismiss = {
                     schoolLoginMessage = null
                     openSettings(SettingsNavigation.categoryFor("profile").title)
                     showChxEntry = false
                     showChxCourses = false
                     showGrades = false
-                }) { androidx.compose.material3.Text("管理连接") }
-            },
-        )
-    }
-    if (webImportReport != null) InfoDialog("网页登录导入完成", webImportReport!!, onDismiss = { webImportReport = null })
-    if (importReport != null) {
-        InfoDialog("教务课表已导入", importReport!!, onDismiss = { importReport = null })
-    }
-    if (disclaimerShown) {
-        InfoDialog(
-            title = "使用须知与免责声明",
-            message = DISCLAIMER_TEXT,
-            confirmText = "我已阅读并同意",
-            onDismiss = {
-                repo.store.disclaimerAccepted = true
-                disclaimerShown = false
-            },
-        )
-    }
-    if (syncError != null && !syncing && schoolLoginMessage == null && !disclaimerShown) {
-        val failedService = syncFailureService
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { syncError = null },
-            title = { androidx.compose.material3.Text(when {
-                syncNeedsAuthentication -> "${failedService?.label ?: "学校服务"}需要认证"
-                syncNetworkFailure -> "${failedService?.label ?: "学校服务"}连接暂时中断"
-                else -> "数据读取未完成"
-            }) },
-            text = { androidx.compose.material3.Text(syncError.orEmpty().take(300) +
-                "\n\n已保存的数据和其他服务仍可使用。") },
-            confirmButton = {
-                androidx.compose.material3.TextButton(onClick = {
+                },
+            )
+            if (webImportReport != null) InfoDialog("网页登录导入完成", webImportReport!!, onDismiss = { webImportReport = null })
+            if (importReport != null) {
+                InfoDialog("教务课表已导入", importReport!!, onDismiss = { importReport = null })
+            }
+            if (disclaimerShown) {
+                InfoDialog(
+                    title = "使用须知与免责声明",
+                    message = DISCLAIMER_TEXT,
+                    confirmText = "我已阅读并同意",
+                    onDismiss = {
+                        repo.store.disclaimerAccepted = true
+                        disclaimerShown = false
+                    },
+                )
+            }
+            val failedService = syncFailureService
+            NexioConfirmDialog(
+                show = syncError != null && !syncing && schoolLoginMessage == null && !disclaimerShown,
+                title = when {
+                    syncNeedsAuthentication -> "${failedService?.label ?: "学校服务"}需要认证"
+                    syncNetworkFailure -> "${failedService?.label ?: "学校服务"}连接暂时中断"
+                    else -> "数据读取未完成"
+                },
+                message = syncError.orEmpty().take(300) + "\n\n已保存的数据和其他服务仍可使用。",
+                confirmText = when {
+                    syncNeedsAuthentication -> "连接${failedService?.label.orEmpty()}"
+                    failedService != null -> "重试读取"
+                    else -> "知道了"
+                },
+                dismissText = "稍后处理",
+                extraActionText = if (failedService == SchoolService.TEACHING && !syncNeedsAuthentication) "学期设置与导入" else null,
+                onExtraAction = if (failedService == SchoolService.TEACHING && !syncNeedsAuthentication) {
+                    { syncError = null; showWebImport = true }
+                } else null,
+                onConfirm = {
                     val authenticate = syncNeedsAuthentication
                     syncError = null
                     if (authenticate && failedService != null) openServiceLogin(failedService)
                     else if (failedService != null) sync(failedService)
-                }) {
-                    androidx.compose.material3.Text(when {
-                        syncNeedsAuthentication -> "连接${failedService?.label.orEmpty()}"
-                        failedService != null -> "重试读取"
-                        else -> "知道了"
-                    })
-                }
-            },
-            dismissButton = {
-                androidx.compose.foundation.layout.Column {
-                    if (failedService == SchoolService.TEACHING && !syncNeedsAuthentication) {
-                        androidx.compose.material3.TextButton(onClick = { syncError = null; showWebImport = true }) {
-                            androidx.compose.material3.Text("学期设置与导入")
-                        }
-                    }
-                    androidx.compose.material3.TextButton(onClick = { syncError = null }) {
-                        androidx.compose.material3.Text("稍后处理")
-                    }
-                }
-            },
-        )
+                },
+                onDismiss = { syncError = null },
+            )
+        }
     }
 }
 
@@ -808,55 +802,58 @@ private fun MainScaffold(
     var chatInputFocused by remember { mutableStateOf(false) }
     val keyboardVisible = androidx.compose.foundation.layout.WindowInsets.ime
         .getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
+    val mainBackdrop = rememberAppBackdrop(LocalDs.current.bg)
     Box(Modifier.fillMaxSize().background(Color.Transparent)) {
-        Crossfade(
-            targetState = tab,
-            animationSpec = tween(220),
-            label = "tabs",
-            modifier = Modifier.fillMaxSize(),
-        ) { page ->
-            when (page) {
-                0 -> TodayScreen(
-                    repo = repo,
-                    calendar = calendar,
-                    blocks = blocks,
-                    onOpenNotices = onOpenNotices,
-                    unreadCount = unreadCount,
-                    onOpenSchedule = { onTab(1) },
-                    onImport = onImport,
-                    onOpenServices = onOpenServices,
-                    onService = onService,
-                    hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
-                    serviceSummary = serviceSummary,
-                    onServices = onServiceConnections,
-                    scheduleSource = repo.store.scheduleSource,
-                )
-                1 -> ScheduleScreen(
-                    repo = repo,
-                    calendar = calendar,
-                    blocks = blocks,
-                    syncError = syncError,
-                    onPrevWeek = {},
-                    onNextWeek = {},
-                    onSwitchTerm = onSwitchTerm,
-                    fullTermImported = repo.store.scheduleSource in setOf("zf_term", "cloud_import"),
-                    onImport = onImport,
-                )
-                2 -> PowerScreen(repo)
-                3 -> TodoScreen(repo)
-                4 -> androidx.compose.runtime.key(chatSessionVersion, repo.store.jobNumber) {
-                    AiChatScreen(
+        Box(Modifier.fillMaxSize().layerBackdrop(mainBackdrop)) {
+            Crossfade(
+                targetState = tab,
+                animationSpec = tween(220),
+                label = "tabs",
+                modifier = Modifier.fillMaxSize(),
+            ) { page ->
+                when (page) {
+                    0 -> TodayScreen(
                         repo = repo,
                         calendar = calendar,
                         blocks = blocks,
-                        todos = repo.store.loadTodos(),
-                        messages = aiMessages,
-                        onMessagesChange = onAiMessagesChange,
-                        onInputFocusChanged = { chatInputFocused = it },
-                        onBack = { onTab(0) },
-                        onSettings = onOpenAiService,
-                        offlinePreview = offlinePreview,
+                        onOpenNotices = onOpenNotices,
+                        unreadCount = unreadCount,
+                        onOpenSchedule = { onTab(1) },
+                        onImport = onImport,
+                        onOpenServices = onOpenServices,
+                        onService = onService,
+                        hasImportedSchedule = repo.store.scheduleSource == "zf_term" || blocks.isNotEmpty(),
+                        serviceSummary = serviceSummary,
+                        onServices = onServiceConnections,
+                        scheduleSource = repo.store.scheduleSource,
                     )
+                    1 -> ScheduleScreen(
+                        repo = repo,
+                        calendar = calendar,
+                        blocks = blocks,
+                        syncError = syncError,
+                        onPrevWeek = {},
+                        onNextWeek = {},
+                        onSwitchTerm = onSwitchTerm,
+                        fullTermImported = repo.store.scheduleSource in setOf("zf_term", "cloud_import"),
+                        onImport = onImport,
+                    )
+                    2 -> PowerScreen(repo)
+                    3 -> TodoScreen(repo)
+                    4 -> androidx.compose.runtime.key(chatSessionVersion, repo.store.jobNumber) {
+                        AiChatScreen(
+                            repo = repo,
+                            calendar = calendar,
+                            blocks = blocks,
+                            todos = repo.store.loadTodos(),
+                            messages = aiMessages,
+                            onMessagesChange = onAiMessagesChange,
+                            onInputFocusChanged = { chatInputFocused = it },
+                            onBack = { onTab(0) },
+                            onSettings = onOpenAiService,
+                            offlinePreview = offlinePreview,
+                        )
+                    }
                 }
             }
         }
@@ -865,9 +862,9 @@ private fun MainScaffold(
             onTabSelected = onTab,
             onSettings = onSettings,
             settingsSelected = settingsSelected,
+            backdrop = mainBackdrop,
             onAi = if (tab != 4) ({ onTab(4) }) else null,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
-
     }
 }

@@ -41,8 +41,10 @@ import androidx.compose.ui.unit.sp
 import com.haooz.nexioui.basiccomponent.BasicComponent
 import com.haooz.nexioui.button.Button as NexioButton
 import com.haooz.nexioui.button.ButtonDefaults
+import com.haooz.nexioui.overscroll.overScrollVertical
 import com.haooz.nexioui.progressindicator.LinearProgressIndicator as NexioLinearProgressIndicator
 import com.haooz.nexioui.progressindicator.ProgressIndicatorDefaults as NexioProgressIndicatorDefaults
+import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
 import com.haooz.nexioui.text.NexioText as Text
 import com.haooz.nexioui.theme.NexioTheme
 import com.menglimi.gdust.v2.data.AuthFailed
@@ -53,6 +55,7 @@ import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.NexioPageScaffold
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -195,12 +198,19 @@ fun ChxEntryScreen(
     val connection = chxConnectionPresentation(saved, checkResult, checking, authRequired)
     val canSync = saved && checkResult != false && !authRequired && !busy && requestPause == null
     val themeColors = NexioTheme.colorScheme
+    NexioPageScaffold(
+        title = "学习通",
+        onBack = onBack,
+    ) { scaffoldPadding, _, _ ->
     Column(
-        Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding().navigationBarsPadding()
-            .verticalScroll(rememberScrollState()).padding(horizontal = nexioPagePadding()),
+        Modifier
+            .fillMaxSize()
+            .overScrollVertical()
+            .scrollEndHaptic()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = nexioPagePadding())
+            .padding(top = scaffoldPadding.calculateTopPadding(), bottom = scaffoldPadding.calculateBottomPadding()),
     ) {
-        Spacer(Modifier.height(24.dp))
-        PageTitle(title = "学习通", onBack = onBack)
         AppCard(
             modifier = Modifier.fillMaxWidth(),
             insideMargin = PaddingValues(AppUiTokens.CardPadding),
@@ -364,7 +374,8 @@ fun ChxEntryScreen(
                 }
             }
         }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(16.dp))
+    }
     }
 }
 

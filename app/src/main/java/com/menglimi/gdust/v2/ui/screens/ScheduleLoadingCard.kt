@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,16 +34,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.haooz.nexioui.button.FlatTextButton
+import com.haooz.nexioui.icon.NexioIcons
+import com.haooz.nexioui.icon.extended.Refresh
+import com.haooz.nexioui.text.NexioText as Text
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Refresh
 
 /** 仅展示真实等待时长；取消与超时由调用方控制。移出组合后计时和动画自动停止。 */
 @Composable
@@ -62,7 +62,6 @@ fun ScheduleLoadingCard(
             delay(1_000L)
         }
     }
-    // Compose 无限动画遵循系统动画时长设置；没有可度量进度时不显示百分比。
     val rotation by rememberInfiniteTransition(label = "scheduleLoading").animateFloat(
         initialValue = 0f,
         targetValue = 360f,
@@ -81,20 +80,37 @@ fun ScheduleLoadingCard(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(MiuixIcons.Refresh, contentDescription = null, tint = ds.accent,
-                modifier = Modifier.size(28.dp).graphicsLayer { rotationZ = rotation })
+            Icon(
+                NexioIcons.Refresh,
+                contentDescription = null,
+                tint = ds.accent,
+                modifier = Modifier.size(28.dp).graphicsLayer { rotationZ = rotation },
+            )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(title, color = ds.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 Text(detail, color = ds.sub, fontSize = 13.sp, lineHeight = 20.sp)
             }
         }
-        Text("已等待 $seconds 秒", color = ds.sub, fontSize = 13.sp,
-            modifier = Modifier.padding(top = 16.dp))
+        Text(
+            "已等待 $seconds 秒",
+            color = ds.sub,
+            fontSize = 13.sp,
+            modifier = Modifier.padding(top = 16.dp),
+        )
         if (onContinue != null) {
-            TextButton("后台继续，先用其他功能", onClick = onContinue,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(top = 8.dp))
+            FlatTextButton(
+                text = "后台继续，先用其他功能",
+                onClick = onContinue,
+                cornerRadius = 100.dp,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(top = 10.dp),
+            )
         }
-        TextButton("取消读取", onClick = onCancel,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(top = 8.dp))
+        FlatTextButton(
+            text = "取消读取",
+            onClick = onCancel,
+            cornerRadius = 100.dp,
+            textColor = ds.danger,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(top = 8.dp),
+        )
     }
 }

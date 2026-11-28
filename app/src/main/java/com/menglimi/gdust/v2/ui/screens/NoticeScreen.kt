@@ -47,9 +47,11 @@ import com.menglimi.gdust.v2.data.matches
 import com.menglimi.gdust.v2.data.noticeLabel
 import com.menglimi.gdust.v2.data.noticeWebUrl
 import com.menglimi.gdust.v2.data.readId
+import com.haooz.nexioui.overscroll.overScrollVertical
+import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
 import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.pageBackground
+import com.menglimi.gdust.v2.ui.NexioPageScaffold
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -107,16 +109,25 @@ fun NoticeScreen(
             onDispose { summaryJob?.cancel() }
         }
 
+        NexioPageScaffold(
+            title = "学校通知",
+            onBack = onBack,
+        ) { scaffoldPadding, _, _ ->
         Column(
             Modifier
                 .fillMaxSize()
-                .background(pageBackground())
-                .statusBarsPadding()
+                .overScrollVertical()
+                .scrollEndHaptic()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = nexioPagePadding()),
+                .padding(horizontal = nexioPagePadding())
+                .padding(top = scaffoldPadding.calculateTopPadding(), bottom = scaffoldPadding.calculateBottomPadding()),
         ) {
-            Spacer(Modifier.height(24.dp))
-            PageTitle(title = "学校通知", subtitle = "学校公告与新闻 · 手动刷新", onBack = onBack)
+            Text(
+                "学校公告与新闻 · 手动刷新",
+                fontSize = 14.sp,
+                color = ds.sub,
+                modifier = Modifier.padding(horizontal = 4.dp).padding(bottom = 12.dp),
+            )
             SegmentedChoice(
                 options = listOf(
                     NoticeSource.PORTAL to "门户",
@@ -346,7 +357,8 @@ fun NoticeScreen(
                     }
                 }
             }
-            Spacer(Modifier.height(110.dp))
+            Spacer(Modifier.height(16.dp))
+        }
         }
     }
 }

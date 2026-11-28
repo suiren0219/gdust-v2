@@ -64,16 +64,20 @@ import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
 import com.menglimi.gdust.v2.widget.LocalWidgetTodoId
+import androidx.compose.material3.Icon
 import com.haooz.nexioui.button.Button as NexioButton
 import com.haooz.nexioui.button.ButtonDefaults as NexioButtonDefaults
-import com.haooz.nexioui.text.NexioText as Text
-import kotlinx.coroutines.delay
+import com.haooz.nexioui.button.FlatIconButton
 import com.haooz.nexioui.checkbox.Checkbox
 import com.haooz.nexioui.checkbox.CheckboxDefaults
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Delete
+import com.haooz.nexioui.icon.NexioIcons
+import com.haooz.nexioui.icon.extended.Delete
+import com.haooz.nexioui.overscroll.overScrollVertical
+import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
+import com.haooz.nexioui.text.NexioText as Text
 import com.haooz.nexioui.theme.NexioTheme
+import com.menglimi.gdust.v2.ui.NexioPageScaffold
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -173,20 +177,34 @@ fun TodoScreen(repo: Repository) {
         items = store.updateTodos { current -> current.filterNot { it.id == id } }
     }
 
+    NexioPageScaffold(
+        title = "待办",
+        hasBottomBar = true,
+    ) { scaffoldPadding, _, _ ->
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding().imePadding(),
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding()
+            .overScrollVertical()
+            .scrollEndHaptic(),
         contentPadding = PaddingValues(
             start = nexioPagePadding(),
             end = nexioPagePadding(),
-            top = 16.dp,
-            bottom = 104.dp + bottomInset,
+            top = scaffoldPadding.calculateTopPadding(),
+            bottom = scaffoldPadding.calculateBottomPadding(),
         ),
         verticalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap),
     ) {
         item(key = "todo-heading") {
-            Column(Modifier.fillMaxWidth()) {
-                PageTitle("待办", "考试优先 · 按课程与截止时间整理")
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "考试优先 · 按课程与截止时间整理",
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    color = ds.sub,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap),
@@ -307,6 +325,7 @@ fun TodoScreen(repo: Repository) {
             }
         }
     }
+    }
 }
 
 @Composable
@@ -418,14 +437,13 @@ private fun TodoItemCard(item: Todo, onToggle: (Boolean) -> Unit, onDelete: () -
                 )
                 Text(if (item.done) "已完成" else "标记完成", fontSize = 13.sp, color = ds.sub)
             }
-            Box(
-                modifier = Modifier.size(48.dp).clip(CircleShape)
-                    .background(if (deletePressed) ds.text.copy(alpha = 0.06f).compositeOver(cardColor) else cardColor)
-                    .clickable(interactionSource = deleteInteraction, indication = null, role = Role.Button, onClick = onDelete)
-                    .semantics { contentDescription = "删除待办：${item.text}" },
-                contentAlignment = Alignment.Center,
+            FlatIconButton(
+                onClick = onDelete,
+                minWidth = 44.dp,
+                minHeight = 44.dp,
+                modifier = Modifier.semantics { contentDescription = "删除待办：${item.text}" },
             ) {
-                Icon(MiuixIcons.Delete, contentDescription = null, tint = ds.sub, modifier = Modifier.size(22.dp))
+                Icon(NexioIcons.Delete, contentDescription = null, tint = ds.sub, modifier = Modifier.size(22.dp))
             }
         }
     }

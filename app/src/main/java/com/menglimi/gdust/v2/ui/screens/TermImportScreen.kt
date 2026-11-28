@@ -30,9 +30,12 @@ import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.data.TeachingEndpoints
+import com.haooz.nexioui.overscroll.overScrollVertical
+import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.NexioPageScaffold
 import com.haooz.nexioui.button.ButtonDefaults
 import com.haooz.nexioui.text.NexioText as Text
 import kotlinx.coroutines.CancellationException
@@ -302,12 +305,26 @@ fun TermImportScreen(
         }
     }
 
+    NexioPageScaffold(
+        title = "教务学期导入",
+        onBack = ::leaveScreen,
+    ) { scaffoldPadding, _, _ ->
     Column(
-        Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding().navigationBarsPadding().imePadding()
-            .verticalScroll(rememberScrollState()).padding(horizontal = pagePadding),
+        Modifier
+            .fillMaxSize()
+            .imePadding()
+            .overScrollVertical()
+            .scrollEndHaptic()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = pagePadding)
+            .padding(top = scaffoldPadding.calculateTopPadding(), bottom = scaffoldPadding.calculateBottomPadding()),
     ) {
-        Spacer(Modifier.height(if (isTablet) 24.dp else 12.dp))
-        PageTitle("教务学期导入", "选择学期与开学日期，读取成功后更新当前课表。", ::leaveScreen)
+        Text(
+            "选择学期与开学日期，读取成功后更新当前课表。",
+            fontSize = 14.sp,
+            color = ds.sub,
+            modifier = Modifier.padding(horizontal = 4.dp).padding(bottom = 12.dp),
+        )
         val request = pending
         if (request != null) {
             val reading = request.readStartedAt > 0L
@@ -361,6 +378,7 @@ fun TermImportScreen(
             Text(message, color = if (isError) ds.danger else ds.sub, fontSize = 13.sp, lineHeight = 20.sp,
                 modifier = Modifier.padding(top = 12.dp).semantics { liveRegion = LiveRegionMode.Polite })
         }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(16.dp))
+    }
     }
 }

@@ -42,17 +42,20 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.Icon
 import com.haooz.nexioui.basiccomponent.BasicComponent
+import com.haooz.nexioui.button.FlatIconButton
+import com.haooz.nexioui.icon.NexioIcons
+import com.haooz.nexioui.icon.extended.ChevronForward
+import com.haooz.nexioui.icon.extended.Close
+import com.haooz.nexioui.icon.extended.Search
+import com.haooz.nexioui.overscroll.overScrollVertical
+import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
 import com.haooz.nexioui.switch.Switch
 import com.haooz.nexioui.text.NexioText as Text
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.LocalDs
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.ChevronForward
-import top.yukonga.miuix.kmp.icon.extended.Close
-import top.yukonga.miuix.kmp.icon.extended.Search
+import com.menglimi.gdust.v2.ui.NexioPageScaffold
 
 /** 首页与服务目录共用入口定义，所有操作由 AppRoot 路由。 */
 enum class CampusService(val title: String, val description: String, val group: String) {
@@ -92,21 +95,35 @@ fun CampusServicesScreen(
     BackHandler {
         if (query.isNotEmpty()) { query = ""; focus.clearFocus() } else onBack()
     }
+    NexioPageScaffold(
+        title = "校园服务",
+        onBack = { if (query.isNotEmpty()) { query = ""; focus.clearFocus() } else onBack() },
+    ) { scaffoldPadding, _, _ ->
     LazyColumn(
-        modifier = Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding().imePadding(),
+        modifier = Modifier.fillMaxSize().imePadding().overScrollVertical().scrollEndHaptic(),
         contentPadding = PaddingValues(
-            start = nexioPagePadding(), end = nexioPagePadding(), top = topPadding, bottom = 12.dp,
+            start = nexioPagePadding(),
+            end = nexioPagePadding(),
+            top = scaffoldPadding.calculateTopPadding(),
+            bottom = scaffoldPadding.calculateBottomPadding(),
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { PageTitle("校园服务", "学习、生活与提醒，都在这里", onBack) }
+        item {
+            Text(
+                "学习、生活与提醒，都在这里",
+                fontSize = 14.sp,
+                color = ds.sub,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
         item {
             AppCard(insideMargin = PaddingValues(0.dp), cornerRadius = 20.dp) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(MiuixIcons.Search, null, Modifier.size(22.dp), tint = ds.sub)
+                    Icon(NexioIcons.Search, null, Modifier.size(22.dp), tint = ds.sub)
                     BasicTextField(
                         value = query, onValueChange = { query = it }, singleLine = true,
                         textStyle = androidx.compose.ui.text.TextStyle(color = ds.text, fontSize = 16.sp),
@@ -121,8 +138,8 @@ fun CampusServicesScreen(
                             }
                         },
                     )
-                    if (query.isNotEmpty()) IconButton(onClick = { query = "" }, modifier = Modifier.size(48.dp)) {
-                        Icon(MiuixIcons.Close, "清除搜索", Modifier.size(20.dp), tint = ds.sub)
+                    if (query.isNotEmpty()) FlatIconButton(onClick = { query = "" }, minWidth = 44.dp, minHeight = 44.dp) {
+                        Icon(NexioIcons.Close, "清除搜索", Modifier.size(20.dp), tint = ds.sub)
                     }
                 }
             }
@@ -155,7 +172,8 @@ fun CampusServicesScreen(
                     modifier = Modifier.padding(top = 8.dp))
             }
         }
-        item { Spacer(Modifier.navigationBarsPadding().height(12.dp)) }
+        item { Spacer(Modifier.height(4.dp)) }
+    }
     }
 }
 
@@ -191,7 +209,7 @@ internal fun NexioSettingOption(
                 if (detail != null) Text(detail, fontSize = 13.sp, color = ds.sub,
                     textAlign = TextAlign.End, modifier = Modifier.widthIn(max = 128.dp))
                 if (switch != null && onSwitch != null) Switch(switch, onSwitch)
-                else if (click != null) Icon(MiuixIcons.ChevronForward, null, Modifier.size(18.dp), tint = ds.sub)
+                else if (click != null) Icon(NexioIcons.ChevronForward, null, Modifier.size(18.dp), tint = ds.sub)
             }
         },
     ) {
@@ -233,7 +251,7 @@ internal fun ServiceActionRow(
         role = Role.Button,
         insideMargin = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         endActions = {
-            Icon(MiuixIcons.ChevronForward, null, Modifier.size(18.dp), tint = ds.sub)
+            Icon(NexioIcons.ChevronForward, null, Modifier.size(18.dp), tint = ds.sub)
         },
     ) {
         Text(title, fontSize = 17.sp, fontWeight = FontWeight.Medium, color = ds.text)

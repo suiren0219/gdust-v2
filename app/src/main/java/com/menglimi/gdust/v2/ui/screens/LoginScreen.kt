@@ -64,7 +64,10 @@ import com.menglimi.gdust.v2.ui.pageBackground
 import com.haooz.nexioui.button.Button as NexioButton
 import com.haooz.nexioui.button.ButtonDefaults
 import com.haooz.nexioui.button.FlatTextButton
+import com.haooz.nexioui.overscroll.overScrollVertical
+import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
 import com.haooz.nexioui.text.NexioText as Text
+import com.menglimi.gdust.v2.ui.NexioPageScaffold
 
 @Composable
 fun LoginScreen(
@@ -99,18 +102,26 @@ fun LoginScreen(
         onDispose { login.cancel() }
     }
 
+    NexioPageScaffold(
+        title = "广科课程表",
+    ) { scaffoldPadding, _, _ ->
     Column(
         Modifier
             .fillMaxSize()
-            .background(androidx.compose.ui.graphics.Color.Transparent)
-            .statusBarsPadding()
-            .navigationBarsPadding()
             .imePadding()
+            .overScrollVertical()
+            .scrollEndHaptic()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = pagePadding),
+            .padding(horizontal = pagePadding)
+            .padding(top = scaffoldPadding.calculateTopPadding(), bottom = scaffoldPadding.calculateBottomPadding()),
     ) {
-        Spacer(Modifier.height(if (isTablet) 24.dp else 12.dp))
-        PageTitle(title = "广科课程表", subtitle = "课表 · 电费 · 待办 · 通知总结")
+        Text(
+            "课表 · 电费 · 待办 · 通知总结",
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+            color = ds.sub,
+            modifier = Modifier.padding(horizontal = 4.dp).padding(bottom = 16.dp),
+        )
 
         AppCard(
             modifier = Modifier.fillMaxWidth(),
@@ -214,7 +225,8 @@ fun LoginScreen(
         ) {
             Text("设置 ›", fontSize = 13.sp, color = ds.accent)
         }
-        Spacer(Modifier.height(40.dp))
+        Spacer(Modifier.height(16.dp))
+    }
     }
 
 }
