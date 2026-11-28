@@ -38,13 +38,13 @@ import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
+import androidx.compose.material3.Icon
 import com.haooz.nexioui.button.ButtonDefaults
 import com.haooz.nexioui.button.FlatTextButton
+import com.haooz.nexioui.icon.NexioIcons
+import com.haooz.nexioui.icon.extended.ContactsCircle
 import com.haooz.nexioui.text.NexioText as Text
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.ContactsCircle
 
 /** 隐藏态不向可访问性树提供明文；页面离开或进入后台后重新遮罩。 */
 @Composable
@@ -99,7 +99,7 @@ internal fun AccountIdentityContent(
                 onClickLabel = if (revealed) "隐藏身份" else "展开身份") { revealed = !revealed }) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Icon(MiuixIcons.ContactsCircle, null, Modifier.size(28.dp), tint = if (valid) ds.success else ds.sub)
+                Icon(NexioIcons.ContactsCircle, null, Modifier.size(28.dp), tint = if (valid) ds.success else ds.sub)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(when {
                         !hasIdentity -> "未登录"

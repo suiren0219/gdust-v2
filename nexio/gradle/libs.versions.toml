@@ -1,0 +1,101 @@
+# Nexio课程表 - 依赖版本目录
+
+[versions]
+# 构建工具
+agp = "9.2.1"                        # Android Gradle Plugin
+composeMultiplatform = "1.12.0"     # Compose Multiplatform（共享 UI；Android 上映射到 AndroidX Compose）
+kotlin = "2.4.10"                     # Kotlin 编译器（含 Compose 编译插件）
+sqldelight = "2.3.2"                  # SQLDelight：SQL-first 的 KMP 数据库，编译期校验 SQL + 显式迁移文件
+
+# 跨平台（:core KMP 模块）
+kotlinxDatetime = "0.6.2"             # kotlinx-datetime：java.time 的 KMP 替代（0.7+ 重命名了 monthNumber→month、Clock 改为 kotlin.time 别名，留到阶段 2 再评估升级）
+# 协程：:androidApp 一直是靠 Compose 传递依赖拿到的 1.9.0。:core 必须显式声明（KMP 模块不能指望
+# 下游传递），版本取与 :androidApp 已解析一致的值，避免版本对齐产生额外噪音。
+kotlinxCoroutines = "1.9.0"
+# JSON：替代 org.json（Android 平台提供，JVM/iOS 都没有）。
+# 只用 JsonElement 动态解析，**不需要 kotlinx-serialization 编译器插件**（免去给 :androidApp 加 plugin）。
+# 实测依赖只有 stdlib + serialization-core，不牵连协程 —— 这点与 Ktor 不同，已核实。
+kotlinxSerialization = "1.9.0"
+
+# AndroidX 基础
+coreKtx = "1.18.0"                    # AndroidX Core KTX
+lifecycleRuntimeKtx = "2.9.1"         # 生命周期运行时 KTX
+activityCompose = "1.13.0"            # Activity 与 Compose 集成
+composeBom = "2026.05.01"             # Compose BOM 版本对齐
+material3 = "1.5.0-alpha19"           # Material3 (MotionScheme 公开 API 需要此版本)
+webkit = "1.17.0"                     # AndroidX WebKit（document-start 脚本注入，桌面版视口需在页面脚本前生效）
+
+# 第三方 UI
+# MiUiX 仅用于关于页纹理模糊；升级时需留意 Compose / Skiko 的二进制兼容性。
+miuix = "0.9.4"
+# SoftGlass 与 NexioUI 由 settings.gradle.kts 中的本地源码复合构建提供
+
+materialKolor = "4.1.1"               # Material Color for Multiplatform（miuix theme 依赖）
+
+# Lottie 播放
+compottie = "2.3.3"
+
+# 序列化 / 网络
+gson = "2.11.0"                       # Gson JSON 序列化
+okhttp = "4.12.0"                     # OkHttp HTTP 客户端（版本硬编码于 libraries 段）
+
+# Shizuku
+shizuku = "13.1.5"                    # Shizuku 免 Root 高权限框架
+navigationevent = "1.1.2"             # AndroidX NavigationEvent（SearchBar 返回处理）
+
+[libraries]
+# ===== AndroidX 基础 =====
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }                       # 核心 KTX 扩展
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }  # 生命周期运行时
+androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleRuntimeKtx" }  # ViewModel + Compose
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }  # Activity setContent 入口
+
+androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }                           # WebViewCompat / WebViewFeature（document-start JS）
+
+# ===== Compose（BOM 统一管理版本）=====
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }            # Compose 版本对齐 BOM
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }                                              # Compose UI 核心
+androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }                            # Compose 图形模块
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }                              # Layout Inspector / 预览工具
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }  # Material3 组件
+
+# Miuix 仅保留关于页的纹理模糊
+miuix-blur = { group = "top.yukonga.miuix.kmp", name = "miuix-blur-android", version.ref = "miuix" }               # 模糊效果
+
+# ===== 序列化 / 网络 =====
+gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }                                     # JSON 序列化
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version = "4.12.0" }                                  # HTTP 客户端
+
+# ===== 数据库（:core 实体表）=====
+sqldelight-runtime = { module = "app.cash.sqldelight:runtime", version.ref = "sqldelight" }
+sqldelight-android-driver = { module = "app.cash.sqldelight:android-driver", version.ref = "sqldelight" }
+sqldelight-native-driver = { module = "app.cash.sqldelight:native-driver", version.ref = "sqldelight" }
+sqldelight-sqlite-driver = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "sqldelight" }
+sqldelight-coroutines = { module = "app.cash.sqldelight:coroutines-extensions", version.ref = "sqldelight" }
+
+# ===== 跨平台 =====
+
+kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime", version.ref = "kotlinxDatetime" } # java.time 的 KMP 替代
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" } # StateFlow 等（跨平台）
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" } # runTest（suspend 函数的单元测试）
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" } # org.json 的跨平台替代
+
+# Shizuku
+shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }                              # Shizuku 运行时 API
+shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }                   # Shizuku IPC 接入
+
+# NavigationEvent
+navigationevent-compose = { group = "androidx.navigationevent", name = "navigationevent-compose", version.ref = "navigationevent" }  # SearchBar 返回处理
+
+materialKolor-utilities = { group = "com.materialkolor", name = "material-color-utilities", version.ref = "materialKolor" } # Material Color（miuix theme 依赖）
+
+compottie = { group = "io.github.alexzhirkevich", name = "compottie-lite", version.ref = "compottie" } # Lottie 解析与绘制（KMP，lite 版不带 JS 表达式）
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }     # Android 应用插件
+android-kmp-library = { id = "com.android.kotlin.multiplatform.library" }         # AGP 9 起 KMP 模块的 Android 目标专用插件；classpath 上已有，不可带版本
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }  # Compose 编译插件
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform" }  # KMP 插件（:core）；AGP 9 内置 Kotlin 工具链，classpath 上已有，不能再声明版本否则报
+sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }  # 实体表代码生成（SQL 即真相）
+# 注：AGP 9.0 起内置 Kotlin 支持，不再需要 org.jetbrains.kotlin.android 插件

@@ -16,17 +16,22 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import com.haooz.nexioui.arrowpreference.ArrowPreference
+import com.haooz.nexioui.basiccomponent.BasicComponentDefaults
 import com.haooz.nexioui.button.Button as NexioButton
 import com.haooz.nexioui.button.ButtonDefaults as NexioButtonDefaults
 import com.haooz.nexioui.cardexpand.CardExpand
+import com.haooz.nexioui.icon.NexioIcons
+import com.haooz.nexioui.icon.extended.Refresh
+import com.haooz.nexioui.overscroll.overScrollVertical
+import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
 import com.haooz.nexioui.text.NexioText as Text
+import com.menglimi.gdust.v2.ui.NexioPageScaffold
+import com.menglimi.gdust.v2.ui.NexioTopBarGlassIconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -59,16 +65,9 @@ import com.menglimi.gdust.v2.data.isNetworkDown
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.pageBackground
 import com.menglimi.gdust.v2.ui.secondaryTextColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import com.haooz.nexioui.basiccomponent.BasicComponentDefaults
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Refresh
-import com.haooz.nexioui.arrowpreference.ArrowPreference
 
 /**
  * Layout adapted from NexioSchedule, revision 28a99a3:
@@ -141,6 +140,24 @@ fun PowerScreen(repo: Repository) {
     var chartDays by remember { mutableStateOf(1) }
     val pullState = remember { androidx.compose.material3.pulltorefresh.PullToRefreshState() }
 
+    NexioPageScaffold(
+        title = "宿舍电费",
+        hasBottomBar = true,
+        endAction = if (hasBinding && !editingBinding) {
+            { backdrop, bAlpha, sAlpha ->
+                NexioTopBarGlassIconButton(
+                    icon = NexioIcons.Refresh,
+                    contentDescription = "刷新电量",
+                    onClick = { refresh() },
+                    backdrop = backdrop,
+                    backdropAlpha = bAlpha,
+                    shadowAlpha = sAlpha,
+                    enabled = !busy,
+                    iconTint = ds.accent,
+                )
+            }
+        } else null,
+    ) { scaffoldPadding, _, _ ->
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
         isRefreshing = busy && hasBinding && !editingBinding,
         onRefresh = { if (!editingBinding) refresh() },
@@ -150,26 +167,21 @@ fun PowerScreen(repo: Repository) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(pageBackground())
-            .statusBarsPadding()
             .imePadding()
+            .overScrollVertical()
+            .scrollEndHaptic()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = nexioPagePadding()),
+            .padding(horizontal = nexioPagePadding())
+            .padding(top = scaffoldPadding.calculateTopPadding(), bottom = scaffoldPadding.calculateBottomPadding()),
     ) {
-        Spacer(Modifier.height(16.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Column(Modifier.weight(1f)) {
-                PageTitle(
-                    "宿舍电费",
-                    if (hasBinding) roomName.ifBlank { "已绑定宿舍" } else "绑定宿舍，查看电量与用电趋势",
-                )
-            }
-            if (hasBinding && !editingBinding) {
-                IconButton(onClick = { refresh() }, enabled = !busy, modifier = Modifier.size(48.dp)) {
-                    Icon(MiuixIcons.Refresh, contentDescription = "刷新电量", tint = ds.accent, modifier = Modifier.size(24.dp))
-                }
-            }
-        }
+        Text(
+            if (hasBinding) roomName.ifBlank { "已绑定宿舍" } else "绑定宿舍，查看电量与用电趋势",
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+            color = secondary,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+        )
+        Spacer(Modifier.height(8.dp))
 
         CardExpand(visible = msg.isNotEmpty()) {
             Column {
@@ -496,10 +508,9 @@ fun PowerScreen(repo: Repository) {
                 PowerActionButton("打开历史记录") { showHistory = true }
             }
         }
-
-        Spacer(Modifier.navigationBarsPadding().height(110.dp))
     }
     } // PullToRefreshBox
+    } // NexioPageScaffold
 
     NetworkDownDialog(visible = netDown, onDismiss = { netDown = false })
 }

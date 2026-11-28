@@ -1,0 +1,15 @@
+# JitPack 构建配置
+#
+# JitPack 的构建机是 Linux，无法编译 Kotlin/Native 的 iOS 目标，
+# 因此这里只发布 android + jvm；iOS 制品需在 macOS 上本地发布。
+jdk:
+  - openjdk17
+
+# 仓库里的 wrapper 指向腾讯镜像（国内快），JitPack 在境外，10s 超时下常拉不下来：
+# 构建机上换成官方地址并放宽超时，本地配置保持不动。
+before_install:
+  - sed -i 's#https://mirrors.cloud.tencent.com/gradle/#https://services.gradle.org/distributions/#' gradle/wrapper/gradle-wrapper.properties
+  - sed -i 's#networkTimeout=10000#networkTimeout=60000#' gradle/wrapper/gradle-wrapper.properties
+
+install:
+  - ./gradlew :nexioui:publishToMavenLocal -Pnexioui.ios=false

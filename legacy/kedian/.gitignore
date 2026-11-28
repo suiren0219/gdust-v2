@@ -1,0 +1,21 @@
+.gradle/
+.kotlin/
+build/
+app/build/
+.idea/
+local.properties
+*.iml
+# 签名密钥不进 git
+signing/*.jks
+signing/keystore.properties
+
+# 本地构建验证日志
+build-*.log
+
+# 抓包文件带 Cookie/uid/token，禁止入库
+*.har
+*.har.gz
+har/
+
+# 本地分发包
+dist/

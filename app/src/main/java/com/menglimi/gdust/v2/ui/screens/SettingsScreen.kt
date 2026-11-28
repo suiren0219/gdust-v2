@@ -6,6 +6,7 @@ import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -51,33 +52,44 @@ import com.menglimi.gdust.v2.ui.AiSparkleIcon
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.LocalWallpaperState
+import com.menglimi.gdust.v2.ui.WallpaperState
 import com.menglimi.gdust.v2.ui.pageBackground
-import com.haooz.nexioui.basiccomponent.BasicComponent
-import com.haooz.nexioui.cardexpand.CardExpand
-import com.haooz.nexioui.basiccomponent.BasicComponentDefaults
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Alarm
-import top.yukonga.miuix.kmp.icon.extended.Backup
-import top.yukonga.miuix.kmp.icon.extended.BankCards
-import top.yukonga.miuix.kmp.icon.extended.Close
-import top.yukonga.miuix.kmp.icon.extended.ContactsCircle
-import top.yukonga.miuix.kmp.icon.extended.ConvertFile
-import top.yukonga.miuix.kmp.icon.extended.Home
-import top.yukonga.miuix.kmp.icon.extended.Import
-import top.yukonga.miuix.kmp.icon.extended.Info
-import top.yukonga.miuix.kmp.icon.extended.Link
-import top.yukonga.miuix.kmp.icon.extended.Messages
-import top.yukonga.miuix.kmp.icon.extended.Months
-import top.yukonga.miuix.kmp.icon.extended.Notes
-import top.yukonga.miuix.kmp.icon.extended.Refresh
-import top.yukonga.miuix.kmp.icon.extended.Search
-import top.yukonga.miuix.kmp.icon.extended.Timer
-import top.yukonga.miuix.kmp.icon.extended.Unlock
-import top.yukonga.miuix.kmp.icon.extended.Weeks
-import com.haooz.nexioui.button.FlatIconButton
+import androidx.compose.material3.Icon
 import com.haooz.nexioui.arrowpreference.ArrowPreference
+import com.haooz.nexioui.basiccomponent.BasicComponent
+import com.haooz.nexioui.basiccomponent.BasicComponentDefaults
+import com.haooz.nexioui.button.FlatIconButton
+import com.haooz.nexioui.button.FlatTextButton
+import com.haooz.nexioui.cardexpand.CardExpand
+import com.haooz.nexioui.icon.NexioIcons
+import com.haooz.nexioui.icon.extended.Alarm
+import com.haooz.nexioui.icon.extended.Background
+import com.haooz.nexioui.icon.extended.Backup
+import com.haooz.nexioui.icon.extended.BankCards
+import com.haooz.nexioui.icon.extended.Close
+import com.haooz.nexioui.icon.extended.ContactsCircle
+import com.haooz.nexioui.icon.extended.ConvertFile
+import com.haooz.nexioui.icon.extended.Home
+import com.haooz.nexioui.icon.extended.Import
+import com.haooz.nexioui.icon.extended.Info
+import com.haooz.nexioui.icon.extended.Link
+import com.haooz.nexioui.icon.extended.Messages
+import com.haooz.nexioui.icon.extended.Months
+import com.haooz.nexioui.icon.extended.Notes
+import com.haooz.nexioui.icon.extended.Refresh
+import com.haooz.nexioui.icon.extended.Search
+import com.haooz.nexioui.icon.extended.Theme
+import com.haooz.nexioui.icon.extended.Timer
+import com.haooz.nexioui.icon.extended.Unlock
+import com.haooz.nexioui.icon.extended.Weeks
+import com.haooz.nexioui.overscroll.overScrollVertical
+import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
+import com.haooz.nexioui.slider.Slider
 import com.haooz.nexioui.switchpreference.SwitchPreference
+import com.menglimi.gdust.v2.ui.AppMaterialStyle
+import com.menglimi.gdust.v2.ui.NexioPageScaffold
+import com.menglimi.gdust.v2.ui.applyNexioMaterial
 
 /**
  * Adapted from NexioSchedule, revision 28a99a3:
@@ -120,6 +132,7 @@ fun SettingsScreen(
 ) {
     val ds = LocalDs.current
     val preview = offlinePreview || com.menglimi.gdust.v2.BuildConfig.PREVIEW_TARGET
+    val wallpaperState = LocalWallpaperState.current
     val secondary = ds.sub
     val store = repo.store
     val focusManager = LocalFocusManager.current
@@ -135,6 +148,7 @@ fun SettingsScreen(
     var termStartLocal by remember { mutableStateOf(store.termStartDate) }
     // 普通 prefs 不会触发重组，选中态必须用本地镜像并同步写回。
     var startTabLocal by remember { mutableStateOf(store.startTab) }
+    var materialStyleLocal by remember { mutableStateOf(AppMaterialStyle.fromKey(store.uiStyle)) }
     var sampleIntervalLocal by remember { mutableStateOf(store.sampleIntervalMinutes) }
     var powerPresetLocal by remember { mutableStateOf(store.powerQueryPreset) }
     var smartWeekendLocal by remember { mutableStateOf(store.smartHideWeekend) }
@@ -165,12 +179,12 @@ fun SettingsScreen(
 
     val accountEntry = SettingsEntry(
         id = "profile", title = "个人信息", summary = "广东科技学院 · 本机数据与偏好",
-        keywords = "账户 账号 学校 学号 姓名 登录 验证 隐私", icon = MiuixIcons.ContactsCircle,
+        keywords = "账户 账号 学校 学号 姓名 登录 验证 隐私", icon = NexioIcons.ContactsCircle,
     )
     val originalGroups = listOf(
         SettingsSection("通用", listOf(
             SettingsEntry(
-                id = "startTab", title = "启动页", summary = "下次打开时默认显示", icon = MiuixIcons.Home,
+                id = "startTab", title = "启动页", summary = "下次打开时默认显示", icon = NexioIcons.Home,
                 detail = when (startTabLocal) { 0 -> "今日"; 2 -> "电费"; 3 -> "待办"; else -> "课表" },
                 onClick = { toggle("startTab") },
                 editor = {
@@ -183,20 +197,44 @@ fun SettingsScreen(
                 },
             ),
             SettingsEntry(
-                id = "desktop", title = "桌面名称与图标", summary = "自定义桌面入口的名称和图片", icon = MiuixIcons.Home,
+                id = "desktop", title = "桌面名称与图标", summary = "自定义桌面入口的名称和图片", icon = NexioIcons.Home,
                 keywords = "桌面 图标 名称 自定义 快捷方式", onClick = { showDesktopAppearance = true },
             ),
             SettingsEntry(
                 id = "widgets", title = "桌面小部件", summary = "课表 / 电量 / 待办，各三款尺寸",
-                icon = MiuixIcons.Months,
+                icon = NexioIcons.Months,
                 keywords = "小组件 widget 添加 电量 待办 课表",
                 onClick = { showWidgetPicker = true },
+            ),
+            SettingsEntry(
+                id = "material", title = "玻璃材质效果", summary = materialStyleLocal.summary,
+                icon = NexioIcons.Theme, detail = materialStyleLocal.label,
+                keywords = "材质 玻璃 柔光 液态 磨砂 纯色 SoftGlass 性能",
+                onClick = { toggle("material") },
+                editor = {
+                    SegmentedChoice(
+                        options = AppMaterialStyle.entries.map { it to it.label.removeSuffix("玻璃").removePrefix("纯色") },
+                        selected = materialStyleLocal,
+                        onSelect = {
+                            materialStyleLocal = it
+                            store.uiStyle = it.key
+                            applyNexioMaterial(it.key)
+                        },
+                    )
+                    Text(materialStyleLocal.summary, fontSize = 13.sp, color = secondary)
+                },
+            ),
+            SettingsEntry(
+                id = "wallpaper", title = "自定义壁纸", summary = "设置首页与课表背景，调节模糊和压暗",
+                icon = NexioIcons.Background, keywords = "壁纸 背景 模糊 磨砂 透明度 压暗",
+                onClick = { toggle("wallpaper") },
+                editor = { WallpaperAppearanceEditor(state = wallpaperState) },
             ),
         )),
         SettingsSection("课表", listOf(
             SettingsEntry(
                 id = "term", title = "学期设置", summary = if (store.isIndependentSchedule) "独立课表沿用导入的学期，请切回学校课表再修改"
-                    else "开学日期、总周数与当前周", icon = MiuixIcons.Months, enabled = !store.isIndependentSchedule,
+                    else "开学日期、总周数与当前周", icon = NexioIcons.Months, enabled = !store.isIndependentSchedule,
                 keywords = "校历 开学日期 总周数 当前周", detail = termStartLocal.ifBlank { "跟随校历" },
                 onClick = { toggle("term") },
                 editor = {
@@ -231,24 +269,24 @@ fun SettingsScreen(
                 },
             ),
             SettingsEntry(
-                id = "weekend", title = "智能显示周末", summary = "隐藏没有课程的周六、周日", icon = MiuixIcons.Weeks,
+                id = "weekend", title = "智能显示周末", summary = "隐藏没有课程的周六、周日", icon = NexioIcons.Weeks,
                 checked = smartWeekendLocal,
                 onCheckedChange = { smartWeekendLocal = it; store.smartHideWeekend = it },
             ),
         )),
         SettingsSection("提醒", listOf(
             SettingsEntry(
-                id = "reminder", title = "课程提醒", summary = "课前、次日与课中提醒", icon = MiuixIcons.Alarm,
+                id = "reminder", title = "课程提醒", summary = "课前、次日与课中提醒", icon = NexioIcons.Alarm,
                 detail = if (store.reminderEnabled) "已开启" else "未开启", onClick = onReminder,
             ),
             SettingsEntry(
-                id = "todoReminder", title = "待办提醒", summary = "作业、考试与自定义事项的到期提醒", icon = MiuixIcons.Alarm,
+                id = "todoReminder", title = "待办提醒", summary = "作业、考试与自定义事项的到期提醒", icon = NexioIcons.Alarm,
                 detail = if (store.todoReminderEnabled) "已开启" else "未开启", onClick = onTodoReminder,
             ),
         )),
         SettingsSection("同步", listOf(
             SettingsEntry(
-                id = "sync", title = "账号直连同步", summary = "使用当前登录账号读取教务课表", icon = MiuixIcons.Refresh,
+                id = "sync", title = "账号直连同步", summary = "使用当前登录账号读取教务课表", icon = NexioIcons.Refresh,
                 detail = when {
                     syncing -> "同步中"
                     syncError != null -> "失败"
@@ -258,12 +296,12 @@ fun SettingsScreen(
                 enabled = !preview && !syncing, onClick = onSync,
             ),
             SettingsEntry(
-                id = "webImport", title = "网页登录导入", summary = "在教务网页导入学期课程", icon = MiuixIcons.Import,
+                id = "webImport", title = "网页登录导入", summary = "在教务网页导入学期课程", icon = NexioIcons.Import,
                 keywords = "兼容备用 教务学期导入", detail = if (store.loadWebImportPage().isNotBlank()) "已保存会话" else null,
                 enabled = !preview, onClick = onWebImport,
             ),
             SettingsEntry(
-                id = "autoSync", title = "自动同步课表", summary = "每 4 小时在本机更新课表", icon = MiuixIcons.Refresh,
+                id = "autoSync", title = "自动同步课表", summary = "每 4 小时在本机更新课表", icon = NexioIcons.Refresh,
                 checked = autoSyncLocal, enabled = !preview,
                 onCheckedChange = {
                     autoSyncLocal = it
@@ -274,12 +312,12 @@ fun SettingsScreen(
             ),
             SettingsEntry(
                 id = "maintenanceReminder", title = "教务维护提醒", summary = "同步失败时参考设定时段",
-                icon = MiuixIcons.Timer,
+                icon = NexioIcons.Timer,
                 checked = maintenanceLocal,
                 onCheckedChange = { maintenanceLocal = it; store.maintenanceReminderEnabled = it },
             ),
             SettingsEntry(
-                id = "maintenance", title = "维护时段", icon = MiuixIcons.Timer,
+                id = "maintenance", title = "维护时段", icon = NexioIcons.Timer,
                 summary = if (maintenanceLocal) "可跨午夜" else "提醒已关闭，仍可编辑时段",
                 detail = maintWindowLocal,
                 onClick = { toggle("maintenance") },
@@ -310,7 +348,7 @@ fun SettingsScreen(
         )),
         SettingsSection("电量", listOf(
             SettingsEntry(
-                id = "interval", title = "电量查询预设", summary = "按宿舍余量调整查询节奏", icon = MiuixIcons.Timer,
+                id = "interval", title = "电量查询预设", summary = "按宿舍余量调整查询节奏", icon = NexioIcons.Timer,
                 detail = powerPresetLocal.title, onClick = { toggle("interval") },
                 editor = {
                     val presets = com.menglimi.gdust.v2.data.PowerQueryPreset.entries
@@ -333,7 +371,7 @@ fun SettingsScreen(
                 },
             ),
             SettingsEntry(
-                id = "warn", title = "低电量预警", summary = "剩余电量阈值与掉电速率", icon = MiuixIcons.BankCards,
+                id = "warn", title = "低电量预警", summary = "剩余电量阈值与掉电速率", icon = NexioIcons.BankCards,
                 detail = "${warnThresholdLocal.toInt()} 度", onClick = { toggle("warn") },
                 editor = {
                     NexioField(thresholdText, { thresholdText = it; thresholdSaved = false }, "低电量阈值（度）", KeyboardType.Decimal)
@@ -349,45 +387,45 @@ fun SettingsScreen(
         )),
         SettingsSection("数据", listOf(
             SettingsEntry(
-                id = "cachedCourses", title = "本地缓存课程", icon = MiuixIcons.Months,
+                id = "cachedCourses", title = "本地缓存课程", icon = NexioIcons.Months,
                 detail = "${store.loadBlocks().size} 张卡",
             ),
             SettingsEntry(
-                id = "calendar", title = "校历", icon = MiuixIcons.Weeks,
+                id = "calendar", title = "校历", icon = NexioIcons.Weeks,
                 detail = store.loadCalendar()?.let { "第 ${it.week}/${it.allWeek} 周" } ?: "未同步",
             ),
             SettingsEntry(
-                id = "export", title = "导出备份", summary = "课表、待办、偏好与水电绑定", icon = MiuixIcons.Backup,
+                id = "export", title = "导出备份", summary = "课表、待办、偏好与水电绑定", icon = NexioIcons.Backup,
                 keywords = "JSON 不含登录凭证 密码",
                 onClick = { onExportBackup.launch("gdust-backup-${java.time.LocalDate.now()}.json") },
             ),
             SettingsEntry(
-                id = "import", title = "导入备份", summary = "从 JSON 恢复，将覆盖现有数据与偏好", icon = MiuixIcons.ConvertFile,
+                id = "import", title = "导入备份", summary = "从 JSON 恢复，将覆盖现有数据与偏好", icon = NexioIcons.ConvertFile,
                 onClick = { importLauncher.launch(arrayOf("application/json", "text/*")) },
             ),
         )),
         SettingsSection("服务", listOf(
             SettingsEntry(
-                id = "grades", title = "学期成绩", summary = "按学期查询成绩、学分与绩点", icon = MiuixIcons.Notes,
+                id = "grades", title = "学期成绩", summary = "按学期查询成绩、学分与绩点", icon = NexioIcons.Notes,
                 keywords = "教务 成绩 绩点 GPA", onClick = onGrades,
             ),
             SettingsEntry(
-                id = "schoolNotices", title = "学校通知", summary = "门户通知、教务处公告与官网新闻", icon = MiuixIcons.Messages,
+                id = "schoolNotices", title = "学校通知", summary = "门户通知、教务处公告与官网新闻", icon = NexioIcons.Messages,
                 keywords = "通知 公告 教务 新闻 考试", onClick = onSchoolNotices,
             ),
             SettingsEntry(
-                id = "chx", title = "学习通", summary = "课程、作业与通知待办", icon = MiuixIcons.Link,
+                id = "chx", title = "学习通", summary = "课程、作业与通知待办", icon = NexioIcons.Link,
                 keywords = "超星 课程 任务 作业 通知 登录 联动", onClick = onChxEntry,
             ),
             SettingsEntry(
-                id = "fiveEducation", title = "五育综合数据平台", summary = "打开校内网页查看活动与学期记录", icon = MiuixIcons.Link,
+                id = "fiveEducation", title = "五育综合数据平台", summary = "打开校内网页查看活动与学期记录", icon = NexioIcons.Link,
                 detail = "网页", keywords = "活动 五育 综合评价", onClick = onFiveEducation,
             ),
         )),
         SettingsSection("AI", listOf(
             SettingsEntry(
                 id = "summary", title = "生成公告总结", summary = "查看公告并按需生成或读取本机摘要",
-                keywords = "AI 缓存 总结", icon = MiuixIcons.Notes, enabled = !preview, onClick = onSchoolNotices,
+                keywords = "AI 缓存 总结", icon = NexioIcons.Notes, enabled = !preview, onClick = onSchoolNotices,
             ),
             SettingsEntry(
                 id = "llm", title = "AI 服务", summary = "模型连接、预设与测试", keywords = "AI 模型 地址 密钥 公告 总结", icon = AiSparkleIcon,
@@ -401,19 +439,22 @@ fun SettingsScreen(
         )),
         SettingsSection("关于", listOf(
             SettingsEntry(
-                id = "about", title = "关于与更新", summary = "版本、项目主页与数据来源", keywords = "GitHub Star 开源 支持", icon = MiuixIcons.Info,
+                id = "about", title = "关于与更新", summary = "版本、项目主页与数据来源", keywords = "GitHub Star 开源 支持", icon = NexioIcons.Info,
                 onClick = onAbout,
             ),
         )),
     )
     val allEntries = (originalGroups.flatMap { it.entries } + accountEntry.copy(onClick = onProfile) + listOf(
-        SettingsEntry("chxNotifications", "学习通通知待办", MiuixIcons.Messages, summary = "授权本机通知读取", onClick = onChxNotifications),
-        SettingsEntry("schedules", "课表切换", MiuixIcons.Months, summary = "学校课表与独立云端课表", enabled = !preview, onClick = onSchedules),
-        SettingsEntry("shareSchedule", "分享当前课表", MiuixIcons.Link, summary = "导出独立课表供其他设备导入", enabled = !preview, onClick = onShareSchedule),
+        SettingsEntry("chxNotifications", "学习通通知待办", NexioIcons.Messages, summary = "授权本机通知读取", onClick = onChxNotifications),
+        SettingsEntry("schedules", "课表切换", NexioIcons.Months, summary = "学校课表与独立云端课表", enabled = !preview, onClick = onSchedules),
+        SettingsEntry("shareSchedule", "分享当前课表", NexioIcons.Link, summary = "导出独立课表供其他设备导入", enabled = !preview, onClick = onShareSchedule),
     )).map { entry ->
         if (preview) entry.copy(enabled = false, onClick = {}, onCheckedChange = {}, editor = null) else entry
     }
-    val groups = SettingsNavigation.categories.map { c -> SettingsSection(c.title, allEntries.filter { it.id in c.entries }) }
+    val groups = SettingsNavigation.categories.map { c ->
+        val categoryEntries = if (c.title == "外观与数据") c.entries + listOf("material", "wallpaper") else c.entries
+        SettingsSection(c.title, allEntries.filter { it.id in categoryEntries })
+    }
     val search = query.trim()
     val isDirectory = subPage == null && search.isBlank()
     val sourceGroups = if (subPage == null) groups else groups.filter { it.title == subPage }
@@ -421,8 +462,7 @@ fun SettingsScreen(
         group.copy(entries = group.entries.filter { it.matches(search, group.title) })
             .takeIf { it.entries.isNotEmpty() }
     }
-    val showServiceStatus = subPage == "账号与服务" || (!isDirectory &&
-        "服务连接 登录状态 门户 教务 学习通 验证".contains(search, ignoreCase = true))
+    val showServiceStatus = SettingsNavigation.showServiceStatus(subPage, search)
     val showLogout = !preview && subPage == null && loggedIn &&
         (search.isBlank() || "退出登录 清除本机数据 账户".contains(search, ignoreCase = true))
     val scrollState = key(subPage) { rememberScrollState() }
@@ -436,78 +476,81 @@ fun SettingsScreen(
     BackHandler { backAction() }
 
     Box(Modifier.fillMaxSize()) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(pageBackground())
-            .settingsEdgeBack { backAction() }
-            .statusBarsPadding()
-            .imePadding()
-            .verticalScroll(scrollState)
-            .padding(horizontal = nexioPagePadding()),
-    ) {
-        Spacer(Modifier.height(24.dp))
-        PageTitle(title = subPage ?: "设置", onBack = backAction)
-        SettingsSearchField(query = query, onQueryChange = { query = it })
-        if (showServiceStatus || isDirectory) {
-            ServiceStatusCard(
-                repo,
-                onReconnect = { service -> onReconnectService?.invoke(service) },
-                actionsEnabled = !preview,
-                offlinePreview = preview,
-            )
-        }
-        if (isDirectory) {
-            SettingGroup {
-                groups.forEachIndexed { index, group ->
-                    if (index > 0) SettingDivider()
-                    val destination = group.title
-                    key(destination) {
-                        SettingsPreference(SettingsEntry(
-                            id = "category-$destination", title = destination,
-                            summary = SettingsNavigation.categories.single { it.title == destination }.summary,
-                            icon = group.entries.first().icon,
-                            onClick = { focusManager.clearFocus(); subPage = destination; query = ""; openSection.value = null },
-                        ))
-                    }
+        NexioPageScaffold(
+            title = subPage ?: "设置",
+            onBack = backAction,
+            modifier = Modifier.settingsEdgeBack { backAction() },
+        ) { scaffoldPadding, _, _ ->
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .imePadding()
+                    .overScrollVertical()
+                    .scrollEndHaptic()
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = nexioPagePadding())
+                    .padding(top = scaffoldPadding.calculateTopPadding(), bottom = scaffoldPadding.calculateBottomPadding()),
+            ) {
+                SettingsSearchField(query = query, onQueryChange = { query = it })
+                if (showServiceStatus) {
+                    ServiceStatusCard(
+                        repo,
+                        onReconnect = { service -> onReconnectService?.invoke(service) },
+                        actionsEnabled = !preview,
+                        offlinePreview = preview,
+                    )
                 }
-            }
-        } else {
-            visibleGroups.forEach { group ->
-                key(group.title) {
-                    if (subPage == null) SectionHeader(group.title)
+                if (isDirectory) {
                     SettingGroup {
-                        group.entries.forEachIndexed { index, entry ->
+                        groups.forEachIndexed { index, group ->
                             if (index > 0) SettingDivider()
-                            key(entry.id) { SettingsGroupEntryWithEditor(entry, openSection, syncError) }
+                            val destination = group.title
+                            key(destination) {
+                                SettingsPreference(SettingsEntry(
+                                    id = "category-$destination", title = destination,
+                                    summary = SettingsNavigation.categories.single { it.title == destination }.summary,
+                                    icon = group.entries.first().icon,
+                                    onClick = { focusManager.clearFocus(); subPage = destination; query = ""; openSection.value = null },
+                                ))
+                            }
+                        }
+                    }
+                } else {
+                    visibleGroups.forEach { group ->
+                        key(group.title) {
+                            if (subPage == null) SectionHeader(group.title)
+                            SettingGroup {
+                                group.entries.forEachIndexed { index, entry ->
+                                    if (index > 0) SettingDivider()
+                                    key(entry.id) { SettingsGroupEntryWithEditor(entry, openSection, syncError) }
+                                }
+                            }
                         }
                     }
                 }
+                if (showLogout) {
+                    SettingGroup {
+                        SettingsPreference(SettingsEntry(
+                            id = "logout", title = "退出登录", summary = "同时清除本机数据", icon = NexioIcons.Unlock,
+                            danger = true, onClick = onLogout,
+                        ))
+                    }
+                }
+                val showProjectStar = !preview && subPage == null && (search.isBlank() ||
+                    "GitHub 项目主页 star 支持 开源".contains(search, ignoreCase = true))
+                if (!showServiceStatus && visibleGroups.isEmpty() && !showLogout && !isDirectory && !showProjectStar) {
+                    Text("没有找到相关设置", fontSize = 14.sp, color = secondary,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
+                }
+                if (showProjectStar) ProjectStarEntry()
             }
         }
-        if (showLogout) {
-            SettingGroup {
-                SettingsPreference(SettingsEntry(
-                    id = "logout", title = "退出登录", summary = "同时清除本机数据", icon = MiuixIcons.Unlock,
-                    danger = true, onClick = onLogout,
-                ))
-            }
+        if (showWidgetPicker) {
+            WidgetPreviewScreen(onBack = { showWidgetPicker = false })
         }
-        val showProjectStar = !preview && subPage == null && (search.isBlank() ||
-            "GitHub 项目主页 star 支持 开源".contains(search, ignoreCase = true))
-        if (!showServiceStatus && visibleGroups.isEmpty() && !showLogout && !isDirectory && !showProjectStar) {
-            Text("没有找到相关设置", fontSize = 14.sp, color = secondary,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
+        if (showDesktopAppearance) {
+            DesktopAppearanceScreen(onBack = { showDesktopAppearance = false })
         }
-        if (showProjectStar) ProjectStarEntry()
-        Spacer(Modifier.navigationBarsPadding().height(110.dp))
-    }
-    if (showWidgetPicker) {
-        WidgetPreviewScreen(onBack = { showWidgetPicker = false })
-    }
-    if (showDesktopAppearance) {
-        DesktopAppearanceScreen(onBack = { showDesktopAppearance = false })
-    }
     }
 }
 
@@ -523,6 +566,58 @@ private fun SettingsGroupEntryWithEditor(
     }
     CardExpand(visible = entry.id == "sync" && syncError != null) {
         SettingEditor { Text(syncError.orEmpty(), fontSize = 13.sp, color = LocalDs.current.danger) }
+    }
+}
+
+@Composable
+private fun WallpaperAppearanceEditor(state: WallpaperState?) {
+    val ds = LocalDs.current
+    if (state == null) {
+        Text("壁纸设置暂不可用，请重新进入设置页。", fontSize = 13.sp, color = ds.sub)
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                if (state.bitmap != null) "已设置自定义壁纸" else "尚未设置壁纸",
+                modifier = Modifier.weight(1f), fontSize = 14.sp, color = ds.text,
+            )
+            FlatTextButton(
+                text = if (state.bitmap != null) "更换" else "选择图片",
+                onClick = state.choose,
+                minWidth = 84.dp,
+                minHeight = 36.dp,
+                cornerRadius = 100.dp,
+            )
+            if (state.bitmap != null) {
+                FlatTextButton(
+                    text = "清除", onClick = state.clear, minWidth = 60.dp, minHeight = 36.dp,
+                    cornerRadius = 100.dp, textColor = ds.danger,
+                )
+            }
+        }
+        state.error?.let { Text(it, fontSize = 13.sp, color = ds.danger) }
+        if (state.bitmap != null) {
+            Text("背景模糊 · ${state.blur.toInt()} dp", fontSize = 14.sp, color = ds.text)
+            Slider(
+                value = state.blur,
+                onValueChange = state.setBlur,
+                valueRange = 0f..40f,
+                showKeyPoints = true,
+                keyPoints = listOf(0f, 8f, 16f, 24f, 32f, 40f),
+            )
+            Text("背景压暗 · ${(state.dim * 100).toInt()}%", fontSize = 14.sp, color = ds.text)
+            Slider(
+                value = state.dim,
+                onValueChange = state.setDim,
+                valueRange = 0f..0.85f,
+                showKeyPoints = true,
+                keyPoints = listOf(0f, 0.2f, 0.4f, 0.6f, 0.8f),
+            )
+            Text("壁纸保存在本机应用私有目录，不会上传，也不会写入备份文件。", fontSize = 13.sp, color = ds.sub)
+        } else {
+            Text("选择一张图片后可设置模糊与压暗程度；无壁纸时应用继续使用深浅主题纯色背景。", fontSize = 13.sp, color = ds.sub)
+        }
     }
 }
 
@@ -597,7 +692,7 @@ private fun SettingsSearchField(query: String, onQueryChange: (String) -> Unit) 
             Modifier.fillMaxWidth().heightIn(min = 48.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(MiuixIcons.Search, contentDescription = null, modifier = Modifier.size(20.dp), tint = ds.sub)
+            Icon(NexioIcons.Search, contentDescription = null, modifier = Modifier.size(20.dp), tint = ds.sub)
             Spacer(Modifier.width(12.dp))
             BasicTextField(
                 value = query, onValueChange = onQueryChange, modifier = Modifier.weight(1f),
@@ -614,7 +709,7 @@ private fun SettingsSearchField(query: String, onQueryChange: (String) -> Unit) 
             )
             if (query.isNotEmpty()) {
                 FlatIconButton(onClick = { onQueryChange("") }, minWidth = 40.dp, minHeight = 40.dp) {
-                    Icon(MiuixIcons.Close, contentDescription = "清除搜索", modifier = Modifier.size(18.dp), tint = ds.sub)
+                    Icon(NexioIcons.Close, contentDescription = "清除搜索", modifier = Modifier.size(18.dp), tint = ds.sub)
                 }
             }
         }

@@ -1,0 +1,80 @@
+package com.haooz.chedule.i18n
+
+/**
+ * 杂项工具与页面的文案：分享编解码（ShareScheduleCodec）、玻璃材质档位（AppMaterialSettings）、
+ * 隐私政策入口、第三方口令导入（ThirdPartyShare）、WebDAV 设置页。
+ */
+object MiscStr {
+
+    // ---- 分享课表编解码校验（IllegalArgumentException 消息，经 Toast 展示） ----
+
+    val shareStartWeekInvalid = L("分享课表的startWeek无效", "Invalid startWeek in shared schedule")
+    val shareEndWeekInvalid = L("分享课表的endWeek无效", "Invalid endWeek in shared schedule")
+    val shareWeekTypeInvalid = L("分享课表的weekType无效", "Invalid weekType in shared schedule")
+    val shareWeekRangeInvalid = L("分享课表的课程周次范围无效", "Invalid course week range in shared schedule")
+    val shareOddEvenTypeInvalid = L("分享课表的课程单双周类型无效", "Invalid odd/even week type in shared schedule")
+    val shareSemesterWeeksInvalid = L("分享课表的学期总周数无效", "Invalid semester total weeks in shared schedule")
+    val shareWeeksOutOfRange = L("分享课表的课程周次超出支持范围", "Course weeks exceed the supported range")
+    val shareSelectedWeeksInvalid = L("分享课表的selectedWeeks无效", "Invalid selectedWeeks in shared schedule")
+    val shareSelectedWeeksDuplicate = L("分享课表的selectedWeeks重复", "Duplicate weeks in selectedWeeks")
+    val shareSelectedWeeksOutOfRange = L("分享课表的selectedWeeks超出支持范围", "selectedWeeks exceed the supported range")
+    val shareSettingsInvalid = L("分享课表的设置数据无效", "Invalid settings data in shared schedule")
+    val shareSettingsFieldsInvalid = L("分享课表的设置字段无效", "Invalid settings fields in shared schedule")
+    val shareTotalWeeksInvalid = L("分享课表的总周数无效", "Invalid total weeks in shared schedule")
+    val shareMissingCourses = L("分享课表缺少课程数据", "Missing course data in shared schedule")
+    val shareNoCourses = L("分享课表没有课程", "The shared schedule has no courses")
+    val shareCourseInvalid = L("分享课表中的课程数据无效", "Invalid course data in shared schedule")
+    val shareCourseFieldsInvalid = L("分享课表中的课程字段无效", "Invalid course fields in shared schedule")
+    val shareCourseNameMissing = L("分享课表中的课程缺少有效名称", "A course in the shared schedule has no valid name")
+    val shareDayInvalid = L("分享课表中的星期无效", "Invalid day of week in shared schedule")
+    val shareStartSectionInvalid = L("分享课表中的开始节次无效", "Invalid start section in shared schedule")
+    val shareEndSectionInvalid = L("分享课表中的结束节次无效", "Invalid end section in shared schedule")
+    val shareSectionRangeInvalid = L("分享课表中的节次范围无效", "Invalid section range in shared schedule")
+    val shareStartTimeInvalid = L("分享课表中的开始时间无效", "Invalid start time in shared schedule")
+    val shareEndTimeInvalid = L("分享课表中的结束时间无效", "Invalid end time in shared schedule")
+    val shareTimeRangeInvalid = L("分享课表中的时间范围无效", "Invalid time range in shared schedule")
+
+    // ---- 玻璃材质档位（AppMaterialSettings，档位常量本身是持久化数据键） ----
+
+    val materialBest = L("柔光玻璃", "Soft Glass")
+    val materialLiquid = L("液态玻璃", "Liquid Glass")
+    val materialBalanced = L("清透磨砂", "Frosted Glass")
+    val materialNone = L("无材质", "No Material")
+
+    // ---- 隐私政策 ----
+
+    val privacyPolicyLink = L("《Nexio 课程表隐私政策》", "Nexio Schedule Privacy Policy")
+
+    // ---- 第三方口令导入（WakeUp / 星链） ----
+
+    val wakeUpImportTitle = L("WakeUp课程表口令导入", "WakeUp Share Code Import")
+    val starLinkImportTitle = L("星链课表分享码导入", "StarLink Share Code Import")
+    val wakeUpInputLabel = L("分享口令", "Share Code")
+    val starLinkInputLabel = L("分享码", "Share Code")
+
+    // ---- WebDAV 设置页 ----
+
+    val lastOperationN = L("上次操作：%s", "Last operation: %s")
+    val connectionFailed = L("连接失败", "Connection failed")
+    val serverConfigSection = L("服务器配置", "Server Configuration")
+    val serverAddress = L("服务器地址", "Server address")
+    val backupPath = L("备份路径", "Backup path")
+    val accountLabel = L("用户名", "Account")
+    val appPasswordLabel = L("应用密码", "App password")
+    val hintLeaveEmptyForRoot = L("留空=根目录", "Leave empty for root")
+    val requiredHint = L("必填", "Required")
+    val configureServerFirst = L("请先配置服务器信息", "Configure the server info first")
+    val noOperationRecord = L("暂无操作记录", "No operations yet")
+    val cloudBackupAfterConfig = L("配置后即可使用云同步功能", "Cloud sync is available after configuration")
+    val neverOperated = L("从未操作", "Never used")
+    val nutstoreStepsTitle = L("关联坚果云步骤：", "Link Nutstore (Jianguoyun):")
+    val nutstoreStepsDetail = L(
+        "① 下载并安装坚果云客户端\n② 登录后前往「设置 → 第三方应用管理」获取应用密码\n③ 将应用密码填入上方「应用密码」",
+        "① Download and install the Nutstore client\n② Sign in and go to \"Settings → Third-party App Management\" to get an app password\n③ Enter the app password in \"App password\" above",
+    )
+    val backupRestoreNotesTitle = L("备份与恢复说明", "Backup and Restore Notes")
+    val backupRestoreNotesDetail = L(
+        "本页只配置服务器。备份、上传与恢复都在「备份与同步」页完成，在那里可以选择备份到本机、云端或两者。",
+        "This page only configures the server. Backups, uploads and restores happen on the Backup & Sync page, where you choose whether to save to this device, the cloud or both.",
+    )
+}

@@ -1,0 +1,10 @@
+-keep class com.menglimi.power.PowerBinding { *; }
+-keep class com.menglimi.power.PowerDetail { *; }
+-keep class com.menglimi.power.PowerSample { *; }
+-keep class com.menglimi.power.PowerReading { *; }
+-keep class com.menglimi.power.PowerMonitorState { *; }
+-keep class com.menglimi.kedian.learning.Homework { *; }
+-keep class com.menglimi.kedian.learning.LearningUiState { *; }
+-keep class * extends androidx.work.ListenableWorker { <init>(android.content.Context, androidx.work.WorkerParameters); }
+-keep class androidx.work.impl.WorkDatabase_Impl { <init>(...); }
+-keepattributes Signature

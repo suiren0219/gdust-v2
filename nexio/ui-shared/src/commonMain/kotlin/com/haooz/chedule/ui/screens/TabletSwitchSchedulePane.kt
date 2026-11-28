@@ -1,0 +1,432 @@
+/** 平板切换课表：左右分栏 */
+package com.haooz.chedule.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.haooz.chedule.data.model.Course
+import com.haooz.chedule.data.platform.ioDispatcher
+import com.haooz.chedule.data.repo.CourseRepository
+import com.haooz.chedule.i18n.CommonStr
+import com.haooz.chedule.i18n.SwitchStr
+import com.haooz.chedule.ui.activities.SwitchScheduleScreen
+import com.haooz.nexioui.iconbutton.IconButton
+import com.haooz.chedule.ui.components.LocalPageStartPadding
+import com.haooz.chedule.ui.components.text.material.Text
+import com.haooz.chedule.ui.utils.isAppDarkTheme
+import com.haooz.chedule.ui.utils.screenWidthDp
+import com.haooz.chedule.viewmodel.CourseViewModel
+import com.haooz.chedule.viewmodel.ScheduleViewModel
+import com.haooz.chedule.viewmodel.SettingsViewModel
+import com.haooz.softglass.backdrop.GlassBackdrop
+import com.haooz.softglass.backdrop.backdrops.layerBackdrop
+import com.haooz.softglass.backdrop.backdrops.rememberLayerBackdrop
+import kotlinx.coroutines.launch
+import com.haooz.nexioui.icon.NexioIcons
+import com.haooz.nexioui.icon.extended.Add
+import com.haooz.nexioui.icon.extended.AddFolder
+import com.haooz.nexioui.icon.extended.Close
+import com.haooz.nexioui.topappbar.CollapsibleTopAppBarDefaults
+import com.haooz.nexioui.progressiveblurtopbar.ProgressiveBlurTopBar
+import com.haooz.nexioui.topbarmaterial.rememberTopBarMaterialState
+import com.haooz.nexioui.overlaydialog.LocalOverlayDialogBackdrop
+import com.haooz.nexioui.theme.NexioTheme
+import com.haooz.nexioui.overscroll.overScrollVertical
+import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
+
+/**
+ * 平板切换课表：左右分栏。
+ * 左栏 = 切换课表列表（embedded，无卡片形变）；右栏暂留空。
+ * 顶栏遮罩与标题栏按钮玻璃随滚动显隐，曲线对齐设置页。
+ */
+@Composable
+fun TabletSwitchSchedulePane(
+    viewModel: CourseViewModel,
+    scheduleViewModel: ScheduleViewModel,
+    settingsViewModel: SettingsViewModel,
+    /** 分享执行：由 Android 宿主注入（ScheduleExport.performScheduleShare 是 Android 专有）；
+     *  内嵌编辑模式的底栏「分享」按钮会渲染，须转发给左栏 SwitchScheduleScreen */
+    onShareSchedule: (scheduleName: String, onSharingChanged: (Boolean) -> Unit) -> Unit = { _, _ -> },
+    /** 分享前置检查（课表是否为空）：宿主注入（buildShareScheduleMap 依赖 Gson=R2，留在宿主） */
+    isScheduleShareable: (scheduleName: String) -> Boolean = { true },
+    /** 保存学期课表图片：宿主注入；`null` 时右栏不显示下载按钮（非 Android 宿主） */
+    onSaveScheduleImage: ((ImageBitmap) -> Unit)? = null,
+) {
+    val scope = rememberCoroutineScope()
+    val hapticFeedback = LocalHapticFeedback.current
+    // 滚动量：与设置页左栏同式（index*8000+offset）
+    var leftScrollPx by remember { mutableFloatStateOf(0f) }
+    // 标题栏按钮驱动的弹窗开关
+    val showAddDialog = remember { mutableStateOf(false) }
+    val showAddFolderDialog = remember { mutableStateOf(false) }
+    // 编辑模式：左上角 Close 退出
+    val isEditMode = remember { mutableStateOf(false) }
+    // 右栏预览：跟随当前选中课表；节数/上中晚分段与主课表同一套配置
+    // （原 `val context = LocalContext.current` 取了没用 —— 死变量，迁 :ui-shared 时删掉）
+    val repository = remember { CourseRepository() }
+    val previewName by scheduleViewModel.currentScheduleName.collectAsState()
+    val currentCourses by viewModel.courses.collectAsState()
+    val previewCourses = remember(previewName, currentCourses) {
+        repository.getCoursesForSchedule(previewName)
+    }
+    // 预览当前课表时用 SettingsViewModel 实时值（与课程表 tab 一致）；其它课表读该课表绑定的时间配置
+    val currentName by scheduleViewModel.currentScheduleName.collectAsState()
+    val liveMorning by settingsViewModel.morningSections.collectAsState()
+    val liveAfternoon by settingsViewModel.afternoonSections.collectAsState()
+    val liveEvening by settingsViewModel.eveningSections.collectAsState()
+    val previewSections = remember(previewName, currentName, liveMorning, liveAfternoon, liveEvening) {
+        if (previewName == currentName) {
+            Triple(liveMorning, liveAfternoon, liveEvening)
+        } else {
+            Triple(
+                repository.getMorningSections(previewName),
+                repository.getAfternoonSections(previewName),
+                repository.getEveningSections(previewName),
+            )
+        }
+    }
+
+    // 页面底色铺到屏幕边缘（含侧栏下），内容整体避让 —— background 在 padding 之前。
+    val paneSurface = NexioTheme.colorScheme.surface
+    // 浮层采样层：页级 backdrop 只录一栏，跨栏浮层会一半采样到空层
+    val overlayDialogBackdrop = rememberLayerBackdrop {
+        drawRect(paneSurface)
+        drawContent()
+    }
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(paneSurface)
+            .then(
+                if (com.haooz.chedule.ui.utils.AppMaterialSettings.isNoneTier()) Modifier
+                else Modifier.layerBackdrop(overlayDialogBackdrop)
+            )
+            .then(LocalPageStartPadding.current)
+    ) {
+        // 左栏固定为屏宽 0.39，与课程管理/设置分栏一致
+        val listWidth = screenWidthDp().dp * 0.39f
+        val rightWidth = maxWidth - listWidth
+        val topInset = WindowInsets.systemBars.only(WindowInsetsSides.Top)
+            .asPaddingValues().calculateTopPadding()
+        val collapsedH = CollapsibleTopAppBarDefaults.CollapsedHeight
+        // 内容自「状态栏 + 折叠标题」下方开始，与设置页 chromeTop 一致
+        val chromeTop = topInset + collapsedH + 24.dp
+        val maskHeight = topInset + 80.dp
+        val surfaceColor = NexioTheme.colorScheme.surface
+        val dividerColor =
+            if (isAppDarkTheme()) Color.White.copy(alpha = 0.1f)
+            else Color.Black.copy(alpha = 0.06f)
+
+        // 左栏内容层：供顶栏渐变模糊采样
+        val leftBackdrop = rememberLayerBackdrop()
+        // 标题栏按钮材质走全站统一判据（含越界污染自愈）；本栏遮罩仍常驻
+        val paneMaterial = rememberTopBarMaterialState(contentOffsetProvider = { -leftScrollPx })
+        val maskAlpha = paneMaterial.alpha
+
+        CompositionLocalProvider(
+            // 浮层改用整页采样层，否则跨栏浮层背面一半是空的
+            LocalOverlayDialogBackdrop provides
+                if (com.haooz.chedule.ui.utils.AppMaterialSettings.isNoneTier()) null
+                else overlayDialogBackdrop,
+        ) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            // —— 左栏：切换课表列表 ——
+            Box(
+                modifier = Modifier
+                    .width(listWidth)
+                    .fillMaxHeight()
+                    .background(surfaceColor)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        // 无材质档：玻璃全关，采样录屏层不挂
+                        .then(
+                            if (com.haooz.chedule.ui.utils.AppMaterialSettings.isNoneTier()) Modifier
+                            else Modifier.layerBackdrop(leftBackdrop)
+                        )
+                ) {
+                    SwitchScheduleScreen(
+                        embedded = true,
+                        onScheduleChanged = {
+                            viewModel.reloadCourses()
+                            settingsViewModel.refreshSettings()
+                            scope.launch(ioDispatcher) {
+                                scheduleViewModel.refreshScheduleList()
+                            }
+                        },
+                        onShareSchedule = onShareSchedule,
+                        isScheduleShareable = isScheduleShareable,
+                        contentTopPadding = chromeTop,
+                        onScrollYChanged = { leftScrollPx = it.toFloat().coerceAtLeast(0f) },
+                        externalShowAddDialog = showAddDialog,
+                        externalShowAddFolderDialog = showAddFolderDialog,
+                        externalIsEditMode = isEditMode,
+                    )
+                }
+                TabletPaneTopChrome(
+                    backdrop = leftBackdrop,
+                    maskHeight = maskHeight,
+                    modifier = Modifier.align(Alignment.TopStart),
+                )
+                // 标题栏：编辑模式左上 Close，居中标题，右侧添加/文件夹
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .offset(y = topInset)
+                        .height(collapsedH),
+                ) {
+                    if (isEditMode.value) {
+                        IconButton(
+                            onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                isEditMode.value = false
+                            },
+                            backdrop = leftBackdrop,
+                            icon = NexioIcons.Normal.Close,
+                            contentDescription = CommonStr.close(),
+                            iconSize = 24.dp,
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .padding(start = 12.dp),
+                            backdropAlpha = maskAlpha(),
+                            shadowAlpha = maskAlpha(),
+                        )
+                    }
+                    Text(
+                        text = if (isEditMode.value) SwitchStr.editSchedule() else SwitchStr.switchSchedule(),
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = NexioTheme.colorScheme.onSurface,
+                        modifier = Modifier.align(Alignment.Center),
+                        // 标题由 Box 的 align(Center) 居中摆位，落位也按中心收放
+                        textAlign = TextAlign.Center,
+                    )
+                    if (!isEditMode.value) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(
+                            onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                                showAddDialog.value = true
+                            },
+                            backdrop = leftBackdrop,
+                            icon = NexioIcons.Add,
+                            contentDescription = CommonStr.add(),
+                            iconSize = 24.dp,
+                            backdropAlpha = maskAlpha(),
+                            shadowAlpha = maskAlpha(),
+                        )
+                        IconButton(
+                            onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                                showAddFolderDialog.value = true
+                            },
+                            backdrop = leftBackdrop,
+                            icon = NexioIcons.AddFolder,
+                            contentDescription = SwitchStr.newFolder(),
+                            iconSize = 26.dp,
+                            backdropAlpha = maskAlpha(),
+                            shadowAlpha = maskAlpha(),
+                        )
+                    }
+                    }
+                }
+            }
+
+            // —— 右栏：选中课表的学期课表预览 ——
+            Box(
+                modifier = Modifier
+                    .width(rightWidth)
+                    .fillMaxHeight()
+                    .background(surfaceColor)
+            ) {
+                // 右栏内容层：先铺表面底色再采样，避免糊层透底
+                val rightSurface = surfaceColor
+                val rightBackdrop = rememberLayerBackdrop {
+                    drawRect(rightSurface)
+                    drawContent()
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        // 无材质档：玻璃全关，采样录屏层不挂
+                        .then(
+                            if (com.haooz.chedule.ui.utils.AppMaterialSettings.isNoneTier()) Modifier
+                            else Modifier.layerBackdrop(rightBackdrop)
+                        )
+                ) {
+                    SemesterSchedulePreview(
+                        courses = previewCourses,
+                        scheduleName = previewName,
+                        morningSections = previewSections.first,
+                        afternoonSections = previewSections.second,
+                        eveningSections = previewSections.third,
+                        contentTopPadding = chromeTop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                TabletPaneTopChrome(
+                    backdrop = rightBackdrop,
+                    maskHeight = maskHeight,
+                    modifier = Modifier.align(Alignment.TopStart),
+                )
+                if (onSaveScheduleImage != null) {
+                    SaveScheduleImageButton(
+                        scheduleName = previewName,
+                        courses = previewCourses,
+                        morningSections = previewSections.first,
+                        afternoonSections = previewSections.second,
+                        eveningSections = previewSections.third,
+                        onSaveImage = onSaveScheduleImage,
+                        backdrop = rightBackdrop,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = topInset + 8.dp, end = 16.dp),
+                    )
+                }
+            }
+        }
+        }
+        // 分界线画在 Row 之上：左栏内部有顶栏/底栏模糊层，画在栏内会被糊掉
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset(x = listWidth)
+                .width(1.dp)
+                .fillMaxHeight()
+                .background(dividerColor)
+        )
+    }
+}
+
+/** 顶栏常驻表面色渐变遮罩 + 常驻渐变模糊：与设置页 TabletPaneTopChrome 一致 */
+@Composable
+private fun TabletPaneTopChrome(
+    backdrop: GlassBackdrop?,
+    maskHeight: Dp,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(maskHeight)
+    ) {
+        // 只保留渐变模糊，不再叠表面色遮罩（压暗层已全局移除）
+        if (backdrop != null) {
+            ProgressiveBlurTopBar(
+                backdrop = backdrop,
+                modifier = Modifier.fillMaxSize(),
+                height = maskHeight,
+                blurAlpha = 1f,
+                content = {},
+            )
+        }
+    }
+}
+
+/** 学期课表预览：标题 + 紧凑周网格（网格与手机预览/图片导出共用 [SemesterScheduleGrid]） */
+@Composable
+private fun SemesterSchedulePreview(
+    courses: List<Course>,
+    scheduleName: String,
+    morningSections: Int,
+    afternoonSections: Int,
+    eveningSections: Int,
+    contentTopPadding: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val hasCourses = courses.isNotEmpty()
+    val headerText = NexioTheme.colorScheme.onSurfaceVariantSummary
+    val emptyHint = NexioTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(NexioTheme.colorScheme.surface)
+            .overScrollVertical()
+            .scrollEndHaptic(hapticFeedbackType = HapticFeedbackType.TextHandleMove)
+            .verticalScroll(scrollState)
+            .padding(start = 20.dp, end = 20.dp, top = contentTopPadding, bottom = 60.dp),
+    ) {
+        Text(
+            text = scheduleName,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = NexioTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = if (hasCourses) SwitchStr.semesterPreview() else SwitchStr.noCourses(),
+            fontSize = 14.sp,
+            color = if (hasCourses) headerText else emptyHint,
+            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+        )
+
+        if (!hasCourses) {
+            Spacer(Modifier.height(48.dp))
+            Text(
+                text = SwitchStr.scheduleEmptyHint(),
+                fontSize = 15.sp,
+                color = emptyHint,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            return@Column
+        }
+
+        SemesterScheduleGrid(
+            courses = courses,
+            morningSections = morningSections,
+            afternoonSections = afternoonSections,
+            eveningSections = eveningSections,
+        )
+    }
+}

@@ -1,0 +1,108 @@
+{
+  "sources": {
+    "nexio": {
+      "commit": "cfdaedbae2359e9249d1415e1e5d963c66c66cf1",
+      "files": 1074,
+      "upstream_files": 1114,
+      "filtered_out_files": 40
+    },
+    "softglass": {
+      "commit": "34011b51282307db77f8153b7ef1ec597cd284c9",
+      "files": 64,
+      "tag": "0.1.3"
+    },
+    "nexioui": {
+      "commit": "499fc1e318cd5fc82aa5709b9ef42655b547d549",
+      "files": 327,
+      "tag": "0.1.1"
+    },
+    "gdust-compat": {
+      "commit": "68a638da6dc69f06be3782c0835b116a69a87832",
+      "files": 13,
+      "extracted": [
+        "mergeConsecutiveLessons from GdustSyncScreen.kt"
+      ],
+      "mapping": [
+        {
+          "source": "core/src/androidMain/kotlin/com/haooz/chedule/data/gdust/CasClient.kt",
+          "target": "adapters/gdust-compat/src/androidMain/kotlin/com/haooz/chedule/data/gdust/CasClient.kt"
+        },
+        {
+          "source": "core/src/androidMain/kotlin/com/haooz/chedule/data/gdust/GdustHttp.kt",
+          "target": "adapters/gdust-compat/src/androidMain/kotlin/com/haooz/chedule/data/gdust/GdustHttp.kt"
+        },
+        {
+          "source": "core/src/androidMain/kotlin/com/haooz/chedule/data/gdust/GdustLlm.kt",
+          "target": "adapters/gdust-compat/src/androidMain/kotlin/com/haooz/chedule/data/gdust/GdustLlm.kt"
+        },
+        {
+          "source": "core/src/androidMain/kotlin/com/haooz/chedule/data/gdust/GdustModels.kt",
+          "target": "adapters/gdust-compat/src/androidMain/kotlin/com/haooz/chedule/data/gdust/GdustModels.kt"
+        },
+        {
+          "source": "core/src/androidMain/kotlin/com/haooz/chedule/data/gdust/GdustSessionStore.kt",
+          "target": "adapters/gdust-compat/src/androidMain/kotlin/com/haooz/chedule/data/gdust/GdustSessionStore.kt"
+        },
+        {
+          "source": "core/src/androidMain/kotlin/com/haooz/chedule/data/gdust/PortalClient.kt",
+          "target": "adapters/gdust-compat/src/androidMain/kotlin/com/haooz/chedule/data/gdust/PortalClient.kt"
+        },
+        {
+          "source": "core/src/androidMain/kotlin/com/haooz/chedule/data/gdust/PowerClient.kt",
+          "target": "adapters/gdust-compat/src/androidMain/kotlin/com/haooz/chedule/data/gdust/PowerClient.kt"
+        },
+        {
+          "source": "core/src/commonMain/kotlin/com/haooz/chedule/data/gdust/GdustTodo.kt",
+          "target": "adapters/gdust-compat/src/commonMain/kotlin/com/haooz/chedule/data/gdust/GdustTodo.kt"
+        },
+        {
+          "source": "ui-shared/src/androidMain/kotlin/com/haooz/chedule/ui/gdust/GdustBridge.android.kt",
+          "target": "adapters/gdust-compat/src/androidMain/kotlin/com/haooz/chedule/ui/gdust/GdustBridge.android.kt"
+        },
+        {
+          "source": "ui-shared/src/commonMain/kotlin/com/haooz/chedule/ui/gdust/GdustBridge.kt",
+          "target": "adapters/gdust-compat/src/commonMain/kotlin/com/haooz/chedule/ui/gdust/GdustBridge.kt"
+        },
+        {
+          "source": "ui-shared/src/commonTest/kotlin/com/haooz/chedule/ui/gdust/GdustLessonMergeTest.kt",
+          "target": "adapters/gdust-compat/src/commonTest/kotlin/com/haooz/chedule/ui/gdust/GdustLessonMergeTest.kt"
+        },
+        {
+          "source": "ui-shared/src/iosMain/kotlin/com/haooz/chedule/ui/gdust/GdustBridge.ios.kt",
+          "target": "adapters/gdust-compat/src/iosMain/kotlin/com/haooz/chedule/ui/gdust/GdustBridge.ios.kt"
+        },
+        {
+          "source": "ui-shared/src/jvmMain/kotlin/com/haooz/chedule/ui/gdust/GdustBridge.jvm.kt",
+          "target": "adapters/gdust-compat/src/jvmMain/kotlin/com/haooz/chedule/ui/gdust/GdustBridge.jvm.kt"
+        }
+      ],
+      "final_files": 16
+    }
+  },
+  "excluded": [
+    {
+      "path": "harmonyApp/build-profile.json5",
+      "reason": "Original signing material removed; replaced by unsigned configuration"
+    },
+    {
+      "path": "ohos/third_party/sqlite/lib/arm64-v8a/libsqlite3.a",
+      "reason": "generated static library; retained source must be rebuilt"
+    },
+    {
+      "path": "harmonyApp/entry/src/main/resources/rawfile/composeResources/",
+      "reason": "39 generated resource copies; 38 match canonical source bytes, stale PNG icon replaced by canonical WebP; syncComposeResourcesToHarmony regenerates this directory",
+      "files": 39
+    }
+  ],
+  "retained_binary_sha256": {
+    "third_party/softglass/gradle/wrapper/gradle-wrapper.jar": "76805e32c009c0cf0dd5d206bddc9fb22ea42e84db904b764f3047de095493f3",
+    "third_party/nexioui/gradle/wrapper/gradle-wrapper.jar": "76805e32c009c0cf0dd5d206bddc9fb22ea42e84db904b764f3047de095493f3",
+    "ohos/gradle/wrapper/gradle-wrapper.jar": "76805e32c009c0cf0dd5d206bddc9fb22ea42e84db904b764f3047de095493f3",
+    "harmonyApp/third_party/cpf-compose-1.9.2-1.2.0.har": "28e59426e79ab9d4c3f89a81452f974d1907cda5eba55273fd3021f86554da2b",
+    "gradle/wrapper/gradle-wrapper.jar": "76805e32c009c0cf0dd5d206bddc9fb22ea42e84db904b764f3047de095493f3",
+    "core/src/jvmTest/resources/school_index.pb": "4fda63b6129dfc71d489b5072205dddea7b979d697af127e0bc88bd0cbc7ea46",
+    "core/src/commonMain/sqldelight/databases/1.db": "5a0b03d684889f69176fca4e4471cfb5d517d13b368076bd53393d978150fac4",
+    "androidApp/libs/xms-wearable-lib_1.4_release.aar": "9c40fd1c5409bb948523d503af71e2978ae522c35636afe7d64f474c0f6bc195"
+  },
+  "final_file_count": 1485
+}

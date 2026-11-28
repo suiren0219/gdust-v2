@@ -2,8 +2,12 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="gdust_secure.xml" />
+        <exclude domain="file" path="app_wallpaper_image" />
+        <exclude domain="file" path="app_wallpaper_image.bak" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="gdust_secure.xml" />
+        <exclude domain="file" path="app_wallpaper_image" />
+        <exclude domain="file" path="app_wallpaper_image.bak" />
     </device-transfer>
 </data-extraction-rules>

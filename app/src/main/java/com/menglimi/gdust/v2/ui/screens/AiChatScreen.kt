@@ -57,11 +57,18 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.Icon
 import com.haooz.nexioui.basiccomponent.BasicComponent
 import com.haooz.nexioui.button.Button as NexioButton
 import com.haooz.nexioui.button.ButtonDefaults
 import com.haooz.nexioui.button.FlatIconButton
 import com.haooz.nexioui.button.FlatTextButton
+import com.haooz.nexioui.icon.NexioIcons
+import com.haooz.nexioui.icon.extended.Back
+import com.haooz.nexioui.icon.extended.ChevronForward
+import com.haooz.nexioui.icon.extended.Settings
+import com.haooz.nexioui.overscroll.overScrollVertical
+import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
 import com.haooz.nexioui.switch.Switch
 import com.haooz.nexioui.text.NexioText as Text
 import com.haooz.nexioui.theme.NexioTheme
@@ -75,13 +82,9 @@ import com.menglimi.gdust.v2.data.UniversityKnowledge
 import com.menglimi.gdust.v2.data.buildStudentContext
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.NexioTopBarGlassIconButton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Back
-import top.yukonga.miuix.kmp.icon.extended.ChevronForward
-import top.yukonga.miuix.kmp.icon.extended.Settings
 
 /** Conversation rows are kept by AppRoot so changing tabs doesn't erase the current chat. */
 data class AiChatLine(val id: Long, val role: String, val content: String)
@@ -181,7 +184,7 @@ fun AiChatScreen(
     val term = calendar?.let { "${it.year} · 第${it.semester}学期" } ?: "未导入学期"
 
     Column(
-        Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().imePadding()
+        Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding().imePadding()
             .padding(bottom = if (keyboardVisible) 0.dp else 94.dp),
     ) {
         Row(
@@ -189,9 +192,11 @@ fun AiChatScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            FlatIconButton(onClick = onBack, minWidth = 44.dp, minHeight = 44.dp) {
-                Icon(MiuixIcons.Back, contentDescription = "返回", tint = ds.text, modifier = Modifier.size(22.dp))
-            }
+            NexioTopBarGlassIconButton(
+                icon = NexioIcons.Back,
+                contentDescription = "返回",
+                onClick = onBack,
+            )
             Column(Modifier.weight(1f)) {
                 Text("学习助手", fontSize = 13.sp, color = ds.sub)
                 Text(
@@ -199,9 +204,11 @@ fun AiChatScreen(
                     modifier = Modifier.semantics { heading() },
                 )
             }
-            FlatIconButton(onClick = onSettings, minWidth = 44.dp, minHeight = 44.dp) {
-                Icon(MiuixIcons.Settings, contentDescription = "AI 服务配置", tint = ds.sub, modifier = Modifier.size(22.dp))
-            }
+            NexioTopBarGlassIconButton(
+                icon = NexioIcons.Settings,
+                contentDescription = "AI 服务配置",
+                onClick = onSettings,
+            )
             FlatTextButton(
                 text = "清空",
                 onClick = { if (!preview) onMessagesChange(emptyList()); error = ""; draft = "" },
@@ -253,7 +260,7 @@ fun AiChatScreen(
 
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
+            modifier = Modifier.weight(1f).fillMaxWidth().overScrollVertical().scrollEndHaptic(),
             contentPadding = PaddingValues(start = pagePadding, end = pagePadding, top = 12.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -416,7 +423,7 @@ private fun PromptRow(text: String, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(text, Modifier.weight(1f), fontSize = 14.sp, lineHeight = 20.sp, color = ds.text)
-            Icon(MiuixIcons.ChevronForward, null, Modifier.padding(start = 8.dp).size(18.dp), tint = ds.sub)
+            Icon(NexioIcons.ChevronForward, null, Modifier.padding(start = 8.dp).size(18.dp), tint = ds.sub)
         }
     }
 }

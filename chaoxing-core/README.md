@@ -7,13 +7,13 @@
 - 课程进度：`ChxCourseApi(...).load()`。
 - 传输：注入 `suspend (Request) -> ChxResponse`，或使用 `ChxOkHttpTransport(cookieJar)`。
 
-宿主负责正常网页登录、CookieJar、账号切换与缓存生命周期、界面。Cookie 候选不等于已认证；未知版式不能当成空列表。读取范围和会话契约见 [完整模块设计](../docs/FEATURE_MODULES.md#学习通作业模块)。
+宿主负责正常网页登录、CookieJar、账号切换与缓存生命周期、界面。Cookie 候选不等于已认证；未知版式不能当成空列表。读取范围和会话契约见 [读取实现](src/main/kotlin/com/menglimi/chaoxing/ChxWorkReader.kt)。
 
 在仓库根目录运行：
 
 ```bash
-gradle -p standalone :chaoxing-core:test :chaoxing-core:jar
-gradle -p examples/chaoxing-work run
+gradle -p legacy/kedian/standalone :chaoxing-core:test :chaoxing-core:jar
+gradle -p legacy/kedian/examples/chaoxing-work run
 ```
 
-[最小接入示例](../examples/chaoxing-work/src/main/kotlin/example/chaoxing/Main.kt) 展示公开 API 的完整读取链路，默认只使用合成响应。模块及源码复用沿用仓库的 [LICENSE](../LICENSE) 与 [NOTICE](../NOTICE.md)。
+[最小接入示例](../legacy/kedian/examples/chaoxing-work/src/main/kotlin/example/chaoxing/Main.kt) 展示公开 API 的完整读取链路，默认只使用合成响应。模块及源码复用沿用仓库的 [LICENSE](../LICENSE) 与 [NOTICE](../NOTICE.md)。

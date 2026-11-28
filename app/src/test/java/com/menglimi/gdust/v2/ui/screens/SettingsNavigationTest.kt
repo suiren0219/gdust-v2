@@ -18,6 +18,25 @@ class SettingsNavigationTest {
         assertEquals("提醒", SettingsNavigation.categoryFor("chxNotifications").title)
     }
 
+    @Test fun serviceStatusIsHiddenFromDirectoryAndUnrelatedCategoriesWithoutSearch() {
+        assertFalse(SettingsNavigation.showServiceStatus(null, ""))
+        SettingsNavigation.categories.filter { it.title != "账号与服务" }.forEach {
+            assertFalse(it.title, SettingsNavigation.showServiceStatus(it.title, ""))
+            assertFalse(it.title, SettingsNavigation.showServiceStatus(it.title, "  "))
+        }
+    }
+
+    @Test fun accountCategoryAndRelatedSearchExposeServiceStatus() {
+        assertTrue(SettingsNavigation.showServiceStatus("账号与服务", ""))
+        assertTrue(SettingsNavigation.showServiceStatus("账号与服务", "其他"))
+        listOf("服务连接", "登录状态", "门户", "教务", "学习通", "验证").forEach {
+            assertTrue(it, SettingsNavigation.showServiceStatus(null, " $it "))
+            assertTrue(it, SettingsNavigation.showServiceStatus("外观与数据", it))
+        }
+        assertFalse(SettingsNavigation.showServiceStatus(null, "壁纸"))
+        assertFalse(SettingsNavigation.showServiceStatus("提醒", "MCP"))
+    }
+
     @Test fun backClearsSearchBeforeReturningToDirectoryThenExits() {
         assertEquals(SettingsBack.CLEAR_SEARCH, SettingsNavigation.back("AI 与 MCP", "MCP"))
         assertEquals(SettingsBack.CLEAR_SEARCH, SettingsNavigation.back(null, "MCP"))

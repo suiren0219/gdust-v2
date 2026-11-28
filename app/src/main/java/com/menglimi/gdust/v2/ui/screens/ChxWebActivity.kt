@@ -53,21 +53,22 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.compose.material3.Icon
 import com.google.gson.JsonParser
+import com.haooz.nexioui.button.Button
+import com.haooz.nexioui.button.FlatIconButton
+import com.haooz.nexioui.icon.NexioIcons
+import com.haooz.nexioui.icon.extended.Back
+import com.haooz.nexioui.icon.extended.Close
+import com.haooz.nexioui.icon.extended.Refresh
+import com.haooz.nexioui.progressindicator.LinearProgressIndicator as NexioLinearProgressIndicator
+import com.haooz.nexioui.text.NexioText as Text
 import com.menglimi.gdust.v2.App
 import com.menglimi.gdust.v2.data.ChxSso
 import com.menglimi.gdust.v2.data.ChxWebSession
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.AppTheme
 import com.menglimi.gdust.v2.ui.LocalDs
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Back
-import top.yukonga.miuix.kmp.icon.extended.Close
-import top.yukonga.miuix.kmp.icon.extended.Refresh
 
 /** 独立承载学校 CAS 与超星网页登录的 WebView，使用应用既有主题与 CookieManager。 */
 class ChxWebActivity : ComponentActivity() {
@@ -142,21 +143,20 @@ class ChxWebActivity : ComponentActivity() {
                 Column(Modifier.fillMaxWidth().background(ds.bg)) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = ::navigateBack, modifier = Modifier.size(48.dp)) {
-                            Icon(MiuixIcons.Back, "返回上一页", Modifier.size(24.dp), tint = ds.text)
+                        FlatIconButton(onClick = ::navigateBack, minWidth = 44.dp, minHeight = 44.dp) {
+                            Icon(NexioIcons.Back, "返回上一页", Modifier.size(22.dp), tint = ds.text)
                         }
                         Text(hostLabel, color = ds.text, fontSize = 17.sp, fontWeight = FontWeight.Medium, maxLines = 2,
-                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        IconButton(onClick = ::reloadPage, modifier = Modifier.size(48.dp)) {
-                            Icon(MiuixIcons.Refresh, "重新加载网页", Modifier.size(24.dp), tint = ds.text)
+                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
+                        FlatIconButton(onClick = ::reloadPage, minWidth = 44.dp, minHeight = 44.dp) {
+                            Icon(NexioIcons.Refresh, "重新加载网页", Modifier.size(22.dp), tint = ds.text)
                         }
-                        IconButton(onClick = ::finishBrowsing, modifier = Modifier.size(48.dp)) {
-                            Icon(MiuixIcons.Close, "关闭网页", Modifier.size(24.dp), tint = ds.text)
+                        FlatIconButton(onClick = ::finishBrowsing, minWidth = 44.dp, minHeight = 44.dp) {
+                            Icon(NexioIcons.Close, "关闭网页", Modifier.size(22.dp), tint = ds.text)
                         }
                     }
                     if (pageProgress < 100) {
-                        LinearProgressIndicator(progress = { pageProgress / 100f }, color = ds.accent,
-                            trackColor = ds.breakBar, modifier = Modifier.fillMaxWidth())
+                        NexioLinearProgressIndicator(progress = pageProgress / 100f, modifier = Modifier.fillMaxWidth())
                     }
                     if (pageMessage.isNotBlank() || pageError != null) {
                         Column(Modifier.fillMaxWidth().heightIn(max = 144.dp).verticalScroll(rememberScrollState())

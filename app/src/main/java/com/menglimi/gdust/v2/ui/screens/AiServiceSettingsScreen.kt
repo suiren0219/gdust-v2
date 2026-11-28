@@ -59,10 +59,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import androidx.compose.material3.Icon
 import com.menglimi.gdust.v2.ui.AiSparkleIcon
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.LocalDs
-import top.yukonga.miuix.kmp.basic.Icon
 
 @Composable
 fun AiServiceSettingsScreen(

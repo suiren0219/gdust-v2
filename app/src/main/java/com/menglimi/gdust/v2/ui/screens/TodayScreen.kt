@@ -2,25 +2,19 @@
 package com.menglimi.gdust.v2.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -34,9 +28,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -47,23 +41,27 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.haooz.nexioui.cardexpand.CardExpand
+import com.haooz.nexioui.icon.NexioIcons
+import com.haooz.nexioui.icon.extended.All
+import com.haooz.nexioui.icon.extended.Info
+import com.haooz.nexioui.overscroll.overScrollVertical
+import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
+import com.haooz.nexioui.text.NexioText as Text
 import com.menglimi.gdust.v2.data.CalendarInfo
 import com.menglimi.gdust.v2.data.CourseBlock
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.NexioPageScaffold
+import com.menglimi.gdust.v2.ui.NexioTopBarGlassIconButton
 import com.menglimi.gdust.v2.ui.schedule.ScheduleTimes
-import com.haooz.nexioui.button.Button
-import com.haooz.nexioui.button.ButtonDefaults
-import com.haooz.nexioui.cardexpand.CardExpand
-import com.haooz.nexioui.text.NexioText as Text
+import com.menglimi.gdust.v2.ui.hasActiveWallpaper
+import com.menglimi.gdust.v2.ui.wallpaperTextSurface
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Info
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -88,7 +86,7 @@ fun TodayScreen(
 ) {
     val now by rememberTodayMinuteClock()
     var shortcutTarget by remember { mutableStateOf<CampusService?>(null) }
-    androidx.compose.runtime.LaunchedEffect(shortcutTarget) {
+    LaunchedEffect(shortcutTarget) {
         shortcutTarget?.let(onService)
         shortcutTarget = null
     }
@@ -129,7 +127,6 @@ fun TodayScreen(
     val overdueTodos = pendingTodos.count { it.dueAt > 0 && it.dueAt < nowMs }
     val nextDue = pendingTodos.filter { it.dueAt >= nowMs }.minByOrNull { it.dueAt }
     val hasPower = store.hasPowerBinding
-    val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val ds = LocalDs.current
     val weekText = when {
         currentWeek == null -> if (imported) "按课程日期展示" else "导入课表，安排今天"
@@ -137,166 +134,206 @@ fun TodayScreen(
         calendar != null && calendar.allWeek > 0 && currentWeek > calendar.allWeek -> "本学期已结束"
         else -> "第 $currentWeek 周"
     }
+    val dateSubtitle = "${today.year}年${today.monthValue}月${today.dayOfMonth}日 · ${ScheduleTimes.dayNames[today.dayOfWeek.value - 1]} · $weekText"
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().background(ds.bg).statusBarsPadding(),
-        contentPadding = PaddingValues(
-            start = nexioPagePadding(),
-            end = nexioPagePadding(),
-            top = 16.dp,
-            bottom = 104.dp + bottomInset,
-        ),
-        verticalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap),
-    ) {
-        item(key = "today-header") {
-            Column(Modifier.fillMaxWidth()) {
-                PageTitle(
-                    "今日",
-                    "${today.year}年${today.monthValue}月${today.dayOfMonth}日 · ${ScheduleTimes.dayNames[today.dayOfWeek.value - 1]} · $weekText",
+    NexioPageScaffold(
+        title = "今日",
+        hasBottomBar = true,
+        endAction = { backdrop, bAlpha, sAlpha ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box {
+                    NexioTopBarGlassIconButton(
+                        icon = NexioIcons.Info,
+                        contentDescription = if (unreadCount > 0) "学校公告，$unreadCount 条未读" else "学校公告",
+                        onClick = onOpenNotices,
+                        backdrop = backdrop,
+                        backdropAlpha = bAlpha,
+                        shadowAlpha = sAlpha,
+                    )
+                    if (unreadCount > 0) {
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 6.dp, end = 6.dp)
+                                .size(8.dp)
+                                .background(ds.danger, CircleShape),
+                        )
+                    }
+                }
+                NexioTopBarGlassIconButton(
+                    icon = NexioIcons.All,
+                    contentDescription = "全部校园服务",
+                    onClick = onOpenServices,
+                    backdrop = backdrop,
+                    backdropAlpha = bAlpha,
+                    shadowAlpha = sAlpha,
                 )
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    TodayNoticeButton(unreadCount, onOpenNotices)
-                    Button(
-                        onClick = onOpenServices,
-                        modifier = Modifier.weight(1f),
-                        cornerRadius = 100.dp,
-                        minHeight = 44.dp,
-                        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        colors = ButtonDefaults.buttonColors(),
+            }
+        },
+    ) { scaffoldPadding, _, _ ->
+        val pagePad = nexioPagePadding()
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .overScrollVertical()
+                .scrollEndHaptic(),
+            contentPadding = PaddingValues(
+                start = pagePad,
+                end = pagePad,
+                top = scaffoldPadding.calculateTopPadding(),
+                bottom = scaffoldPadding.calculateBottomPadding(),
+            ),
+            verticalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap),
+        ) {
+            item(key = "today-date-subtitle") {
+                Text(
+                    text = dateSubtitle,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    color = if (hasActiveWallpaper()) ds.text else ds.sub,
+                    modifier = Modifier.wallpaperTextSurface().padding(horizontal = 4.dp),
+                )
+            }
+            if (serviceSummary.isNotBlank() && onServices != null) {
+                item(key = "service-connections") {
+                    AppCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        insideMargin = PaddingValues(AppUiTokens.CardPadding),
+                        onClick = onServices,
                     ) {
-                        Text("全部校园服务", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = ds.text)
+                        Text("服务连接", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+                        Text(
+                            serviceSummary,
+                            fontSize = 13.sp,
+                            lineHeight = 20.sp,
+                            color = ds.sub,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                        Text(
+                            "查看状态或单独补连",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = ds.accent,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
                     }
                 }
             }
-        }
-        if (serviceSummary.isNotBlank() && onServices != null) {
-            item(key = "service-connections") {
-                AppCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    insideMargin = PaddingValues(AppUiTokens.CardPadding),
-                    onClick = onServices,
+            item(key = "today-shortcuts-title") {
+                SectionHeader("校园概览")
+            }
+            item(key = "today-shortcuts") {
+                Row(
+                    Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+                    horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap),
                 ) {
-                    Text("服务连接", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
-                    Text(serviceSummary, fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub,
-                        modifier = Modifier.padding(top = 6.dp))
-                    Text("查看状态或单独补连", fontSize = 13.sp, color = ds.accent,
-                        modifier = Modifier.padding(top = 8.dp))
+                    CampusMetricCard(
+                        label = "待完成事项",
+                        value = pendingTodos.size.toString(),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        description = when {
+                            overdueTodos > 0 -> "$overdueTodos 项已到期"
+                            nextDue != null -> "最近到期 ${dashboardTime(nextDue.dueAt)}"
+                            else -> "作业、考试与日常事项"
+                        },
+                        warning = overdueTodos > 0,
+                        onClick = { shortcutTarget = CampusService.TODO },
+                    )
+                    CampusMetricCard(
+                        label = "宿舍电量",
+                        value = if (hasPower) "已绑定" else "未绑定",
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        description = if (hasPower) store.powerRoomName.ifBlank { "查看电量与走势" } else "绑定宿舍后查看电量",
+                        warning = false,
+                        onClick = { shortcutTarget = CampusService.POWER },
+                    )
                 }
             }
-        }
-        item(key = "today-shortcuts-title") {
-            SectionHeader("校园概览")
-        }
-        item(key = "today-shortcuts") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppUiTokens.CardGap)) {
-                CampusMetricCard("待完成事项", pendingTodos.size.toString(), Modifier.weight(1f),
-                    description = when {
-                        overdueTodos > 0 -> "$overdueTodos 项已到期"
-                        nextDue != null -> "最近到期 ${dashboardTime(nextDue.dueAt)}"
-                        else -> "作业、考试与日常事项"
-                    }, warning = overdueTodos > 0, onClick = { shortcutTarget = CampusService.TODO })
-                CampusMetricCard("宿舍电量", if (hasPower) "已绑定" else "未绑定", Modifier.weight(1f),
-                    description = if (hasPower) store.powerRoomName.ifBlank { "查看电量与走势" } else "绑定宿舍后查看电量",
-                    warning = false, onClick = { shortcutTarget = CampusService.POWER })
-            }
-        }
-        when {
-            !imported -> item(key = "schedule-not-imported") {
-                TodayEmptyCard(
-                    title = "还没有导入课表",
-                    message = "导入本学期课表后，今日课程和下一课会显示在这里。",
-                    action = "导入课表",
-                    onAction = onImport,
-                )
-            }
-            todayCourses.isEmpty() -> item(key = "today-empty") {
-                TodayEmptyCard(
-                    title = when {
-                        missingDates -> "课表日期待确认"
-                        coverageMissing -> "今日课表尚未同步"
-                        else -> "今天没有课程"
-                    },
-                    message = when {
-                        missingDates -> "部分课程缺少日期，请检查课表中的学期设置。"
-                        coverageMissing && scheduleSource == "portal_week" -> "门户单周缓存未覆盖今天，请导入整学期课表后确认。"
-                        coverageMissing -> "现有缓存未覆盖今天，暂时无法确认今日课程。"
-                        else -> "已导入的课表中没有今日安排。"
-                    },
-                    action = if (coverageMissing && !missingDates) "导入课表" else "查看课表",
-                    onAction = if (coverageMissing && !missingDates) onImport else onOpenSchedule,
-                )
-            }
-            else -> item(key = "today-assistant") {
-                TodayAssistantPanel(todayCourses, now.toLocalTime(), missingDates)
-            }
-        }
-        if (todayCourses.isNotEmpty()) {
-            item(key = "today-overview") {
-                val pending = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.NotStarted }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("今日安排 · ${todayCourses.size} 门", fontSize = 14.sp, fontWeight = FontWeight.Medium,
-                        color = ds.sub, modifier = Modifier.weight(1f).semantics { heading() })
-                    Text("待上 $pending 门", fontSize = 13.sp, color = ds.sub)
+            when {
+                !imported -> item(key = "schedule-not-imported") {
+                    TodayEmptyCard(
+                        title = "还没有导入课表",
+                        message = "导入本学期课表后，今日课程和下一课会显示在这里。",
+                        action = "导入课表",
+                        onAction = onImport,
+                    )
+                }
+                todayCourses.isEmpty() -> item(key = "today-empty") {
+                    TodayEmptyCard(
+                        title = when {
+                            missingDates -> "课表日期待确认"
+                            coverageMissing -> "今日课表尚未同步"
+                            else -> "今天没有课程"
+                        },
+                        message = when {
+                            missingDates -> "部分课程缺少日期，请检查课表中的学期设置。"
+                            coverageMissing && scheduleSource == "portal_week" -> "门户单周缓存未覆盖今天，请导入整学期课表后确认。"
+                            coverageMissing -> "现有缓存未覆盖今天，暂时无法确认今日课程。"
+                            else -> "已导入的课表中没有今日安排。"
+                        },
+                        action = if (coverageMissing && !missingDates) "导入课表" else "查看课表",
+                        onAction = if (coverageMissing && !missingDates) onImport else onOpenSchedule,
+                    )
+                }
+                else -> item(key = "today-assistant") {
+                    TodayAssistantPanel(todayCourses, now.toLocalTime(), missingDates)
                 }
             }
-        }
-        if (todayCourses.isNotEmpty()) {
-            listOf("上午" to 1..4, "下午" to 5..8, "晚上" to 9..Int.MAX_VALUE).forEach { (label, sections) ->
-                val courses = todayCourses.filter { it.block.startSection in sections }
-                if (courses.isNotEmpty()) {
-                    item(key = "today-period-$label") { SectionHeader(label) }
-                    courses.forEachIndexed { index, course ->
-                        item(key = "today-$label-$index") {
-                            TodayTimelineCard(course, now.toLocalTime(), onOpenSchedule)
+            if (todayCourses.isNotEmpty()) {
+                item(key = "today-overview") {
+                    val pending = todayCourses.count { it.statusAt(now.toLocalTime()) == TodayCourseStatus.NotStarted }
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "今日安排 · ${todayCourses.size} 门",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = ds.sub,
+                            modifier = Modifier.weight(1f).semantics { heading() },
+                        )
+                        Text("待上 $pending 门", fontSize = 13.sp, color = ds.sub)
+                    }
+                }
+                listOf("上午" to 1..4, "下午" to 5..8, "晚上" to 9..Int.MAX_VALUE).forEach { (label, sections) ->
+                    val courses = todayCourses.filter { it.block.startSection in sections }
+                    if (courses.isNotEmpty()) {
+                        item(key = "today-period-$label") { SectionHeader(label) }
+                        courses.forEachIndexed { index, course ->
+                            item(key = "today-$label-$index") {
+                                TodayTimelineCard(course, now.toLocalTime(), onOpenSchedule)
+                            }
                         }
                     }
                 }
-            }
-            val unspecified = todayCourses.filter { it.block.startSection < 1 }
-            if (unspecified.isNotEmpty()) {
-                item(key = "today-period-unknown") { SectionHeader("节次待确认") }
-                unspecified.forEachIndexed { index, course ->
-                    item(key = "today-unknown-$index") { TodayTimelineCard(course, now.toLocalTime(), onOpenSchedule) }
+                val unspecified = todayCourses.filter { it.block.startSection < 1 }
+                if (unspecified.isNotEmpty()) {
+                    item(key = "today-period-unknown") { SectionHeader("节次待确认") }
+                    unspecified.forEachIndexed { index, course ->
+                        item(key = "today-unknown-$index") { TodayTimelineCard(course, now.toLocalTime(), onOpenSchedule) }
+                    }
+                }
+                item(key = "today-schedule-action") {
+                    AppCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        insideMargin = PaddingValues(AppUiTokens.CardPadding),
+                        onClick = onOpenSchedule,
+                    ) {
+                        Text("查看完整课表", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
+                        Text(
+                            "查看本周及其他日期的课程安排",
+                            fontSize = 13.sp,
+                            lineHeight = 20.sp,
+                            color = ds.sub,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
                 }
             }
-            item(key = "today-schedule-action") {
-                AppCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    insideMargin = PaddingValues(AppUiTokens.CardPadding),
-                    onClick = onOpenSchedule,
-                ) {
-                    Text("查看完整课表", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
-                    Text("查看本周及其他日期的课程安排", fontSize = 13.sp, lineHeight = 20.sp,
-                        color = ds.sub, modifier = Modifier.padding(top = 6.dp))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TodayNoticeButton(unreadCount: Int, onClick: () -> Unit) {
-    val ds = LocalDs.current
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    Box {
-        Box(
-            modifier = Modifier.size(48.dp).clip(CircleShape)
-                .background(if (pressed) ds.text.copy(alpha = 0.06f).compositeOver(ds.bg) else ds.bg)
-                .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
-                .semantics {
-                    contentDescription = if (unreadCount > 0) "学校公告，$unreadCount 条未读" else "学校公告"
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(MiuixIcons.Info, contentDescription = null, tint = ds.text, modifier = Modifier.size(24.dp))
-        }
-        if (unreadCount > 0) {
-            Box(Modifier.align(Alignment.TopEnd).padding(5.dp).size(7.dp).background(ds.danger, CircleShape))
         }
     }
 }
@@ -313,10 +350,22 @@ private fun CampusMetricCard(
     val ds = LocalDs.current
     AppCard(modifier = modifier, insideMargin = PaddingValues(AppUiTokens.CardPadding), onClick = onClick) {
         Text(label, fontSize = 13.sp, color = ds.sub)
-        Text(value, fontSize = if (value.length > 4) 22.sp else 30.sp, fontWeight = FontWeight.Bold,
-            color = if (warning) ds.danger else ds.text, maxLines = 1)
-        Text(description, fontSize = 12.sp, lineHeight = 17.sp, color = ds.sub,
-            modifier = Modifier.padding(top = 6.dp), maxLines = 2)
+        Text(
+            value,
+            fontSize = if (value.length > 4) 22.sp else 30.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (warning) ds.danger else ds.text,
+            maxLines = 1,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Text(
+            description,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+            color = ds.sub,
+            modifier = Modifier.padding(top = 6.dp),
+            maxLines = 2,
+        )
     }
 }
 
@@ -360,10 +409,21 @@ private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, miss
                         color = ds.sub,
                         modifier = Modifier.padding(top = 4.dp),
                     )
-                    Text(activeCourse.block.name, fontSize = 17.sp, lineHeight = 24.sp,
-                        fontWeight = FontWeight.SemiBold, color = ds.text, modifier = Modifier.padding(top = 12.dp))
-                    Text(activeCourse.block.metadata(), fontSize = 14.sp, lineHeight = 21.sp,
-                        color = ds.sub, modifier = Modifier.padding(top = 4.dp))
+                    Text(
+                        activeCourse.block.name,
+                        fontSize = 17.sp,
+                        lineHeight = 24.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = ds.text,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                    Text(
+                        activeCourse.block.metadata(),
+                        fontSize = 14.sp,
+                        lineHeight = 21.sp,
+                        color = ds.sub,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
                 }
             }
         }
@@ -377,8 +437,11 @@ private fun TodayAssistantPanel(courses: List<TodayCourse>, now: LocalTime, miss
                 Column {
                     Spacer(Modifier.height(16.dp))
                     Box(
-                        Modifier.fillMaxWidth().height(5.dp).clip(CircleShape)
-                            .background(ds.accent.copy(alpha = 0.12f).compositeOver(statusColor))
+                        Modifier
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .clip(CircleShape)
+                            .background(ds.accent.copy(alpha = 0.14f).compositeOver(statusColor))
                             .semantics {
                                 contentDescription = "本节课程进度"
                                 progressBarRangeInfo = ProgressBarRangeInfo(progressValue, 0f..1f)
@@ -423,20 +486,52 @@ private fun TodayTimelineCard(course: TodayCourse, now: LocalTime, onOpenSchedul
         onClick = onOpenSchedule,
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(course.block.sectionLabel(), fontSize = 13.sp, lineHeight = 20.sp,
-                color = ds.sub, modifier = Modifier.weight(1f))
-            Text(status.label, fontSize = 13.sp, lineHeight = 20.sp,
-                color = if (status == TodayCourseStatus.Ongoing) ds.accent else ds.sub)
+            Text(
+                course.block.sectionLabel(),
+                fontSize = 13.sp,
+                lineHeight = 20.sp,
+                color = ds.sub,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                status.label,
+                fontSize = 13.sp,
+                lineHeight = 20.sp,
+                fontWeight = if (status == TodayCourseStatus.Ongoing) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (status == TodayCourseStatus.Ongoing) ds.accent else ds.sub,
+            )
         }
-        Text(course.block.name, fontSize = 17.sp, lineHeight = 24.sp,
-            fontWeight = FontWeight.SemiBold, color = ds.text, modifier = Modifier.padding(top = 10.dp))
-        Text(course.timeRange, fontSize = 14.sp, lineHeight = 21.sp,
-            fontWeight = FontWeight.Medium, color = ds.text, modifier = Modifier.padding(top = 12.dp))
-        Text(course.block.room.ifBlank { "教室待定" }, fontSize = 14.sp, lineHeight = 21.sp,
-            color = ds.text, modifier = Modifier.padding(top = 4.dp))
+        Text(
+            course.block.name,
+            fontSize = 17.sp,
+            lineHeight = 24.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = ds.text,
+            modifier = Modifier.padding(top = 10.dp),
+        )
+        Text(
+            course.timeRange,
+            fontSize = 14.sp,
+            lineHeight = 21.sp,
+            fontWeight = FontWeight.Medium,
+            color = ds.text,
+            modifier = Modifier.padding(top = 10.dp),
+        )
+        Text(
+            course.block.room.ifBlank { "教室待定" },
+            fontSize = 14.sp,
+            lineHeight = 21.sp,
+            color = ds.text,
+            modifier = Modifier.padding(top = 4.dp),
+        )
         CardExpand(visible = course.block.teacher.isNotBlank()) {
-            Text(course.block.teacher, fontSize = 13.sp, lineHeight = 20.sp,
-                color = ds.sub, modifier = Modifier.padding(top = 4.dp))
+            Text(
+                course.block.teacher,
+                fontSize = 13.sp,
+                lineHeight = 20.sp,
+                color = ds.sub,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
     }
 }
@@ -451,8 +546,13 @@ private fun TodayEmptyCard(title: String, message: String, action: String, onAct
     ) {
         Text(title, fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
         Text(message, fontSize = 14.sp, lineHeight = 21.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp))
-        Text(action, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = ds.accent,
-            modifier = Modifier.padding(top = 16.dp))
+        Text(
+            action,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = ds.accent,
+            modifier = Modifier.padding(top = 14.dp),
+        )
     }
 }
 

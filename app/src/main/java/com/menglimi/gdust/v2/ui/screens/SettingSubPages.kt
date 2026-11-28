@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import com.haooz.nexioui.overscroll.overScrollVertical
+import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
 import com.haooz.nexioui.text.NexioText as Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,7 +35,7 @@ import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.pageBackground
+import com.menglimi.gdust.v2.ui.NexioPageScaffold
 
 /** 作者署名与主页（改这里一处即可）。 */
 internal const val APP_AUTHOR = "穗稔"
@@ -73,26 +75,38 @@ internal fun ProjectStarEntry() {
     }
 }
 
-/** 设置二级页通用骨架：同款左缘右滑返回手势。 */
+/** 设置二级页通用骨架：NexioUI 可折叠渐进模糊顶栏 + 玻璃返回按钮 + 左缘右滑返回手势 + 弹簧越界回弹。 */
 @Composable
 internal fun SettingSubPage(title: String, subtitle: String, onBack: () -> Unit, content: @Composable () -> Unit) {
     androidx.activity.compose.BackHandler { onBack() }
+    val ds = LocalDs.current
 
-    Box(Modifier.fillMaxSize().settingsEdgeBack(onBack)) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(pageBackground())
-            .statusBarsPadding()
-            .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = nexioPagePadding()),
-    ) {
-        Spacer(Modifier.height(24.dp))
-        PageTitle(title = title, subtitle = subtitle, onBack = onBack)
-        content()
-        Spacer(Modifier.navigationBarsPadding().height(110.dp))
-    }
+    NexioPageScaffold(
+        title = title,
+        onBack = onBack,
+        modifier = Modifier.settingsEdgeBack(onBack),
+    ) { scaffoldPadding, _, _ ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .imePadding()
+                .overScrollVertical()
+                .scrollEndHaptic()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = nexioPagePadding())
+                .padding(top = scaffoldPadding.calculateTopPadding(), bottom = scaffoldPadding.calculateBottomPadding()),
+        ) {
+            if (subtitle.isNotBlank()) {
+                Text(
+                    text = subtitle,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    color = ds.sub,
+                    modifier = Modifier.padding(horizontal = 4.dp).padding(bottom = 12.dp),
+                )
+            }
+            content()
+        }
     }
 }
 
@@ -199,6 +213,7 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
         SectionHeader("本版更新")
         SettingGroup {
             Column(Modifier.padding(AppUiTokens.CardPadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                UpdateItem("纯 NexioUI + SoftGlass 重构", "全站升级为 NexioUI 折叠渐进模糊顶栏、液态玻璃底栏、弹窗与多档材质切换")
                 UpdateItem("真实学期课表", "教务学期导入按每门课的实际周次保存，分段开课、单双周、调课独立保留")
                 UpdateItem("电量图表", "走势图加坐标轴刻度与时间轴、预警阈值虚线，点按查看任意采样点")
                 UpdateItem("登录一次保持", "门户与教务会话本机加密保存；断网不掉登录，只有学校端失效才要求重登")
@@ -226,7 +241,7 @@ fun AboutScreen(repo: Repository, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            "广科课程表 · 由 $APP_AUTHOR 制作 · AGPL-3.0 开源\n个人项目，与广东科技学院官方无关 · 界面组件来自 NexioUI / Miuix",
+            "广科课程表 · 由 $APP_AUTHOR 制作 · AGPL-3.0 开源\n个人项目，与广东科技学院官方无关 · 界面组件来自 NexioUI & SoftGlass",
             fontSize = 13.sp, lineHeight = 19.sp, color = ds.sub,
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp).wrapContentSize(Alignment.Center),
         )

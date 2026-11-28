@@ -1,0 +1,299 @@
+-- 课程表 schema（最新版本号见 databases/ 目录里的最高编号；当前 = 2）
+--
+-- 按「改动粒度」拆表：会单点改的（课程、周次、周备注）行级；整份编辑的小聚合
+-- （作息配置）一行一份 JSON；需要被外键引用的（课表、文件夹）列出来。
+--
+-- 加表 / 加列前先跑 `:core:generateCommonMainNexioDatabaseSchema` 落一份当前版本基线，
+-- 再写 `N.sqm`。verifyMigrations 会让「缺迁移脚本」直接编译失败。
+
+CREATE TABLE meta (
+    k TEXT NOT NULL PRIMARY KEY,
+    v TEXT NOT NULL
+);
+
+-- ── 键值层 ────────────────────────────────────────────────────────────────
+-- 与实体表同库，同一事务可同时改设置与课程。type 取 s/i/l/f/b/ss，与 FileKeyValueStore 一致。
+CREATE TABLE pref (
+    ns   TEXT NOT NULL,
+    k    TEXT NOT NULL,
+    type TEXT NOT NULL,
+    s    TEXT,
+    i    INTEGER,
+    f    REAL,
+    b    INTEGER,
+    PRIMARY KEY (ns, k)
+);
+
+-- ── 文件夹 ────────────────────────────────────────────────────────────────
+-- payload 是「这个文件夹里的课表名列表」的 JSON 数组，保留组内顺序。
+-- 不拆成 folder_schedule 关联表：组内顺序是用户手动排的，拆表就得再加一列 sort_order，
+-- 而文件夹本身是「整份编辑整份保存」的小聚合根，一行一份 JSON 更省。
+--
+-- ⚠ payload 必须在 sort_order **之后**：它是 1.sqm 里 ALTER 追加的列，
+--   而迁移校验是逐列比对的，顺序不同直接编译失败。
+CREATE TABLE folder (
+    id         TEXT NOT NULL PRIMARY KEY,
+    name       TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    payload    TEXT NOT NULL DEFAULT '[]'
+);
+
+-- ── 作息配置 ──────────────────────────────────────────────────────────────
+-- payload 是 TimeConfig 去掉 id/name 的整份 JSON（骨架 + sectionTimes + specialBlocks + routines）。
+-- 整份编辑整份保存的聚合根，不拆列。「课表绑哪一个」由 schedule.time_config_id 外键保证。
+CREATE TABLE time_config (
+    id      INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    name    TEXT NOT NULL,
+    payload TEXT NOT NULL
+);
+
+-- ── 课表 ──────────────────────────────────────────────────────────────────
+-- time_config_id NOT NULL + 外键：绑定跟着行走，改名搬行、删表级联、孤儿直接求差集。
+-- 课表名是主键（id == name），改名等于换 id。
+CREATE TABLE schedule (
+    id             TEXT NOT NULL PRIMARY KEY,
+    name           TEXT NOT NULL UNIQUE,
+    folder_id      TEXT REFERENCES folder(id) ON DELETE SET NULL,
+    time_config_id INTEGER NOT NULL REFERENCES time_config(id) ON DELETE RESTRICT,
+    sort_order     INTEGER NOT NULL DEFAULT 0,
+    current_week   INTEGER NOT NULL DEFAULT 1,
+    total_weeks    INTEGER NOT NULL DEFAULT 20,
+    class_start    TEXT,
+    -- 智能周末 / 显示非本周课程：两个开关跟着课表走，以前是 prefs 的
+    -- schedule_{名}_smart_weekend / _show_non_current_week
+    smart_weekend          INTEGER NOT NULL DEFAULT 0,
+    show_non_current_week  INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX schedule_by_folder ON schedule(folder_id, sort_order);
+
+-- ── 教学周重组规则 ────────────────────────────────────────────────────────
+-- payload 是整份规则列表的 JSON（TeachingWeekReorganization.encode 的产物）。
+-- 整份编辑整份保存，和 time_config 同款：规则没有稳定 id，拆行反而要造一个。
+CREATE TABLE teaching_week_reorganizations (
+    schedule_id TEXT NOT NULL PRIMARY KEY REFERENCES schedule(id) ON DELETE CASCADE,
+    payload     TEXT NOT NULL
+);
+
+-- ── 课程 ──────────────────────────────────────────────────────────────────
+CREATE TABLE course (
+    id               TEXT NOT NULL PRIMARY KEY,
+    schedule_id      TEXT NOT NULL REFERENCES schedule(id) ON DELETE CASCADE,
+    name             TEXT NOT NULL,
+    classroom        TEXT NOT NULL DEFAULT '',
+    teacher          TEXT NOT NULL DEFAULT '',
+    day_of_week      INTEGER NOT NULL,
+    start_section    INTEGER NOT NULL,
+    end_section      INTEGER NOT NULL,
+    start_week       INTEGER NOT NULL,
+    end_week         INTEGER NOT NULL,
+    week_type        INTEGER NOT NULL DEFAULT 0,
+    color_res        INTEGER NOT NULL DEFAULT 0,
+    note             TEXT NOT NULL DEFAULT '',
+    last_modified    INTEGER NOT NULL DEFAULT 0,
+    is_custom_time   INTEGER NOT NULL DEFAULT 0,
+    custom_start_time TEXT,
+    custom_end_time   TEXT
+);
+
+-- 首屏按「课表 + 星期 + 节次」取，索引顺序跟着查询走
+CREATE INDEX course_by_schedule ON course(schedule_id, day_of_week, start_section);
+
+-- selectedWeeks：一条课在多周出现就多行。改一周只写一行，不用重写整条课。
+CREATE TABLE course_week (
+    course_id TEXT NOT NULL REFERENCES course(id) ON DELETE CASCADE,
+    week      INTEGER NOT NULL,
+    PRIMARY KEY (course_id, week)
+);
+
+-- weekNotes：按周覆盖 note。同样一周一行。
+CREATE TABLE course_week_note (
+    course_id TEXT NOT NULL REFERENCES course(id) ON DELETE CASCADE,
+    week      INTEGER NOT NULL,
+    note      TEXT NOT NULL,
+    PRIMARY KEY (course_id, week)
+);
+
+-- ══ 查询 ═══════════════════════════════════════════════════════════════════
+
+selectCoursesOf:
+SELECT * FROM course WHERE schedule_id = ? ORDER BY day_of_week, start_section;
+
+-- 周次 / 周备注各一条查询取整张课表，不按课循环查（避免 N+1）。
+-- ORDER BY 不能省：周次顺序会进 Course.selectedWeeks，依赖物理顺序在 vacuum 后会变。
+selectWeeksOfSchedule:
+SELECT cw.course_id, cw.week FROM course_week cw
+JOIN course c ON c.id = cw.course_id
+WHERE c.schedule_id = ?
+ORDER BY cw.course_id, cw.week;
+
+selectWeekNotesOfSchedule:
+SELECT n.course_id, n.week, n.note FROM course_week_note n
+JOIN course c ON c.id = n.course_id
+WHERE c.schedule_id = ?;
+
+selectAllTimeConfigs:
+SELECT id, name, payload FROM time_config ORDER BY id;
+
+-- ── 写：全部是行级，且都在调用方的事务里 ──────────────────────────────────
+
+-- ⚠ 必须 OR IGNORE，不能 OR REPLACE：REPLACE 会先删冲突行，foreign_keys=ON 时
+-- 级联删掉该课表的全部课程 —— 存一次锚点就把课表清空。
+ensureScheduleRow:
+INSERT OR IGNORE INTO schedule(id, name, folder_id, time_config_id, sort_order, current_week, total_weeks, class_start)
+VALUES (?, ?, NULL, ?, ?, ?, ?, ?);
+
+deleteSchedule:
+DELETE FROM schedule WHERE id = ?;
+
+-- 改名：课表名即主键，改名等于换 id，行数据必须搬过去（JSON blob 已不再更新）。
+-- OR REPLACE：改成已存在的名字时覆盖它，REPLACE 会级联删掉目标课表原有的课程，
+-- 随后 moveCoursesToSchedule 把源课表的课程搬进来。
+copyScheduleRow:
+INSERT OR REPLACE INTO schedule(id, name, folder_id, time_config_id, sort_order, current_week, total_weeks, class_start, smart_weekend, show_non_current_week)
+SELECT ?, ?, folder_id, time_config_id, sort_order, current_week, total_weeks, class_start, smart_weekend, show_non_current_week
+FROM schedule WHERE id = ?;
+
+moveCoursesToSchedule:
+UPDATE course SET schedule_id = ? WHERE schedule_id = ?;
+
+-- ── 作息绑定：`schedule.time_config_id` 是唯一真相 ────────────────────────
+-- 绑定是行上的一列，不另存键：改名随行搬、删表随行删、孤儿配置对
+-- selectAllScheduleBindings 求差集即可。
+selectScheduleBinding:
+SELECT time_config_id FROM schedule WHERE id = ?;
+
+selectAllScheduleBindings:
+SELECT id, time_config_id FROM schedule;
+
+-- 课表行上的三个设置值（当前周 / 总周数 / 开课日）。行不存在返回 0 行。
+selectScheduleSettings:
+SELECT current_week, total_weeks, class_start FROM schedule WHERE id = ?;
+
+-- 单条更新三个字段：传 null 的保持库里的值（COALESCE），不做读-改-写
+updateScheduleSettings:
+UPDATE schedule SET
+    current_week = COALESCE(:currentWeek, current_week),
+    total_weeks  = COALESCE(:totalWeeks, total_weeks),
+    class_start  = COALESCE(:classStart, class_start)
+WHERE id = :id;
+
+updateScheduleBinding:
+UPDATE schedule SET time_config_id = ? WHERE id = ?;
+
+-- ── 课表显示开关 ──────────────────────────────────────────────────────────
+-- 跟着课表走（以前是 prefs 的 schedule_{名}_smart_weekend / _show_non_current_week）
+selectScheduleDisplaySettings:
+SELECT smart_weekend, show_non_current_week FROM schedule WHERE id = ?;
+
+updateSmartWeekend:
+UPDATE schedule SET smart_weekend = ? WHERE id = ?;
+
+updateShowNonCurrentWeek:
+UPDATE schedule SET show_non_current_week = ? WHERE id = ?;
+
+-- ── 教学周重组规则 ────────────────────────────────────────────────────────
+selectTeachingWeekReorganizations:
+SELECT payload FROM teaching_week_reorganizations WHERE schedule_id = ?;
+
+upsertTeachingWeekReorganizations:
+INSERT OR REPLACE INTO teaching_week_reorganizations(schedule_id, payload) VALUES (?, ?);
+
+deleteTeachingWeekReorganizations:
+DELETE FROM teaching_week_reorganizations WHERE schedule_id = ?;
+
+deleteAllTeachingWeekReorganizations:
+DELETE FROM teaching_week_reorganizations;
+
+-- ── 文件夹 ────────────────────────────────────────────────────────────────
+selectAllFolders:
+SELECT id, name, payload, sort_order FROM folder ORDER BY sort_order, id;
+
+-- 父表被 schedule.folder_id 引用（ON DELETE SET NULL），OR REPLACE 会先删行，
+-- 把已归到这个文件夹下的课表全部解除归类。所以先 UPDATE，不存在再 INSERT OR IGNORE。
+updateFolderRow:
+UPDATE folder SET name = :name, payload = :payload, sort_order = :sortOrder WHERE id = :id;
+
+insertFolderRow:
+INSERT OR IGNORE INTO folder(id, name, payload, sort_order) VALUES (:id, :name, :payload, :sortOrder);
+
+deleteFolder:
+DELETE FROM folder WHERE id = ?;
+
+deleteAllFolders:
+DELETE FROM folder;
+
+-- 整库恢复备份时用。清空后由下一次读取从恢复出的 JSON 重新导入。
+deleteAllCourses:
+DELETE FROM course;
+
+deleteAllSchedules:
+DELETE FROM schedule;
+
+-- 恢复备份时连作息一起清：以前靠「prefs → 表」重同步，那条兜底链已经删了，
+-- 旧作息留着就是恢复出另一套课表的残留。必须在 deleteAllSchedules 之后（外键 RESTRICT）。
+deleteAllTimeConfigs:
+DELETE FROM time_config;
+
+deleteCourseImportFlags:
+DELETE FROM meta WHERE k LIKE 'courses_imported:%';
+
+upsertCourse:
+INSERT OR REPLACE INTO course(id, schedule_id, name, classroom, teacher, day_of_week, start_section,
+    end_section, start_week, end_week, week_type, color_res, note, last_modified, is_custom_time,
+    custom_start_time, custom_end_time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteCourse:
+DELETE FROM course WHERE id = ?;
+
+deleteCoursesOfSchedule:
+DELETE FROM course WHERE schedule_id = ?;
+
+insertWeek:
+INSERT OR IGNORE INTO course_week(course_id, week) VALUES (?, ?);
+
+insertWeekNote:
+INSERT OR REPLACE INTO course_week_note(course_id, week, note) VALUES (?, ?, ?);
+
+insertTimeConfig:
+INSERT INTO time_config(name, payload) VALUES (?, ?);
+
+-- 只保证 id 存在，不覆盖已有 payload（作息读写仍以 prefs 为准）
+ensureTimeConfigRow:
+INSERT OR IGNORE INTO time_config(id, name, payload) VALUES (?, ?, ?);
+
+-- 写整行分两步：父表被 schedule 引用（ON DELETE RESTRICT），INSERT OR REPLACE 会先删行再插，
+-- 有绑定时直接失败。所以先 UPDATE，不存在再 INSERT OR IGNORE。
+updateTimeConfigRow:
+UPDATE time_config SET name = :name, payload = :payload WHERE id = :id;
+
+insertTimeConfigRow:
+INSERT OR IGNORE INTO time_config(id, name, payload) VALUES (:id, :name, :payload);
+
+deleteTimeConfig:
+DELETE FROM time_config WHERE id = ?;
+
+readMeta:
+SELECT v FROM meta WHERE k = ?;
+
+writeMeta:
+INSERT OR REPLACE INTO meta(k, v) VALUES (?, ?);
+
+-- 清导入标记：课表退回以 JSON 为准，下次读取重新导入
+deleteMeta:
+DELETE FROM meta WHERE k = ?;
+
+-- ── 键值层查询 ────────────────────────────────────────────────────────────
+-- 与实体表同库同事务：删课表 + 清课程 + 改当前课表指针可一次提交。
+selectPrefNamespace:
+SELECT k, type, s, i, f, b FROM pref WHERE ns = ?;
+
+upsertPref:
+INSERT OR REPLACE INTO pref(ns, k, type, s, i, f, b) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+deletePref:
+DELETE FROM pref WHERE ns = ? AND k = ?;
+
+clearPrefNamespace:
+DELETE FROM pref WHERE ns = ?;

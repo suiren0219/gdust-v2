@@ -15,6 +15,12 @@ internal object SettingsNavigation {
     )
     fun categoryFor(id: String): SettingsCategory = categories.single { id in it.entries }
 
+    fun showServiceStatus(category: String?, query: String): Boolean {
+        val search = query.trim()
+        return category == "账号与服务" || (search.isNotEmpty() &&
+            "服务连接 登录状态 门户 教务 学习通 验证".contains(search, ignoreCase = true))
+    }
+
     fun back(category: String?, query: String): SettingsBack = when {
         query.isNotEmpty() -> SettingsBack.CLEAR_SEARCH
         category != null -> SettingsBack.DIRECTORY

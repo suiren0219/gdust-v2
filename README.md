@@ -2,6 +2,8 @@
 
 面向广东科技学院学生的开源 Android 应用，提供课表、校园服务、宿舍电量和待办。项目由个人维护，与学校官方无关。学校信息以官网为准。[广东科技学院官网](https://www.gdust.edu.cn/)
 
+本仓库是 `gdust-v2` 的唯一主仓；主 Android 应用为 alpha.28。`nexio/` 保留 Nexio 最新跨端独立子工程，`legacy/kedian/` 保留旧合体 App/CLI 形态；两者尚未统一数据，也不代表所有功能已迁入主 App。
+
 ## 下载
 
 从 GitHub Releases 查看已发布的 APK。开发中的功能以各 PR 为准。[下载与版本说明](https://github.com/suiren0219/gdust-v2/releases)
@@ -37,13 +39,26 @@
 
 ## 本地开发
 
-准备 JDK 21、Gradle 9.7.1 和 Android SDK 37。最低运行版本为 Android 13（API 33）。仓库未附带 Gradle Wrapper，请使用本机 Gradle。
+准备 JDK 21、Gradle 9.7.1 和 Android SDK 37。最低运行版本为 Android 13（API 33）。根 Android 工程未附带 Gradle Wrapper，请使用本机 Gradle。
 
 ```bash
-gradle :app:testProductionDebugUnitTest :app:assembleProductionDebug
+gradle --max-workers=1 --no-parallel :app:testProductionDebugUnitTest :app:testPreviewDebugUnitTest :app:assembleProductionDebug :app:assemblePreviewDebug
 ```
 
 Debug APK 位于 `app/build/outputs/apk/production/debug/app-production-debug.apk`。构建环境、源码入口和验收方法见开发指南。[开发指南](docs/EXTENDING.md)
+
+## 工程入口
+
+| 路径 | 职责与入口 |
+| --- | --- |
+| `app/` | 主 Android 应用，使用根目录 `settings.gradle.kts` |
+| `chaoxing-core/`、`power-core/` | 学习通与宿舍电量共享核心库，由各宿主按需引用 |
+| `nexio-ui/` | 主 Android 应用使用的固定版本控件库，来源见 [NOTICE](NOTICE.md) |
+| `independent-apps/` | 独立学习助手与宿舍电量应用，见[工程说明](independent-apps/README.md) |
+| `nexio/` | 保留跨端实现的独立 Gradle 工程，见[集成说明](nexio/INTEGRATION_README.md) |
+| `legacy/kedian/` | 旧合体 App 和 CLI 示例，复用根目录核心库，见[工程说明](legacy/kedian/README.md) |
+
+主应用、独立应用、Nexio 和 legacy 各有构建入口；在根目录运行 Gradle 不会聚合构建全部子工程。共享核心库的构建应顺序执行。来源快照的 `refs/source/*` 和 `source/*` 引用只保存在本地，不使用镜像或全分支推送发布。
 
 ## 许可
 

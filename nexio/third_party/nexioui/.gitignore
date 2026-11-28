@@ -1,0 +1,15 @@
+.gradle/
+build/
+**/build/
+.kotlin/
+.idea/
+.fleet/
+*.iml
+*.hprof
+local.properties
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+xcuserdata/
+DerivedData/
