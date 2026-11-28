@@ -450,7 +450,6 @@ fun AppRoot(
     }
 
     CompositionLocalProvider(
-        LocalPageBackdrop provides rootBackdrop,
         LocalOverlayDialogBackdrop provides rootBackdrop,
     ) {
         NexioScaffold(

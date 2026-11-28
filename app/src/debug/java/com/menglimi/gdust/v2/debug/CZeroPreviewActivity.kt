@@ -59,7 +59,6 @@ import com.haooz.nexioui.overlaydialog.LocalOverlayDialogBackdrop
 import com.haooz.nexioui.scaffold.Scaffold as NexioScaffold
 import com.haooz.softglass.backdrop.backdrops.layerBackdrop
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.LocalPageBackdrop
 import com.menglimi.gdust.v2.ui.NexioAppTheme
 import com.menglimi.gdust.v2.ui.rememberAppBackdrop
 import com.menglimi.gdust.v2.ui.nexio.NexioBottomBar
@@ -223,7 +222,6 @@ private fun PreviewPages(repo: Repository, request: PreviewRequest) {
     BackHandler(enabled = screen !in mainPages, onBack = back)
     val previewBackdrop = rememberAppBackdrop(LocalDs.current.bg)
     CompositionLocalProvider(
-        LocalPageBackdrop provides previewBackdrop,
         LocalOverlayDialogBackdrop provides previewBackdrop,
     ) {
         NexioScaffold(

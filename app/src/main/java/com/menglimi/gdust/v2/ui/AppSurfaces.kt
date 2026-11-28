@@ -123,7 +123,7 @@ fun NexioTopBarGlassIconButton(
     icon: ImageVector,
     contentDescription: String?,
     onClick: () -> Unit,
-    backdrop: GlassBackdrop = currentPageBackdrop(),
+    backdrop: GlassBackdrop = rememberSurfaceBackdrop(LocalDs.current.bg),
     backdropAlpha: Float = 1f,
     shadowAlpha: Float = 1f,
     enabled: Boolean = true,
@@ -182,14 +182,16 @@ fun NexioPageScaffold(
                     .fillMaxSize()
                     .nestedScroll(scrollBehavior.nestedScrollConnection),
             ) {
-                // 采样层：包裹背景壁纸 + 可滚动正文，供顶栏渐进模糊与顶部玻璃按钮无递归采样
+                // 采样层：包裹背景壁纸 + 可滚动正文，供顶栏渐进模糊与顶部玻璃按钮无递归采样；
+                // content 位于采样层内部，只向其下发非递归纯色 CanvasBackdrop，杜绝绘制环路。
+                val contentSafeBackdrop = rememberSurfaceBackdrop(ds.bg)
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .layerBackdrop(pageBackdrop),
                 ) {
                     AppWallpaperLayer()
-                    content(contentPadding, scrollBehavior, pageBackdrop)
+                    content(contentPadding, scrollBehavior, contentSafeBackdrop)
                 }
 
                 // 顶栏渐进模糊 + 可折叠大标题

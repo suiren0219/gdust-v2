@@ -19,7 +19,10 @@ import com.haooz.softglass.backdrop.backdrops.LayerBackdrop
 import com.haooz.softglass.backdrop.backdrops.rememberCanvasBackdrop
 import com.haooz.softglass.backdrop.backdrops.rememberLayerBackdrop
 
-/** 当前页面/宿主共享的 SoftGlass 采样层；悬浮底栏、玻璃按钮、分段控件和弹窗统一从这里采样。 */
+/**
+ * 显式下发给同级悬浮覆盖层的 SoftGlass 采样层。
+ * 注意：绝不要把祖先容器的 [LayerBackdrop] 通过本 Local 下发给其子树内联组件，否则会形成 RenderNode 绘制环路导致 RenderThread 栈溢出闪退。
+ */
 val LocalPageBackdrop = staticCompositionLocalOf<GlassBackdrop?> { null }
 
 /** 创建以给定底色打底的 SoftGlass 采样层，避免边缘或透明区域采样出黑边。 */
@@ -35,17 +38,22 @@ fun rememberAppBackdrop(baseColor: Color = NexioTheme.colorScheme.surface): Laye
     )
 }
 
-/** 获取当前可用的 SoftGlass 采样层；若在独立 Activity/预览中尚未提供宿主层，则返回纯色 Canvas 兜底。 */
+/** 创建非递归的纯色 SoftGlass 采样层，供页面内联玻璃组件（如分段选择器、内联按钮）安全采样。 */
 @Composable
-fun currentPageBackdrop(): GlassBackdrop {
-    val hosted = LocalPageBackdrop.current ?: LocalOverlayDialogBackdrop.current
-    if (hosted != null) return hosted
-    val fallback = NexioTheme.colorScheme.surface
+fun rememberSurfaceBackdrop(color: Color = NexioTheme.colorScheme.surfaceContainerHigh): GlassBackdrop {
     return rememberCanvasBackdrop(
-        onDraw = remember(fallback) {
-            { drawRect(fallback) }
+        onDraw = remember(color) {
+            { drawRect(color) }
         },
     )
+}
+
+/** 获取当前可用的安全 SoftGlass 采样层；绝不回退到根级 [LocalOverlayDialogBackdrop]，避免子树采样祖先层导致 RenderThread 递归闪退。 */
+@Composable
+fun currentPageBackdrop(fallbackColor: Color = NexioTheme.colorScheme.surface): GlassBackdrop {
+    val hosted = LocalPageBackdrop.current
+    if (hosted != null) return hosted
+    return rememberSurfaceBackdrop(fallbackColor)
 }
 
 /** 纯 NexioUI 主题宿主：不再依赖 MiuixTheme 或旧 kyant backdrop，直接驱动 SoftGlass 材质档。 */

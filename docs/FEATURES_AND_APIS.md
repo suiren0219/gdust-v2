@@ -2,7 +2,7 @@
 
 候选构建的测试、签名与运行验证状态见第 6 节；没有据此代表 `main` 已合并或 GitHub Release 已创建。
 
-维护记录（2026-11-28）：本次整合中的改动位于分支 `feat/nexio-ui-v28-rewrite`（基线为 `release/all-changes-alpha27-integrated` 的 `831b60b50261dd3932f09f574fb903fe9291e081`），将主应用升级为 `2.0.0-alpha.28`（versionCode 28）并彻底迁至纯 `:nexio-ui` + SoftGlass 壳层与布局，同时移除 `app` 内 vendored `miuix` / `kyant.backdrop` 源码与旧 Maven 依赖；构建与单测验证状态见第 6 节。
+维护记录（2026-11-29）：本次整合中的改动位于分支 `feat/nexio-ui-v28-rewrite`（基线为 `release/all-changes-alpha27-integrated` 的 `831b60b50261dd3932f09f574fb903fe9291e081`），将主应用升级为 `2.0.0-alpha.28`（versionCode 28）并彻底迁至纯 `:nexio-ui` + SoftGlass 壳层与布局，同时移除 `app` 内 vendored `miuix` / `kyant.backdrop` 源码与旧 Maven 依赖，并修复内联 `SegmentedChoice` / 玻璃按钮误采样根 `LayerBackdrop` 导致的 `RenderThread` 递归闪退；构建、单测与模拟器验证状态见第 6 节。
 
 ## 1. 核查范围与状态口径
 
@@ -14,7 +14,7 @@
 | 版本候选 | 主应用 `2.0.0-alpha.28` / versionCode 28；学习助手暂维持 `0.1.13` / versionCode 14；宿舍电量暂维持 `0.1.10` / versionCode 11；均不代表 Release 已发布 |
 | 构建配置 | 最低 API 33、目标 API 35、SDK 37；JDK 21、Gradle 9.7.1 |
 | 模块边界 | 根工程含 `:app`、`:nexio-ui`、`:chaoxing-core`；`:app` 已彻底移除 vendored `top.yukonga.miuix` / `com.kyant.backdrop` 及旧 Miuix / capsule / shapes 依赖；独立学习与电量应用由 `independent-apps/` 分别构建 |
-| 验证方法 | 本轮已完成主应用双变体单元测试（`productionDebug` / `previewDebug`）及 `productionDebug` / `previewDebug` / `productionRelease` 构建；尚未执行真机/模拟器 UI 验收或发布签名安装覆盖验证 |
+| 验证方法 | 本轮已完成主应用双变体单元测试（`productionDebug` / `previewDebug`）及 `productionDebug` / `previewDebug` / `productionRelease` 构建，并在本地 `emulator-5554` 复现并验证 `SegmentedChoice` / `NexioTopBarGlassIconButton` 非递归采样修复（`notices`、`ai`、`term_import` 预览页无崩溃）；真实完美校园绑号电费页全流程及发布签名安装覆盖验证仍待执行 |
 
 状态口径：**已实现**表示有实现与可达调用；**部分实现**表示存在明确功能缺口；**待验证**表示仍需运行时/真实服务证据；**建议计划**不代表用户承诺的排期。源码实现、测试通过、设备验证和 APK 发布分别陈述。
 
@@ -189,7 +189,7 @@ AI 地址会清理末尾斜杠并规范化根路径；无路径时默认 `/v1`�
 
 ## 6. 验证范围
 
-- 本次整合中的改动（`feat/nexio-ui-v28-rewrite`，`2.0.0-alpha.28 / 28`）：`:app:testProductionDebugUnitTest`、`:app:testPreviewDebugUnitTest` 各 600 项通过（各 70 个 suite，失败、错误、跳过均为 0）；`:app:assembleProductionDebug`、`:app:assemblePreviewDebug`、`:app:assembleProductionRelease`（含 R8 混淆、资源压缩与 Lint Vital）均构建成功（`BUILD SUCCESSFUL in 6m 12s`）。`app-production-release.apk` 体积为 `6,512,261` bytes（较 alpha.27 的 `6,810,617` bytes 减少约 298 KB）。尚未在本轮执行模拟器/真机 UI 渲染验收、`apksigner`/`zipalign` 复核、覆盖安装验证或发布，也不改变独立应用既有测试边界。
+- 本次整合中的改动（`feat/nexio-ui-v28-rewrite`，`2.0.0-alpha.28 / 28`）：`:app:testProductionDebugUnitTest`、`:app:testPreviewDebugUnitTest` 各 600 项通过（各 70 个 suite，失败、错误、跳过均为 0）；`:app:assembleProductionDebug`、`:app:assemblePreviewDebug`、`:app:assembleProductionRelease`（含 R8 混淆、资源压缩与 Lint Vital）均构建成功，`app-production-release.apk` 体积为 `6,512,261` bytes。本地 `emulator-5554` 复现了修复前 `SegmentedChoice` 采样祖先 `LayerBackdrop` 导致的 `RenderThread SIGSEGV (SEGV_ACCERR)` 闪退，修复后验证 `previewDebug` 的 `notices`、`ai`、`term_import` 页面均正常渲染且无崩溃日志。尚未执行真实完美校园账号绑定后的电费联调、`apksigner`/`zipalign` 复核、覆盖安装验证或发布，也不改变独立应用既有测试边界。
 - 历史 alpha.27 候选记录：`:app:testProductionDebugUnitTest`、`:app:testPreviewDebugUnitTest` 各 600 项通过；`:app:assembleProductionRelease` 与 `:app:assemblePreviewDebug` 构建成功。
 - alpha.26 基线的 339 项独立工程测试与签名 APK 结果是历史记录。alpha.27 独立应用：学习助手 60 项、宿舍电量 80 项测试通过，两个 Debug APK 均构建；Release APK 与签名复核待完成。
 - alpha.27 候选 `:app:assembleProductionRelease` 已成功构建签名包：包 `cn.edu.gdust.suiren`、`2.0.0-alpha.27 / 27`、SDK 37/target 35；`apksigner verify` 的 v2 签名通过，证书 SHA-256 `317613d243be7e891195613c6858b1a98d8cece7a1b39ba63933822c36807d6d` 与本机既有 Release 密钥摘要一致。APK 大小 `6,810,617` bytes，SHA-256 `796a5385cf0f7c46b04fe65f922bfa8a3ac30d3bc81259641772afbe5d0540f6`；ZIP `zipalign -c -P 16 -v 4` 检查通过。APK 尚未发布，未进行签名覆盖安装。
@@ -210,3 +210,4 @@ AI 地址会清理末尾斜杠并规范化根路径；无路径时默认 `/v1`�
 | 2026-11-26 | `3a7f60e`；本次清单及维护规则提交 | 将原开发分支盘点对齐主干；补记 NexioUI、独立服务状态和生日资料读取；更正换绑历史清理与学习通列表路径；保留提醒缺口及验证边界；新增每次更新同步维护规则、README 入口和 PR 检查项，未改业务行为 |
 | 2026-11-28 | alpha.26 基线 `81523b6` 与 alpha.27 本次整合 | 将文档基线与发布候选校正为 `81523b6` / `alpha.27`，明确独立应用历史测试记录属于 alpha.26；新增 F13 壁纸功能与本机保存/Auto Backup 排除边界。修复壁纸主线程复制、图片校验后 AtomicFile 替换，以及并发选择/清除的互斥与请求代数、加载取消传播。补入遗漏的公告总结目录路由。最终主应用两 Debug 变体各 600 项单测通过，production Release 与 preview Debug 构建成功；主 Release 版本 `2.0.0-alpha.27 / 27`，v2 签名摘要匹配既有本机发布密钥，ZIP 16 KiB 对齐检查通过。指定 farm_api36 验收确认冷启动加载壁纸、课表显示、清除与冷启动不复活；图片更换和滑杆尚未覆盖。独立应用 Debug 测试/构建通过，其 Release 未构建。主 Release APK 尚未发布或在模拟器覆盖安装，保留上述边界；未把 alpha.26 的版本/证据计为 alpha.27 新结果。 |
 | 2026-11-28 | `feat/nexio-ui-v28-rewrite`（基于 `831b60b`；本次 PR 整合中的改动） | 主应用升级至 `2.0.0-alpha.28 / 28`，将壳层、主题、底栏、折叠渐进模糊顶栏、弹窗/底部抽屉、5 个主页面及全量二级页面/独立 WebView 页彻底迁至纯 `:nexio-ui` + SoftGlass 体系；新增「外观与数据 → 玻璃材质效果」4 档实时切换（沿用 `Store.uiStyle`），删除 `app` 内 vendored `top.yukonga.miuix` 与 `com.kyant.backdrop` 源码及旧 Maven 依赖并更新 `NOTICE.md`。未改动业务接口与数据链路。`testProductionDebugUnitTest` / `testPreviewDebugUnitTest` 各 600/600 通过，Debug / Preview / Release APK 均构建成功（Release APK 6,512,261 bytes）；设备 UI 验收与发布签名安装待执行。 |
+| 2026-11-29 | `feat/nexio-ui-v28-rewrite`（基于 `4049f02`；本次 PR 整合中的改动） | 修复 SoftGlass 祖先 `LayerBackdrop` 递归采样闪退：移除 `AppRoot` / `CZeroPreviewActivity` 向子树下发的 `LocalPageBackdrop`，禁止 `currentPageBackdrop()` 回退读取根 `LocalOverlayDialogBackdrop`，新增非递归纯色 `rememberSurfaceBackdrop()` 供 `SegmentedChoice`、默认 `NexioTopBarGlassIconButton`、`NexioGlassActionButton` 与 `NexioPageScaffold` 内容区安全采样，解决绑定完美校园后进入电费页（及公告、AI、设置等页面）触发 `RenderThread SIGSEGV` 的问题。未改动业务接口与数据链路；主应用双变体单测各 600/600 通过，Debug / Preview / Release APK 构建成功，本地模拟器确认 `notices`/`ai`/`term_import` 渲染无崩溃。 |

@@ -70,7 +70,7 @@ import com.haooz.softglass.shape.ContinuousCapsule
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.currentPageBackdrop
+import com.menglimi.gdust.v2.ui.rememberSurfaceBackdrop
 
 @Composable
 fun nexioPagePadding(): Dp = if (LocalConfiguration.current.screenWidthDp >= 600) 20.dp else AppUiTokens.PagePadding
@@ -282,7 +282,7 @@ fun <T> SegmentedChoice(
     selected: T,
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
-    backdrop: GlassBackdrop = currentPageBackdrop(),
+    backdrop: GlassBackdrop = rememberSurfaceBackdrop(LocalDs.current.breakBar),
 ) {
     if (options.isEmpty()) return
     val selectedIndex = options.indexOfFirst { it.first == selected }.coerceAtLeast(0)
@@ -482,7 +482,7 @@ fun NexioGlassActionButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     primary: Boolean = true,
-    backdrop: GlassBackdrop = currentPageBackdrop(),
+    backdrop: GlassBackdrop = rememberSurfaceBackdrop(LocalDs.current.card),
 ) {
     com.haooz.nexioui.textbutton.TextButton(
         text = text,
