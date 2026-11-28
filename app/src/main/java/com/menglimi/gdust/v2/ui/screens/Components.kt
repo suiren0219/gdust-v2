@@ -47,7 +47,7 @@ import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 @Composable
 fun PageTitle(title: String, subtitle: String? = null, onBack: (() -> Unit)? = null) {
     val ds = LocalDs.current
-    Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+    Column(Modifier.fillMaxWidth().padding(bottom = AppUiTokens.CardGap)) {
         if (onBack != null) {
             Box(
                 Modifier.size(48.dp).clip(CircleShape).clickable(role = Role.Button, onClick = onBack),
@@ -120,7 +120,7 @@ private fun PreferenceContent(
     val ds = LocalDs.current
     BasicComponent(
         onClick = onClick,
-        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+        insideMargin = PaddingValues(horizontal = AppUiTokens.CardPadding, vertical = AppUiTokens.PreferenceVerticalPadding),
         endActions = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (detail != null) Text(detail, color = ds.sub, fontSize = 13.sp,

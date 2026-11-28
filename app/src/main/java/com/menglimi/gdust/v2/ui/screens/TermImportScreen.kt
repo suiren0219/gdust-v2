@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -298,7 +299,7 @@ fun TermImportScreen(
     }
 
     Column(
-        Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().navigationBarsPadding().imePadding()
+        Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding().navigationBarsPadding().imePadding()
             .verticalScroll(rememberScrollState()).padding(horizontal = AppUiTokens.PagePadding),
     ) {
         Spacer(Modifier.height(16.dp))

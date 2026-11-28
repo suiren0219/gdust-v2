@@ -32,6 +32,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -86,6 +91,8 @@ class ChxWebActivity : ComponentActivity() {
     private var sentCasTicket = false
     private var sessionVersion = 0L
     private var chxVersion = 0L
+    private var recoveryChecking by mutableStateOf(false)
+    private var recoveryJob: Job? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -112,6 +119,7 @@ class ChxWebActivity : ComponentActivity() {
         toolbar.setContent {
             AppTheme {
                 val ds = LocalDs.current
+                val stopped by repo.chxRequestPause.collectAsState()
                 SideEffect {
                     root.setBackgroundColor(ds.bg.toArgb())
                     web.setBackgroundColor(ds.bg.toArgb())
@@ -140,6 +148,12 @@ class ChxWebActivity : ComponentActivity() {
                             .padding(horizontal = 16.dp, vertical = 12.dp)) {
                             Text(pageError ?: pageMessage, color = if (pageError != null) ds.danger else ds.sub,
                                 fontSize = 13.sp, lineHeight = 20.sp)
+                        }
+                    }
+                    if (!logout && stopped != null) {
+                        Button(onClick = ::checkRecovery, enabled = !recoveryChecking,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text(if (recoveryChecking) "正在检查受阻业务…" else "完成验证，检查恢复", fontSize = 14.sp)
                         }
                     }
                     if (!logout && (pageError != null || currentPage?.let(ChxSso::isLoginUrl) == true)) {
@@ -238,8 +252,33 @@ class ChxWebActivity : ComponentActivity() {
         web.loadUrl(url, mapOf("Cache-Control" to "no-cache"))
     }
 
+    private fun checkRecovery() {
+        if (recoveryChecking || logout || !isCurrentSession()) return
+        recoveryChecking = true
+        pageError = null
+        pageMessage = "正在重新读取此前受阻的业务；关闭或检查失败仍会保持暂停。"
+        recoveryJob = lifecycleScope.launch {
+            try {
+                CookieManager.getInstance().flush()
+                repo.checkChxRecoveryAfterWebVerification(sessionVersion, chxVersion)
+                if (isCurrentSession()) {
+                    pageError = null
+                    pageMessage = "受阻业务已检查成功，已恢复读取，可返回后重新刷新。"
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (isCurrentSession()) pageError = (failure as? com.menglimi.gdust.v2.data.ChxCourseReadException)?.message
+                    ?: "检查未成功，学习通仍保持暂停，请完成网页验证后重试。"
+            } finally {
+                recoveryChecking = false
+            }
+        }
+    }
+
     private fun finishBrowsing() {
         if (isFinishing || isDestroyed) return
+        recoveryJob?.cancel()
         pageVersion++ // 关闭后到达的 JS/网络回调不再更新结果。
         web.stopLoading()
         if (!logout && isCurrentSession()) saveCookieIfAny()

@@ -5,6 +5,18 @@
 package com.menglimi.gdust.v2.ui.schedule
 
 import com.menglimi.gdust.v2.data.CourseBlock
+import java.time.LocalDate
+
+/** 只定位已导入的课程；与今日页一样优先使用实际日期，不推断其他周的排课。 */
+internal fun scheduleDisplayBlocks(blocks: List<CourseBlock>, termStart: LocalDate?): List<CourseBlock> =
+    blocks.mapNotNull { block ->
+        if (block.startSection < 1 || block.endSection < block.startSection) return@mapNotNull null
+        val date = ScheduleTimes.parseDate(block.date)
+        val week = if (date != null && termStart != null) ScheduleTimes.weekAt(termStart, date) else block.week
+        val day = date?.dayOfWeek?.value ?: block.day
+        if (week < 1 || day !in 1..7) return@mapNotNull null
+        block.copy(week = week, day = day)
+    }.distinct()
 
 internal data class CellLesson(
     val name: String,

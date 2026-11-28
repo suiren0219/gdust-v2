@@ -152,6 +152,6 @@ fun GlassCard(
     content: @Composable BoxScope.() -> Unit,
 ) {
     AppCard(modifier = modifier.fillMaxWidth(), onClick = onClick) {
-        Box(androidx.compose.ui.Modifier.padding(20.dp), content = content)
+        Box(androidx.compose.ui.Modifier.padding(AppUiTokens.CardPadding), content = content)
     }
 }

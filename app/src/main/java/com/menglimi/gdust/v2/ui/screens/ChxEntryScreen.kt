@@ -29,6 +29,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
@@ -68,6 +69,7 @@ fun ChxEntryScreen(
     val scope = rememberCoroutineScope()
     val accountVersion by repo.sessionVersion.collectAsState()
     val chxVersion by repo.chxSessionVersion.collectAsState()
+    val requestPause by repo.chxRequestPause.collectAsState()
     var saved by remember(repo, accountVersion, chxVersion) { mutableStateOf(repo.store.hasChxSession) }
     var checkResult by remember(repo, accountVersion, chxVersion) { mutableStateOf<Boolean?>(null) }
     var checking by remember(repo, accountVersion, chxVersion) { mutableStateOf(false) }
@@ -109,10 +111,10 @@ fun ChxEntryScreen(
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Exception) {
+            } catch (failure: Exception) {
                 if (isCurrent(account, learning)) {
                     isError = true
-                    message = "暂时无法验证，请稍后重新检查。"
+                    message = (failure as? ChxCourseReadException)?.message ?: "暂时无法验证，请稍后重新检查。"
                 }
             } finally {
                 checking = false
@@ -181,9 +183,9 @@ fun ChxEntryScreen(
     }
 
     val connection = chxConnectionPresentation(saved, checkResult, checking, authRequired)
-    val canSync = saved && checkResult != false && !authRequired && !busy
+    val canSync = saved && checkResult != false && !authRequired && !busy && requestPause == null
     Column(
-        Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().navigationBarsPadding()
+        Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding().navigationBarsPadding()
             .verticalScroll(rememberScrollState()).padding(horizontal = AppUiTokens.PagePadding),
     ) {
         Spacer(Modifier.height(20.dp))
@@ -216,6 +218,20 @@ fun ChxEntryScreen(
                 Text(message, fontSize = 13.sp, lineHeight = 20.sp,
                     color = if (isError || authRequired) ds.danger else ds.sub,
                     modifier = Modifier.padding(top = 8.dp))
+            }
+        }
+        requestPause?.let { stopped ->
+            Spacer(Modifier.height(AppUiTokens.CardGap))
+            AppCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
+                Text("学习通读取已暂停", color = ds.danger, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text(stopped.exception().message.orEmpty(), fontSize = 13.sp, lineHeight = 20.sp,
+                    color = ds.sub, modifier = Modifier.padding(top = 8.dp))
+                Text("请在网页完成验证；冷却结束后，点网页工具栏的“完成验证，检查恢复”。",
+                    fontSize = 13.sp, lineHeight = 20.sp, color = ds.sub, modifier = Modifier.padding(top = 8.dp))
+            }
+            ChxActionButton("打开学习通网页处理", !busy, "完成后明确检查原受阻业务") {
+                webLogin.launch(Intent(context, ChxWebActivity::class.java)
+                    .putExtra(ChxWebActivity.EXTRA_URL, ChxSso.HOME))
             }
         }
         if (!connection.verified) {

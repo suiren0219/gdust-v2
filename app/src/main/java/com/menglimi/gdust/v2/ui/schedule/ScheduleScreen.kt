@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -112,10 +113,7 @@ fun ScheduleScreen(
         }
     }
     val termStart = remember(calendar?.startDate) { ScheduleTimes.parseDate(calendar?.startDate) }
-    val validBlocks = remember(blocks) {
-        blocks.filter { it.week > 0 && it.day in 1..7 && it.startSection > 0 && it.endSection >= it.startSection }
-            .distinct()
-    }
+    val validBlocks = remember(blocks, termStart) { scheduleDisplayBlocks(blocks, termStart) }
     val totalWeeks = maxOf(calendar?.allWeek?.takeIf { it > 0 } ?: 20, validBlocks.maxOfOrNull { it.week } ?: 1)
     val currentWeek = termStart?.let { ScheduleTimes.weekAt(it, now.toLocalDate()) }
         ?: calendar?.week ?: 1
@@ -163,7 +161,7 @@ fun ScheduleScreen(
         val blocksByWeek = remember(validBlocks) { validBlocks.groupBy { it.week } }
         val ds = LocalDs.current
 
-        Column(Modifier.fillMaxSize().background(ds.bg).statusBarsPadding()) {
+        Column(Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding()) {
             ScheduleHeader(
                 week = displayWeek,
                 currentWeek = currentWeek,

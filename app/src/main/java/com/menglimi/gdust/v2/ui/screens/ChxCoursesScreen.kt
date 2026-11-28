@@ -56,6 +56,7 @@ fun ChxCoursesScreen(
     val scope = rememberCoroutineScope()
     val sessionVersion by repo.sessionVersion.collectAsState()
     val chxVersion by repo.chxSessionVersion.collectAsState()
+    val requestPause by repo.chxRequestPause.collectAsState()
     val controller = remember(repo, scope, chxVersion) {
         ChxCoursesController(scope, repo::chxCourses) { version -> repo.sessionVersion.value == version }
     }
@@ -64,6 +65,7 @@ fun ChxCoursesScreen(
     val state = if (loadedState.sessionVersion == sessionVersion) loadedState else ChxCoursesUiState(sessionVersion)
     LaunchedEffect(controller, sessionVersion) {
         controller.changeSession(sessionVersion)
+        controller.restore(repo.loadChxCourseSnapshot())
         controller.refresh()
     }
     DisposableEffect(controller) { onDispose { controller.cancel() } }
@@ -89,10 +91,16 @@ fun ChxCoursesScreen(
             Text("正在读取课程与任务点进度…", fontSize = 13.sp, color = ds.sub,
                 modifier = Modifier.padding(top = 8.dp))
         }
-        if (state.authRequired) {
+        requestPause?.let { stopped ->
+            Text("学习通读取已暂停。" + stopped.exception().message.orEmpty(), color = ds.danger,
+                fontSize = 13.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 8.dp))
+        }
+        if (state.authRequired || requestPause != null) {
             Spacer(Modifier.height(8.dp))
-            Button(onClick = onLogin, modifier = Modifier.fillMaxWidth(), minHeight = 48.dp) {
-                Text("重新连接学习通", fontSize = 16.sp)
+            Button(onClick = {
+                if (requestPause != null) onOpenCourse(com.menglimi.gdust.v2.data.ChxSso.HOME) else onLogin()
+            }, modifier = Modifier.fillMaxWidth(), minHeight = 48.dp) {
+                Text(if (requestPause != null) "打开网页验证并检查恢复" else "重新连接学习通", fontSize = 16.sp)
             }
         }
         state.error?.let { message ->
@@ -196,6 +204,13 @@ internal class ChxCoursesController(
         if (mutableState.value.sessionVersion == version) return
         cancel()
         mutableState.value = ChxCoursesUiState(sessionVersion = version)
+    }
+
+    fun restore(overview: ChxCourseOverview?) {
+        val version = mutableState.value.sessionVersion ?: return
+        if (overview == null || !isCurrentSession(version) || mutableState.value.overview != null) return
+        mutableState.value = ChxCoursesUiState(version, overview, stale = true,
+            authRequired = overview.progressAuthRequired)
     }
 
     fun refresh() {

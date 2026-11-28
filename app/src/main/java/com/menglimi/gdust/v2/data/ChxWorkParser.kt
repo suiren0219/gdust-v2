@@ -41,6 +41,15 @@ data class ChxWorkItem(
 )
 
 object ChxWorkParser {
+    // 保持公共读取异常不变，用类型化原因区分可继续导航的缺字段与不可忽略的冲突。
+    private class MissingCourseField(val field: String) : Exception()
+
+    internal fun missingField(failure: ChxCourseReadException): String? =
+        (failure.cause as? MissingCourseField)?.field
+
+    private fun missingCourseField(name: String): ChxCourseReadException =
+        ChxCourseReadException("课程页缺少字段 $name，请在网页打开该课程后重试。")
+            .apply { initCause(MissingCourseField(name)) }
 
     /** 与课程展示共用身份和入口校验，未知版式或不完整卡片不能当成没有课程。 */
     fun parseCourses(html: String): List<ChxWorkCourse> = ChxCourseApi.parseCourses(html).map {
@@ -65,13 +74,14 @@ object ChxWorkParser {
         val inputs = document.select("input").filter {
             !it.hasAttr("type") || it.attr("type").equals("hidden", ignoreCase = true)
         }
+        val missing = mutableListOf<String>()
         fun fields(ids: Array<out String>) = inputs.filter { input ->
             ids.any { it.equals(input.id(), ignoreCase = true) || it.equals(input.attr("name"), ignoreCase = true) }
         }
         fun field(vararg ids: String, required: Boolean = true, repeated: Boolean = false): String {
             val matches = fields(ids)
             if (matches.isEmpty()) {
-                if (required) throw ChxCourseReadException("课程页缺少字段 ${ids.first()}，请在网页打开该课程后重试。")
+                if (required) missing += ids.first()
                 return ""
             }
             val values = matches.map { it.attr("value").trim() }.distinct()
@@ -83,17 +93,18 @@ object ChxWorkParser {
             }
         }
         if (expectedCourse != null) {
-            val landing = pageUrl?.let(ChxApi::trustedUrl)?.takeIf(ChxApi::isCoursePage)
+            val landing = pageUrl?.let(ChxApi::trustedUrl)
             fun identity(expected: Long, vararg names: String) {
                 val values = mutableListOf<String>()
-                if (fields(names).isNotEmpty()) values += field(*names, repeated = true)
+                val identityFields = fields(names)
+                if (identityFields.isNotEmpty()) values += field(*names, repeated = true)
                 landing?.queryParameterNames?.filter { key -> names.any { it.equals(key, ignoreCase = true) } }
                     ?.forEach { key ->
                         val parameters = landing.queryParameterValues(key)
                         if (parameters.size != 1) throw ChxCourseReadException("课程页标识 ${names.first()} 参数重复，已停止读取。")
                         values += parameters.single().orEmpty()
                     }
-                if (values.isEmpty()) throw ChxCourseReadException("课程页缺少字段 ${names.first()}，请在网页打开该课程后重试。")
+                if (values.isEmpty()) missing += names.first()
                 if (values.any { value ->
                         value.isBlank() || value.any { it !in '0'..'9' } || value.toLongOrNull() != expected || expected <= 0
                     }) {
@@ -118,12 +129,14 @@ object ChxWorkParser {
                 ?: throw ChxCourseReadException("课程页作业入口无法识别，未请求其他地址。")
         }.distinct()
         if (endpoints.size > 1) throw ChxCourseReadException("课程页作业入口存在冲突，已停止读取。")
-        return ChxWorkTabs(
+        val tabs = ChxWorkTabs(
             field("enc"), field("workEnc"), field("examEnc", required = false),
             field("t"), field("userId", required = false), domain,
             workListEndpoint = endpoints.singleOrNull().orEmpty(),
             coursePageUrl = pageUrl.orEmpty(),
         )
+        missing.firstOrNull()?.let { throw missingCourseField(it) }
+        return tabs
     }
 
     /** 无可核实的空列表协议；维护页、未知结构或缺字段都不能当成“没有作业”。 */

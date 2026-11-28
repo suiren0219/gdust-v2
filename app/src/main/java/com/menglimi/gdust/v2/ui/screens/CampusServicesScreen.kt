@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.LocalWallpaperState
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
@@ -95,14 +96,17 @@ fun CampusServicesScreen(
         if (query.isNotEmpty()) { query = ""; focus.clearFocus() } else onBack()
     }
     LazyColumn(
-        modifier = Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().imePadding(),
+        modifier = Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding().imePadding(),
         contentPadding = PaddingValues(horizontal = AppUiTokens.PagePadding, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { PageTitle("校园服务", "学习、生活与提醒，都在这里", onBack) }
         item {
             Row(
-                Modifier.fillMaxWidth().background(ds.card, RoundedCornerShape(20.dp)).padding(horizontal = 16.dp),
+                Modifier.fillMaxWidth().background(
+                    if (LocalWallpaperState.current?.bitmap != null) ds.card.copy(alpha = if (ds.isDark) 0.78f else 0.82f) else ds.card,
+                    RoundedCornerShape(AppUiTokens.ItemCorner),
+                ).padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(MiuixIcons.Search, null, Modifier.size(22.dp), tint = ds.sub)
@@ -148,7 +152,7 @@ fun CampusServicesScreen(
             }
         }
         if (services.isEmpty()) item {
-            DashboardCard(insideMargin = PaddingValues(20.dp)) {
+            DashboardCard(insideMargin = PaddingValues(AppUiTokens.CardPadding)) {
                 Text("没有找到相关服务", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ds.text)
                 Text("试试“课表”“学习通”或“提醒”。", fontSize = 14.sp, color = ds.sub,
                     modifier = Modifier.padding(top = 8.dp))
@@ -198,7 +202,7 @@ internal fun ServiceActionRow(
         Modifier.fillMaxWidth().heightIn(min = 76.dp)
             .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
             .background(if (pressed) ds.accent.copy(alpha = 0.07f) else Color.Transparent)
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .padding(horizontal = AppUiTokens.CardPadding, vertical = AppUiTokens.PreferenceVerticalPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {

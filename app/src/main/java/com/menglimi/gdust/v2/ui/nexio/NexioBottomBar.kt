@@ -34,6 +34,7 @@ import top.yukonga.miuix.kmp.icon.extended.BankCards
 import top.yukonga.miuix.kmp.icon.extended.Months
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Tasks
+import com.menglimi.gdust.v2.ui.LocalWallpaperState
 
 /** The AI assistant is a separate floating entry beside the compact primary navigation. */
 @Composable
@@ -45,6 +46,7 @@ fun NexioBottomBar(
     modifier: Modifier = Modifier,
 ) {
     val ds = LocalDs.current
+    val wallpaper = LocalWallpaperState.current?.bitmap != null
     val labels = listOf("今日", "课表", "电费", "待办", "设置")
     val icons = listOf(MiuixIcons.Album, MiuixIcons.Months, MiuixIcons.BankCards, MiuixIcons.Tasks, MiuixIcons.Settings)
     BoxWithConstraints(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -55,7 +57,9 @@ fun NexioBottomBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(
-                Modifier.weight(1f).clip(RoundedCornerShape(28.dp)).background(ds.card)
+                Modifier.weight(1f)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(if (wallpaper) ds.card.copy(alpha = 0.82f) else ds.card)
                     .selectableGroup().padding(5.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,

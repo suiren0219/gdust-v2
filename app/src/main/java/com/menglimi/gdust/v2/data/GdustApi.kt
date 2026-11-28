@@ -287,6 +287,12 @@ class GdustApi internal constructor(private val http: OkHttpClient) {
 
     // ── LLM（用户自填配置）──
 
+    private val llm = LlmClient(http)
+
+    suspend fun models(base: String, key: String): List<String> = llm.models(base, key)
+
+    suspend fun probe(base: String, key: String, model: String): LlmProbeResult = llm.probe(base, key, model)
+
     suspend fun summarize(base: String, key: String, model: String, notices: List<Notice>): String {
         if (notices.isEmpty()) return "最近没有公告可总结。"
         val items = notices.take(15).joinToString("\n") { "- [${it.type}] ${it.title}" }
@@ -300,36 +306,7 @@ class GdustApi internal constructor(private val http: OkHttpClient) {
         key: String,
         model: String,
         messages: List<AiChatMessage>,
-    ): String = io {
-        require(base.isNotBlank() && key.isNotBlank() && model.isNotBlank()) { "请先完成 AI 服务配置。" }
-        require(messages.isNotEmpty()) { "对话内容不能为空。" }
-        val body = com.google.gson.Gson().toJson(
-            mapOf(
-                "model" to model,
-                "messages" to messages.map { mapOf("role" to it.role, "content" to it.content) },
-                "max_tokens" to 2048,
-                "temperature" to 0.4,
-            )
-        )
-        val root = base.trim().trimEnd('/')
-        val endpoint = when {
-            root.endsWith("/chat/completions") -> root
-            root.endsWith("/v1") -> "$root/chat/completions"
-            else -> "$root/v1/chat/completions"
-        }
-        val req = Request.Builder()
-            .url(endpoint)
-            .header("Authorization", "Bearer $key")
-            .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
-            .build()
-        http.newCall(req).execute().use { r ->
-            val text = r.body?.string().orEmpty()
-            if (!r.isSuccessful) throw RuntimeException("LLM HTTP ${r.code}: ${text.take(120)}")
-            jsonObj(text).getAsJsonArray("choices")?.firstOrNull()?.asJsonObject
-                ?.getAsJsonObject("message")?.str("content")
-                ?: throw RuntimeException("LLM 响应缺少 content")
-        }
-    }
+    ): String = llm.complete(base, key, model, messages)
 }
 
 /** 门户按节返回 → 数据层合并连堂：同天同课同教室同教师且节次连续且同周 → 一张整卡。 */

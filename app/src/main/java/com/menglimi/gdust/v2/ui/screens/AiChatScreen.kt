@@ -65,6 +65,8 @@ import com.menglimi.gdust.v2.data.UniversityKnowledge
 import com.menglimi.gdust.v2.data.buildStudentContext
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.LocalWallpaperState
+import com.menglimi.gdust.v2.ui.AppUiTokens
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
@@ -160,7 +162,7 @@ fun AiChatScreen(
     }
 
     Column(
-        Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().imePadding()
+        Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding().imePadding()
             .padding(bottom = if (keyboardVisible) 0.dp else 94.dp),
     ) {
         Row(
@@ -302,7 +304,9 @@ fun AiChatScreen(
                 keyboardActions = KeyboardActions(onSend = { sendMessage() }),
                 modifier = Modifier.weight(1f).heightIn(min = 46.dp, max = 128.dp)
                     .focusRequester(inputRequester)
-                    .clip(RoundedCornerShape(20.dp)).background(ds.bg)
+                    .clip(RoundedCornerShape(AppUiTokens.ItemCorner)).background(
+                        if (LocalWallpaperState.current?.bitmap != null) ds.card.copy(alpha = if (ds.isDark) 0.78f else 0.82f) else ds.bg,
+                    )
                     .padding(horizontal = 15.dp, vertical = 12.dp)
                     .semantics { contentDescription = "输入消息" },
                 decorationBox = { inner ->

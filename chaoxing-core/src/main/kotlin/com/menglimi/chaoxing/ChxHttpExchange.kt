@@ -72,6 +72,7 @@ class ChxHttpExchange(
     private val client: OkHttpClient,
     private val checkSession: () -> Unit = {},
     private val beforeRecovery: suspend () -> Unit = { delay(1_000) },
+    private val onResponseReceived: (ChxResponse) -> Unit = {},
 ) {
     suspend fun execute(request: Request): ChxHttpResult {
         currentCoroutineContext().ensureActive()
@@ -105,15 +106,21 @@ class ChxHttpExchange(
             override fun onResponse(call: Call, response: Response) {
                 try {
                     val result = response.use {
-                        // 已有明确的认证、跳转或限流响应时只读响应头，正文故障不能吞掉 429/Retry-After。
-                        val body = if (it.code in setOf(301, 302, 303, 307, 308, 401, 429)) "" else {
+                        // 429 正文也可能要求验证码；限长读取失败时仍保留限流响应和响应头。
+                        val body = if (it.code in setOf(301, 302, 303, 307, 308, 401)) "" else try {
                             val bytes = it.peekBody(MAX_BODY_BYTES + 1).bytes()
-                            if (bytes.size > MAX_BODY_BYTES) throw ChxCourseReadException("服务返回的数据过大（BODY_TOO_LARGE；上限 4 MiB），请在网页查看。")
-                            bytes.toString(it.body?.contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8)
+                            if (bytes.size > MAX_BODY_BYTES) {
+                                if (it.code != 429) throw ChxCourseReadException("服务返回的数据过大（BODY_TOO_LARGE；上限 4 MiB），请在网页查看。")
+                                ""
+                            } else bytes.toString(it.body?.contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8)
+                        } catch (failure: IOException) {
+                            if (it.code != 429) throw failure
+                            ""
                         }
                         ChxHttpResult(ChxResponse(it.code, body, it.header("Location"),
                             it.header("Retry-After"), it.header("Date")), it.headers("Set-Cookie"))
                     }
+                    onResponseReceived(result.response)
                     checkSession()
                     if (continuation.isActive) continuation.resume(result)
                 } catch (failure: Exception) {

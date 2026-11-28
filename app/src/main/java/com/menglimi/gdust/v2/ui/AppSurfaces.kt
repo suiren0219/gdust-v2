@@ -28,10 +28,13 @@ object AppUiTokens {
     val PagePadding = 16.dp
     val TitleSize = 34.sp
     val TitleWeight = FontWeight.Medium
-    val CardCorner = 26.dp
-    val ItemCorner = 20.dp
+    val CardCorner = 20.dp
+    val ItemCorner = 16.dp
     val CardGap = 12.dp
-    val CardPadding = 20.dp
+    val CardPadding = 16.dp
+    val PreferenceRowMinHeight = 56.dp
+    val PreferenceHorizontalPadding = 16.dp
+    val PreferenceVerticalPadding = 14.dp
 }
 
 @Composable
@@ -43,7 +46,7 @@ fun Modifier.appSurface(cornerRadius: Dp = AppUiTokens.CardCorner): Modifier {
     return clip(shape).background(LocalDs.current.card)
 }
 
-/** Miuix 实底卡；按下只叠加轻微 tint，不缩放、不绘制波纹。 */
+/** Miuix card with a unified Nexio radius and a translucent surface over a custom wallpaper. */
 @Composable
 fun AppCard(
     modifier: Modifier = Modifier,
@@ -54,16 +57,20 @@ fun AppCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val ds = LocalDs.current
+    val wallpaper = LocalWallpaperState.current
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val base = color.compositeOver(ds.card)
+    val translucent = wallpaper?.bitmap != null && color == ds.card
+    val base = if (translucent) color.copy(alpha = if (ds.isDark) 0.78f else 0.82f) else color.compositeOver(ds.card)
     val surface = if (pressed) ds.accent.copy(alpha = 0.07f).compositeOver(base) else base
+    val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
+    val background = if (translucent) Modifier.clip(shape).background(surface) else Modifier
     CompositionLocalProvider(
         LocalContentColor provides ds.text,
         androidx.compose.material3.LocalContentColor provides ds.text,
     ) {
         Card(
-            modifier = modifier.then(
+            modifier = modifier.then(background).then(
                 if (onClick != null) Modifier.clickable(
                     interactionSource = interaction,
                     indication = null,
@@ -73,7 +80,10 @@ fun AppCard(
             ),
             cornerRadius = cornerRadius,
             insideMargin = insideMargin,
-            colors = CardDefaults.defaultColors(color = surface, contentColor = ds.text),
+            colors = CardDefaults.defaultColors(
+                color = if (translucent) Color.Transparent else surface,
+                contentColor = ds.text,
+            ),
             content = content,
         )
     }

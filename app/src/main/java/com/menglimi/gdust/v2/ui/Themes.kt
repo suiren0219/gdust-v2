@@ -77,7 +77,7 @@ fun CZeroTheme(content: @Composable () -> Unit) {
             top.yukonga.miuix.kmp.material.LocalGlassDialogBlurDp provides 0f,
         ) {
             WithTypography(ds) {
-                Box(Modifier.fillMaxSize().background(ds.bg)) { content() }
+                Box(Modifier.fillMaxSize().background(Color.Transparent)) { content() }
             }
         }
     }

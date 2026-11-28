@@ -62,7 +62,7 @@ fun WidgetPreviewScreen(onBack: () -> Unit) {
     val ds = LocalDs.current
     BackHandler { onBack() }
     Column(
-        Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().navigationBarsPadding()
+        Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding().navigationBarsPadding()
             .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
     ) {
         Spacer(Modifier.height(24.dp))

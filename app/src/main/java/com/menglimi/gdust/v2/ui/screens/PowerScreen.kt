@@ -58,7 +58,6 @@ import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.GlassCard
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.pageBackground
 import com.menglimi.gdust.v2.ui.secondaryTextColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -149,7 +148,7 @@ fun PowerScreen(repo: Repository) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(pageBackground())
+            .background(Color.Transparent)
             .statusBarsPadding()
             .imePadding()
             .verticalScroll(rememberScrollState())

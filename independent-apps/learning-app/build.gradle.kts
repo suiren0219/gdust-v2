@@ -10,8 +10,8 @@ android {
         applicationId = "cn.edu.gdust.suiren.learning"
         minSdk = 33
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.1.12"
+        versionCode = 14
+        versionName = "0.1.13"
     }
     buildFeatures {
         compose = true

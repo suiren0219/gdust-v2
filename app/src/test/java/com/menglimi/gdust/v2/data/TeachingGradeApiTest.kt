@@ -118,6 +118,27 @@ class TeachingGradeApiTest {
     }
 
     @Test
+    fun pkeyWithoutValueUsesEmptyDefaultAndStillLoadsEveryPage() = runBlocking {
+        val requests = mutableListOf<Request>()
+        val loader = TeachingGradeLoader("https://teaching.example.test/prefix", execute = { request ->
+            requests += request
+            if (request.method == "GET") {
+                response(gradeFormFixture().replace("id='pkey' value=''", "id='pkey'"))
+            } else {
+                assertEquals("", request.form().getValue("pkey"))
+                val page = request.form().getValue("queryModel.currentPage").toInt()
+                val start = (page - 1) * GRADE_PAGE_SIZE
+                response(gradePageFixture((start until minOf(start + GRADE_PAGE_SIZE, 16))
+                    .map { gradeFixture("C$it") }, page, total = 16))
+            }
+        })
+        val report = loader.load("2026", "3")
+        assertEquals(16, report.total)
+        assertEquals((0 until 16).map { "C$it" }, report.entries.map { it.courseCode })
+        assertEquals(3, requests.size)
+    }
+
+    @Test
     fun validEmptyResponsesRequireConsistentPagination() = runBlocking<Unit> {
         for (pages in 0..1) {
             val loader = queuedLoader(listOf(response(gradeFormFixture()),

@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
@@ -176,7 +177,7 @@ fun TodoScreen(repo: Repository) {
 
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().imePadding(),
+        modifier = Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding().imePadding(),
         contentPadding = PaddingValues(
             start = AppUiTokens.PagePadding,
             end = AppUiTokens.PagePadding,

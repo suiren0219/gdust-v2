@@ -2,6 +2,7 @@ package com.menglimi.gdust.v2.data
 
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.menglimi.chaoxing.requestPause
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -70,6 +71,8 @@ class ChxCourseApi internal constructor(private val http: SessionHttpClient) {
                 ChxCourseOverview(courses, "学习通会话已失效，任务点进度未知，请重新登录。", progressAuthRequired = true)
             } catch (error: Exception) {
                 currentCoroutineContext().ensureActive()
+                if (error is ChxCourseReadException &&
+                    (error.pausesRequests || error is com.menglimi.chaoxing.ChxCookieWriteException)) throw error
                 ChxCourseOverview(courses, if (error is ChxCourseReadException) error.message else UNKNOWN_PROGRESS)
             }
         }
@@ -111,6 +114,8 @@ class ChxCourseApi internal constructor(private val http: SessionHttpClient) {
                 throw cancelled
             } catch (auth: AuthFailed) {
                 throw auth
+            } catch (failure: ChxCourseReadException) {
+                throw failure
             } catch (failure: Exception) {
                 currentCoroutineContext().ensureActive()
                 val reason = when (failure) {
@@ -124,10 +129,12 @@ class ChxCourseApi internal constructor(private val http: SessionHttpClient) {
                 throw ChxCourseReadException("$error（$reason）")
             }
             currentCoroutineContext().ensureActive()
+            response.toChxResponse().requestPause()?.let { throw it.exception() }
             return response
         }
 
         internal fun requireBody(response: SessionResponse, url: HttpUrl, error: String): String {
+            response.toChxResponse().requestPause()?.let { throw it.exception() }
             if (response.status == 401) throw AuthFailed(401, "学习通会话已失效，请重新登录。")
             if (response.status in 300..399) {
                 if (isTrustedLoginRedirect(url, response.location)) {
@@ -287,4 +294,4 @@ class ChxCourseApi internal constructor(private val http: SessionHttpClient) {
 }
 
 /** 只包含固定、可展示的错误文案，不携带响应正文、请求头或账户数据。 */
-internal class ChxCourseReadException(message: String) : Exception(message)
+internal typealias ChxCourseReadException = com.menglimi.chaoxing.ChxCourseReadException
