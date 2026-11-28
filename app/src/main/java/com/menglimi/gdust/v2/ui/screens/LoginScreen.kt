@@ -102,7 +102,7 @@ fun LoginScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .background(pageBackground())
+            .background(androidx.compose.ui.graphics.Color.Transparent)
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()

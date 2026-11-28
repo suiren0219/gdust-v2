@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -59,7 +60,6 @@ import com.menglimi.gdust.v2.data.isNetworkDown
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
-import com.menglimi.gdust.v2.ui.pageBackground
 import com.menglimi.gdust.v2.ui.secondaryTextColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -150,7 +150,7 @@ fun PowerScreen(repo: Repository) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(pageBackground())
+            .background(Color.Transparent)
             .statusBarsPadding()
             .imePadding()
             .verticalScroll(rememberScrollState())

@@ -1,21 +1,21 @@
 # 广科课程表：功能、待完善项与接口清单
 
-核查日期：2026-11-28。本文记录发布整合工作树的代码状态；不等同于 main 已合并或 APK 已发布，签名、对齐、设备验证和发布状态按第 6 节分项记录。
+候选构建的测试、签名与运行验证状态见第 6 节；没有据此代表 `main` 已合并或 GitHub Release 已创建。
 
-维护记录（2026-11-28）：基线为远端 `main` 的 `3a7f60e8967d745a741a80e251f115f0169fbad0`。在隔离发布工作树整合主工程快照、MCP/课表分享和电量更新提示，同步 PR #17 的维护文档，并核对 PR #18 的风控增量。本次设备运行验证尚未执行；构建、测试、签名和发布状态分项记录。
+维护记录（2026-11-28）：本次 alpha.27 候选以远端 `main` 的 `81523b6af63ed723f28a6750f495b75474533d1a`（alpha.26）为基线，来自本地快照 `ab6120a58acb8d542a81901819fb813a2de398b1` 的增量通过三方合并整合；最终候选构建、签名与运行验证状态见第 6 节。
 
 ## 1. 核查范围与状态口径
 
 | 项目 | 本次依据 |
 | --- | --- |
 | 仓库 | `suiren0219/gdust-v2` |
-| 远端基线 | `main` / `3a7f60e8967d745a741a80e251f115f0169fbad0` |
-| 发布分支 | `release/all-changes-alpha26`；当前合并结果尚未上传或进入 `main` |
-| 快照来源 | 主工程 `01ab860`、MCP `92f2380`、电量 `3e60e09`；本次核对 PR #17 维护规则及 PR #18 风控增量 |
-| 版本候选 | 主应用 `2.0.0-alpha.26` / versionCode 26；学习助手 `0.1.13` / versionCode 14；宿舍电量 `0.1.9` / versionCode 10；候选值不代表 Release 已发布 |
+| 远端基线 | `main` / `81523b6af63ed723f28a6750f495b75474533d1a`（alpha.26） |
+| 发布分支 | `release/all-changes-alpha27-integrated`；当前为未完成的本地三方合并，尚未创建合并提交、推送或 PR |
+| 快照来源 | `release/all-changes-alpha27-source` 的 `ab6120a58acb8d542a81901819fb813a2de398b1`，为原选定本地快照；逐项对账以实际代码与 alpha.26 为准，非 69 项原样回放 |
+| 版本候选 | 主应用 `2.0.0-alpha.27` / versionCode 27；学习助手暂维持 `0.1.13` / versionCode 14；宿舍电量暂维持 `0.1.10` / versionCode 11；均不代表 Release 已发布 |
 | 构建配置 | 最低 API 33、目标 API 35、SDK 37；JDK 21、Gradle 9.7.1 |
 | 模块边界 | 根工程含 `:app`、`:nexio-ui`、`:chaoxing-core`；独立学习与电量应用由 `independent-apps/` 分别构建 |
-| 验证方法 | 单元测试、Release 构建、签名校验与设备验证分开记录；未连接校园或 AI 真实服务，未在真机上完成验证码恢复 |
+| 验证方法 | 本轮主应用 Debug 测试、签名 Release 构建、离线指定模拟器运行和独立 App Debug 测试/构建；各项源码基线、执行结果和未覆盖范围分开记录；未连接校园或 AI 真实服务，未在真机完成验证码恢复 |
 
 状态口径：**已实现**表示有实现与可达调用；**部分实现**表示存在明确功能缺口；**待验证**表示仍需运行时/真实服务证据；**建议计划**不代表用户承诺的排期。源码实现、测试通过、设备验证和 APK 发布分别陈述。
 
@@ -37,7 +37,7 @@
 | F10 | 学习通通知转待办 | 已实现 | 通知监听、符合条件的消息提取及去重，配有说明和开关页 | 需要通知使用权和应用内开关，不获取全部历史通知 | [ChxNotificationScreen.kt](../app/src/main/java/com/menglimi/gdust/v2/ui/screens/ChxNotificationScreen.kt)；[ChxNotificationListener.kt](../app/src/main/java/com/menglimi/gdust/v2/service/ChxNotificationListener.kt) |
 | F11 | 课程/待办提醒与勿扰 | 部分实现 | 课前、课中、次日课程、待办到期提醒，上课勿扰及超级岛设置 | 需要对应权限；超级岛兼容性未实测；待办目标绑定和统一落库重排见 G01/G02 | [ReminderScreen.kt](../app/src/main/java/com/menglimi/gdust/v2/ui/screens/ReminderScreen.kt)；[LessonReminderAlarms.kt](../app/src/main/java/com/menglimi/gdust/v2/work/LessonReminderAlarms.kt)；[ClassQuietMode.kt](../app/src/main/java/com/menglimi/gdust/v2/work/ClassQuietMode.kt) |
 | F12 | 桌面小部件 | 已实现 | 11 款：课表 4、电量 4、待办 3；预览、请求固定、跳转业务页；待办一键完成 | 课表/电量各为 4×2、2×2、1×2、1×4；通用刷新主要重读缓存 | [WidgetPinner.kt](../app/src/main/java/com/menglimi/gdust/v2/widget/WidgetPinner.kt)；[WidgetActions.kt](../app/src/main/java/com/menglimi/gdust/v2/widget/WidgetActions.kt)；[WidgetRefreshWorker.kt](../app/src/main/java/com/menglimi/gdust/v2/widget/WidgetRefreshWorker.kt) |
-| F13 | 外观与桌面快捷方式 | 已实现 | 接入 NexioUI、跟随系统深浅色、课表显示参数、自定义桌面快捷方式名称和图片 | 快捷方式不改变安装包图标；残留壁纸存储字段不等于可用配置入口 | [Themes.kt](../app/src/main/java/com/menglimi/gdust/v2/ui/Themes.kt)；[DesktopShortcut.kt](../app/src/main/java/com/menglimi/gdust/v2/launcher/DesktopShortcut.kt)；[app/build.gradle.kts](../app/build.gradle.kts) |
+| F13 | 外观与桌面快捷方式 | 已实现 | 接入 NexioUI、跟随系统深浅色、课表显示参数、自定义桌面快捷方式名称/图片，以及本地自定义壁纸选择、模糊和压暗 | 快捷方式不改变安装包图标；壁纸在应用私有目录保存并排除云备份/设备迁移；无图时回退主题背景；farm_api36 已验收初次选图、课表显示、清除及冷启动不复活；更换和滑杆运行态待验证 | [SettingsScreen.kt](../app/src/main/java/com/menglimi/gdust/v2/ui/screens/SettingsScreen.kt)；[Wallpaper.kt](../app/src/main/java/com/menglimi/gdust/v2/ui/Wallpaper.kt)；[DesktopShortcut.kt](../app/src/main/java/com/menglimi/gdust/v2/launcher/DesktopShortcut.kt) |
 | F14 | JSON 备份与恢复 | 已实现 | 设置中导入/导出课表、校历、待办、电量采样、部分偏好及宿舍绑定 | 非全量偏好备份；不含学校登录凭证或 AI 配置，分享前需检查个人数据 | [AppRoot.kt](../app/src/main/java/com/menglimi/gdust/v2/ui/AppRoot.kt)；[Repository.kt](../app/src/main/java/com/menglimi/gdust/v2/data/Repository.kt) |
 | F15 | AI 学习助手与对话历史 | 已实现；预览隔离待验证 | 多轮对话、快捷问题、课程/待办上下文开关和本机历史恢复 | 用户自配兼容接口；上下文会发送到该接口；候选树的 preview 网络权限已移除，仍需确认所有页面入口均禁止请求和配置保存 | [AiChatScreen.kt](../app/src/main/java/com/menglimi/gdust/v2/ui/screens/AiChatScreen.kt)；[AiChatHistory.kt](../app/src/main/java/com/menglimi/gdust/v2/ui/screens/AiChatHistory.kt)；[AiServiceSettingsScreen.kt](../app/src/main/java/com/menglimi/gdust/v2/ui/screens/AiServiceSettingsScreen.kt) |
 | F16 | 公告与 AI 总结 | 已实现 | 门户、教务处、官网切源与刷新，本机已读、浏览器原文及 AI 总结 | 总结需用户配置 AI；不同公告来源的认证条件见 A08–A10；标已读不证明浏览器加载成功 | [NoticeScreen.kt](../app/src/main/java/com/menglimi/gdust/v2/ui/screens/NoticeScreen.kt)；[GdustApi.kt](../app/src/main/java/com/menglimi/gdust/v2/data/GdustApi.kt) |
@@ -190,12 +190,12 @@ AI 地址会清理末尾斜杠并规范化根路径；无路径时默认 `/v1`�
 
 ## 6. 验证范围
 
-- 本轮主应用单元测试：`testProductionDebugUnitTest` 600 项、`testPreviewDebugUnitTest` 600 项，均为 0 失败、0 错误、0 跳过；XML 汇总分别来自 `app/build/test-results/testProductionDebugUnitTest` 与 `app/build/test-results/testPreviewDebugUnitTest`。身份隔离、owner/epoch、429 冷却与验证码恢复边界由两变体共同覆盖。
-- 本轮独立工程单测：学习通核心 113 项、电量核心 80 项、共享 UI 6 项、学习助手 60 项、宿舍电量 80 项，共 339 项，均为 0 失败、0 错误、0 跳过；依据为本轮 `gdust-alpha26-independent-validation.log` 与各模块测试 XML。
-- 主工程最终日志 `gdust-alpha26-main-validation-final.log` 以 `BUILD SUCCESSFUL in 13m 1s` 结束，145 项任务执行完成，含 `assembleProductionRelease` 与 `assemblePreviewDebug`；三包版本、包名和产物存在性已按 `output-metadata.json` 核对。主包候选为 `2.0.0-alpha.26 / 26`、`6,777,697` 字节；独立应用的最终签名产物由三包静态核验记录确认。
-- G08 三包静态核验：主包 `alpha.26 / 26`、学习助手 `0.1.13 / 14`、宿舍电量 `0.1.9 / 10` 的包名、versionCode、versionName 和历史证书均已由独立核验确认；三包 `apksigner` 与 `zipalign -P 16` 检查均退出 0。ZIP 对齐不证明 ELF 段对齐、设备兼容或覆盖安装。三包大小与 SHA-256 见第 7 节维护记录；设备覆盖安装、数据保留和真实业务尚未验证，APK 尚未发布。
+- 本轮最终 alpha.27 候选 `:app:testProductionDebugUnitTest`、`:app:testPreviewDebugUnitTest` 各 600 项通过；测试 XML 各含 70 个 suite，失败、错误、跳过均为 0。`:app:assembleProductionRelease` 与 `:app:assemblePreviewDebug` 在壁纸竞态补丁及重复导入修正后成功，`BUILD SUCCESSFUL in 3m 21s`。
+- alpha.26 基线的 339 项独立工程测试与签名 APK 结果是历史记录。alpha.27 独立应用：学习助手 60 项、宿舍电量 80 项测试通过，两个 Debug APK 均构建；Release APK 与签名复核待完成。
+- alpha.27 候选 `:app:assembleProductionRelease` 已成功构建签名包：包 `cn.edu.gdust.suiren`、`2.0.0-alpha.27 / 27`、SDK 37/target 35；`apksigner verify` 的 v2 签名通过，证书 SHA-256 `317613d243be7e891195613c6858b1a98d8cece7a1b39ba63933822c36807d6d` 与本机既有 Release 密钥摘要一致。APK 大小 `6,810,617` bytes，SHA-256 `796a5385cf0f7c46b04fe65f922bfa8a3ac30d3bc81259641772afbe5d0540f6`；ZIP `zipalign -c -P 16 -v 4` 检查通过。APK 尚未发布，未进行签名覆盖安装。
+- alpha.26 基线 G08 的三包 Release 核验属于旧版本历史结果；alpha.27 本轮仅构建/核验主应用 Release，两个独立 App 只构建 Debug 并跑单测，未构建其 Release APK 或核对签名。不得将 alpha.26 的证据视为 alpha.27 独立应用发布签名证据。APK ZIP 对齐不证明设备覆盖安装与数据保留；主应用也未在模拟器作签名覆盖安装。
 - `previewDebug` 与 `productionRelease` 的合并清单和主应用编译已通过 Gradle 验证。预览使用专属 Application/launcher，已移除联网权限、正式组件与 WorkManager 自动初始化；预览网络隔离与 AI/MCP 页面保护的设备运行验证仍待执行。
-- 未连接学校认证、门户、教务、学习通、电量或 AI 真实服务，未在真机/模拟器进行登录、验证码恢复、安装覆盖或数据保留验证。
+- 指定 `farm_api36` 验收（未触碰真机）：冷启动后壁纸文件仍在且 SHA-256 与所选本机图片一致；课表截图确认壁纸可见。设置页清除后 `wallpaper_path` 为空、文件不存在，之后再次冷启动仍不复活，主题纯色底恢复。图片更换及滑杆调节未覆盖。未连接校园认证、门户、教务、学习通、电量或 AI 真实服务。主应用签名 Release APK 未在模拟器覆盖安装，故不构成升级数据保留验收。
 - 合成测试不等于服务端风控阈值、人工验证码恢复或设备兼容端到端证据。
 - 本地 keystore 与签名属性仅在被忽略的 `signing/` 下使用，不纳入提交。
 
@@ -208,4 +208,4 @@ AI 地址会清理末尾斜杠并规范化根路径；无路径时默认 `/v1`�
 | 日期 | 源码基线/变更范围 | 核对及维护结果 |
 | --- | --- | --- |
 | 2026-11-26 | `3a7f60e`；本次清单及维护规则提交 | 将原开发分支盘点对齐主干；补记 NexioUI、独立服务状态和生日资料读取；更正换绑历史清理与学习通列表路径；保留提醒缺口及验证边界；新增每次更新同步维护规则、README 入口和 PR 检查项，未改业务行为 |
-| 2026-11-28 | `3a7f60e` 与本次发布整合 | 保留既有 F/G/A 编号与接口分类，新增 F17–F19、G07–G08、A25–A27；按最终候选源码更新实现边界、MCP/AI 用途和预览隔离状态。补记主应用两变体各 600 项及独立工程 339 项单测均通过、主 `productionRelease` 最终构建成功、G08 三包签名与 ZIP 对齐静态核验通过；主包 `alpha.26 / 26` 为 `6,777,697` 字节、SHA-256 `fea305922ad1fbcd836f52319ff7e88126ae933737867175824fc2126f960301`；学习助手 `0.1.13 / 14` 为 `3,301,915` 字节、SHA-256 `6041f9fd34f8be2498d8eae44394d97aa3788389db9158239fe605b1b300aa2a`；宿舍电量 `0.1.9 / 10` 为 `4,307,065` 字节、SHA-256 `42012989680787d97ed3a2789a723ade6cec5f15282e80f90313eb880113f396`。保留设备安装升级、真实服务和发布未验证边界。F09 增补身份 owner/epoch、429 冷却与验证码恢复条件。 |
+| 2026-11-28 | alpha.26 基线 `81523b6` 与 alpha.27 本次整合 | 将文档基线与发布候选校正为 `81523b6` / `alpha.27`，明确独立应用历史测试记录属于 alpha.26；新增 F13 壁纸功能与本机保存/Auto Backup 排除边界。修复壁纸主线程复制、图片校验后 AtomicFile 替换，以及并发选择/清除的互斥与请求代数、加载取消传播。补入遗漏的公告总结目录路由。最终主应用两 Debug 变体各 600 项单测通过，production Release 与 preview Debug 构建成功；主 Release 版本 `2.0.0-alpha.27 / 27`，v2 签名摘要匹配既有本机发布密钥，ZIP 16 KiB 对齐检查通过。指定 farm_api36 验收确认冷启动加载壁纸、课表显示、清除与冷启动不复活；图片更换和滑杆尚未覆盖。独立应用 Debug 测试/构建通过，其 Release 未构建。主 Release APK 尚未发布或在模拟器覆盖安装，保留上述边界；未把 alpha.26 的版本/证据计为 alpha.27 新结果。 |

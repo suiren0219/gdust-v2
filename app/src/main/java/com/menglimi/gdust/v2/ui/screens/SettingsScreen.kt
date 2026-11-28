@@ -6,6 +6,7 @@ import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -51,6 +52,8 @@ import com.menglimi.gdust.v2.ui.AiSparkleIcon
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.LocalWallpaperState
+import com.menglimi.gdust.v2.ui.WallpaperState
 import com.menglimi.gdust.v2.ui.pageBackground
 import com.haooz.nexioui.basiccomponent.BasicComponent
 import com.haooz.nexioui.cardexpand.CardExpand
@@ -120,6 +123,7 @@ fun SettingsScreen(
 ) {
     val ds = LocalDs.current
     val preview = offlinePreview || com.menglimi.gdust.v2.BuildConfig.PREVIEW_TARGET
+    val wallpaperState = LocalWallpaperState.current
     val secondary = ds.sub
     val store = repo.store
     val focusManager = LocalFocusManager.current
@@ -191,6 +195,12 @@ fun SettingsScreen(
                 icon = MiuixIcons.Months,
                 keywords = "小组件 widget 添加 电量 待办 课表",
                 onClick = { showWidgetPicker = true },
+            ),
+            SettingsEntry(
+                id = "wallpaper", title = "自定义壁纸", summary = "设置首页与课表背景，调节模糊和压暗",
+                icon = MiuixIcons.Home, keywords = "壁纸 背景 模糊 磨砂 透明度 压暗",
+                onClick = { toggle("wallpaper") },
+                editor = { WallpaperAppearanceEditor(state = wallpaperState) },
             ),
         )),
         SettingsSection("课表", listOf(
@@ -413,7 +423,10 @@ fun SettingsScreen(
     )).map { entry ->
         if (preview) entry.copy(enabled = false, onClick = {}, onCheckedChange = {}, editor = null) else entry
     }
-    val groups = SettingsNavigation.categories.map { c -> SettingsSection(c.title, allEntries.filter { it.id in c.entries }) }
+    val groups = SettingsNavigation.categories.map { c ->
+        val categoryEntries = if (c.title == "外观与数据") c.entries + "wallpaper" else c.entries
+        SettingsSection(c.title, allEntries.filter { it.id in categoryEntries })
+    }
     val search = query.trim()
     val isDirectory = subPage == null && search.isBlank()
     val sourceGroups = if (subPage == null) groups else groups.filter { it.title == subPage }
@@ -523,6 +536,58 @@ private fun SettingsGroupEntryWithEditor(
     }
     CardExpand(visible = entry.id == "sync" && syncError != null) {
         SettingEditor { Text(syncError.orEmpty(), fontSize = 13.sp, color = LocalDs.current.danger) }
+    }
+}
+
+@Composable
+private fun WallpaperAppearanceEditor(state: WallpaperState?) {
+    val ds = LocalDs.current
+    if (state == null) {
+        Text("壁纸设置暂不可用，请重新进入设置页。", fontSize = 13.sp, color = ds.sub)
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (state.bitmap != null) "已设置自定义壁纸" else "尚未设置壁纸",
+                modifier = Modifier.weight(1f), fontSize = 14.sp, color = ds.text,
+            )
+            top.yukonga.miuix.kmp.basic.TextButton(
+                text = if (state.bitmap != null) "更换" else "选择图片",
+                onClick = state.choose,
+                minWidth = 84.dp,
+                minHeight = 36.dp,
+                cornerRadius = 100.dp,
+            )
+            if (state.bitmap != null) {
+                top.yukonga.miuix.kmp.basic.TextButton(
+                    text = "清除", onClick = state.clear, minWidth = 60.dp, minHeight = 36.dp,
+                    cornerRadius = 100.dp, textColor = ds.danger,
+                )
+            }
+        }
+        state.error?.let { Text(it, fontSize = 13.sp, color = ds.danger) }
+        if (state.bitmap != null) {
+            Text("背景模糊 · ${state.blur.toInt()} dp", fontSize = 14.sp, color = ds.text)
+            top.yukonga.miuix.kmp.basic.Slider(
+                value = state.blur,
+                onValueChange = state.setBlur,
+                valueRange = 0f..40f,
+                showKeyPoints = true,
+                keyPoints = listOf(0f, 8f, 16f, 24f, 32f, 40f),
+            )
+            Text("背景压暗 · ${(state.dim * 100).toInt()}%", fontSize = 14.sp, color = ds.text)
+            top.yukonga.miuix.kmp.basic.Slider(
+                value = state.dim,
+                onValueChange = state.setDim,
+                valueRange = 0f..0.85f,
+                showKeyPoints = true,
+                keyPoints = listOf(0f, 0.2f, 0.4f, 0.6f, 0.8f),
+            )
+            Text("壁纸保存在本机应用私有目录，不会上传，也不会写入备份文件。", fontSize = 13.sp, color = ds.sub)
+        } else {
+            Text("选择一张图片后可设置模糊与压暗程度；无壁纸时应用继续使用深浅主题纯色背景。", fontSize = 13.sp, color = ds.sub)
+        }
     }
 }
 

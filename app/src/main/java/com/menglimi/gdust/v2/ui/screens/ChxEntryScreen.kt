@@ -30,6 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
@@ -195,7 +196,7 @@ fun ChxEntryScreen(
     val canSync = saved && checkResult != false && !authRequired && !busy && requestPause == null
     val themeColors = NexioTheme.colorScheme
     Column(
-        Modifier.fillMaxSize().background(ds.bg).statusBarsPadding().navigationBarsPadding()
+        Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding().navigationBarsPadding()
             .verticalScroll(rememberScrollState()).padding(horizontal = nexioPagePadding()),
     ) {
         Spacer(Modifier.height(24.dp))

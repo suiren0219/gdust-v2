@@ -103,6 +103,7 @@ fun AppRoot(
     if (BuildConfig.PREVIEW_TARGET) return
     val scope = rememberCoroutineScope()
     val offlinePreview = BuildConfig.PREVIEW_TARGET
+    val wallpaperState = rememberWallpaperState(repo.store)
     // 登录与启动状态由 MainActivity 保存，配置重建后保留。
 
     var calendar by remember { mutableStateOf<CalendarInfo?>(repo.store.loadCalendar()) }
@@ -243,7 +244,7 @@ fun AppRoot(
             CampusService.WIDGETS -> showWidgets = true
             CampusService.CHX_LINK -> showChxEntry = true
             CampusService.CHX_NOTIFICATIONS -> showChxNotifications = true
-            CampusService.SUMMARY -> { showAiSettings = true }
+            CampusService.SUMMARY -> { showNotices = true; loadNotices() }
             CampusService.SETTINGS -> openSettings()
         }
     }
@@ -468,6 +469,7 @@ fun AppRoot(
         animationSpec = tween(220),
         label = "root",
     ) { state ->
+        AppWallpaperBackground(wallpaperState) {
         when (state) {
             "web_import" -> {
                 androidx.activity.compose.BackHandler { showWebImport = false }
@@ -667,6 +669,7 @@ fun AppRoot(
             )
             else -> Box(Modifier.fillMaxSize().background(LocalDs.current.bg))
         }
+        }
     }
 
     if (logoutFailed && !loggingOut) {
@@ -801,12 +804,11 @@ private fun MainScaffold(
     onSwitchTerm: (String) -> Unit = {},
     onImport: () -> Unit = {},
 ) {
-    val ds = LocalDs.current
     val chatSessionVersion by repo.sessionVersion.collectAsState()
     var chatInputFocused by remember { mutableStateOf(false) }
     val keyboardVisible = androidx.compose.foundation.layout.WindowInsets.ime
         .getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
-    Box(Modifier.fillMaxSize().background(ds.bg)) {
+    Box(Modifier.fillMaxSize().background(Color.Transparent)) {
         Crossfade(
             targetState = tab,
             animationSpec = tween(220),

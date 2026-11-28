@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -53,6 +54,7 @@ import com.menglimi.gdust.v2.data.Repository
 import com.menglimi.gdust.v2.ui.AppCard
 import com.menglimi.gdust.v2.ui.AppUiTokens
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.LocalWallpaperState
 import com.menglimi.gdust.v2.ui.schedule.ScheduleTimes
 import com.haooz.nexioui.button.Button
 import com.haooz.nexioui.button.ButtonDefaults
@@ -139,7 +141,7 @@ fun TodayScreen(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().background(ds.bg).statusBarsPadding(),
+        modifier = Modifier.fillMaxSize().background(Color.Transparent).statusBarsPadding(),
         contentPadding = PaddingValues(
             start = nexioPagePadding(),
             end = nexioPagePadding(),
@@ -281,12 +283,13 @@ fun TodayScreen(
 @Composable
 private fun TodayNoticeButton(unreadCount: Int, onClick: () -> Unit) {
     val ds = LocalDs.current
+    val wallpaper = LocalWallpaperState.current?.bitmap != null
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     Box {
         Box(
             modifier = Modifier.size(48.dp).clip(CircleShape)
-                .background(if (pressed) ds.text.copy(alpha = 0.06f).compositeOver(ds.bg) else ds.bg)
+                .background(if (wallpaper) ds.card.copy(alpha = if (ds.isDark) 0.78f else 0.82f) else if (pressed) ds.text.copy(alpha = 0.06f).compositeOver(ds.bg) else ds.bg)
                 .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
                 .semantics {
                     contentDescription = if (unreadCount > 0) "学校公告，$unreadCount 条未读" else "学校公告"

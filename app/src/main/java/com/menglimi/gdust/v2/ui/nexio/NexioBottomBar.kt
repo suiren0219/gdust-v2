@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.menglimi.gdust.v2.ui.LocalDs
+import com.menglimi.gdust.v2.ui.LocalWallpaperState
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Album
@@ -54,6 +55,7 @@ fun NexioBottomBar(
 ) {
     val ds = LocalDs.current
     val haptic = LocalHapticFeedback.current
+    val wallpaper = LocalWallpaperState.current?.bitmap != null
     val labels = listOf("今日", "课表", "电费", "待办", "设置")
     val icons = listOf(MiuixIcons.Album, MiuixIcons.Months, MiuixIcons.BankCards, MiuixIcons.Tasks, MiuixIcons.Settings)
     BoxWithConstraints(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -64,7 +66,8 @@ fun NexioBottomBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(
-                Modifier.weight(1f).clip(RoundedCornerShape(28.dp)).background(ds.card)
+                Modifier.weight(1f).clip(RoundedCornerShape(28.dp))
+                    .background(if (wallpaper) ds.card.copy(alpha = 0.82f) else ds.card)
                     .selectableGroup().padding(5.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -96,7 +99,8 @@ fun NexioBottomBar(
             }
             if (onAi != null) {
                 Column(
-                    Modifier.size(56.dp).clip(RoundedCornerShape(100.dp)).background(ds.card)
+                    Modifier.size(56.dp).clip(RoundedCornerShape(100.dp))
+                        .background(if (wallpaper) ds.card.copy(alpha = 0.82f) else ds.card)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() }, indication = null,
                             role = Role.Button, onClick = onAi,
